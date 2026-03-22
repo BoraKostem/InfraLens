@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { app, BrowserWindow, dialog, ipcMain, nativeImage } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage } from 'electron'
 
 import { hasPendingAwsCredentialActivity, waitForAwsCredentialActivity } from './aws/client'
 import { registerAwsIpcHandlers } from './awsIpc'
@@ -110,6 +110,7 @@ function createWindow(): void {
     minWidth: 1280,
     minHeight: 800,
     backgroundColor: '#0d1417',
+    autoHideMenuBar: true,
     webPreferences: {
       preload: resolvePreloadPath(),
       contextIsolation: true,
@@ -141,6 +142,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(null)
   registerIpcHandlers(() => mainWindow)
   registerAwsIpcHandlers()
   registerEc2IpcHandlers()
