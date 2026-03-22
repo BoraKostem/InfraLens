@@ -6,6 +6,8 @@ declare global {
   interface Window {
     awsLens: {
       listProfiles: () => Promise<unknown>
+      chooseAndImportConfig: () => Promise<unknown>
+      saveCredentials: (profileName: string, accessKeyId: string, secretAccessKey: string) => Promise<unknown>
       listRegions: () => Promise<unknown>
       listServices: () => Promise<unknown>
       getCallerIdentity: (connection: AwsConnection) => Promise<unknown>

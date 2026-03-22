@@ -2,7 +2,7 @@ import { ipcMain } from 'electron'
 
 import type { AwsConnection } from '@shared/types'
 import { deleteLoadBalancer, listLoadBalancerWorkspaces } from './aws/loadBalancers'
-import { listAwsProfiles } from './aws/profiles'
+import { listAwsProfiles, saveAwsCredentials } from './aws/profiles'
 import { listAwsRegions } from './aws/regions'
 import { getCallerIdentity } from './aws/sts'
 
@@ -21,6 +21,9 @@ export function registerAwsIpcHandlers(): void {
   ipcMain.handle('regions:list', async () => wrap(() => listAwsRegions()))
   ipcMain.handle('sts:get-caller-identity', async (_event, connection: AwsConnection) =>
     wrap(() => getCallerIdentity(connection))
+  )
+  ipcMain.handle('profiles:save-credentials', async (_event, profileName: string, accessKeyId: string, secretAccessKey: string) =>
+    wrap(() => saveAwsCredentials(profileName, accessKeyId, secretAccessKey))
   )
   ipcMain.handle('elbv2:list-workspaces', async (_event, connection: AwsConnection) =>
     wrap(() => listLoadBalancerWorkspaces(connection))

@@ -1,6 +1,7 @@
 import { dialog, ipcMain, type BrowserWindow } from 'electron'
 
 import type { AwsConnection, TerraformCommandRequest } from '@shared/types'
+import { importAwsConfigFile } from './aws/profiles'
 import { SERVICE_CATALOG } from './catalog'
 import { getSelectedProjectId, setSelectedProjectId } from './store'
 import {
@@ -89,6 +90,28 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('terraform:plan:has-saved', async (_event, projectId: string) => wrap(() => hasSavedPlan(projectId)))
   ipcMain.handle('terraform:plan:clear', async (_event, projectId: string) => wrap(() => clearSavedPlan(projectId)))
   ipcMain.handle('terraform:detect-missing-vars', async (_event, output: string) => wrap(() => detectMissingVars(output)))
+
+  /* ── AWS profile import ─────────────────────────────────── */
+  ipcMain.handle('profiles:choose-and-import', async () =>
+    wrap(async () => {
+      const owner = getWindow()
+      const result = owner
+        ? await dialog.showOpenDialog(owner, {
+            title: 'Select AWS config or credentials file',
+            properties: ['openFile'],
+            filters: [{ name: 'All Files', extensions: ['*'] }]
+          })
+        : await dialog.showOpenDialog({
+            title: 'Select AWS config or credentials file',
+            properties: ['openFile'],
+            filters: [{ name: 'All Files', extensions: ['*'] }]
+          })
+      if (result.canceled || !result.filePaths[0]) {
+        return []
+      }
+      return importAwsConfigFile(result.filePaths[0])
+    })
+  )
 
   /* ── AWS core ────────────────────────────────────────────── */
 

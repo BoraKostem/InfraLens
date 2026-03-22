@@ -83,6 +83,14 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1') {
     writeStoredList(PINNED_PROFILES_STORAGE_KEY, pinnedProfileNames)
   }, [pinnedProfileNames])
 
+  function selectProfile(name: string): void {
+    setProfile(name)
+    const match = profiles.find((entry) => entry.name === name)
+    if (match?.region) {
+      setRegion(match.region)
+    }
+  }
+
   // Profile is only set by explicit user selection — no auto-select
 
   const connection = useMemo<AwsConnection | null>(() => {
@@ -150,11 +158,22 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1') {
     return hydrateConnection(connection)
   }
 
+  async function refreshProfiles(): Promise<void> {
+    try {
+      const [loadedProfiles, loadedRegions] = await Promise.all([listProfiles(), listRegions()])
+      setProfiles(loadedProfiles)
+      setRegions(loadedRegions)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   return {
     profiles,
     regions,
     profile,
     setProfile,
+    selectProfile,
     region,
     setRegion,
     pinnedProfileNames,
@@ -168,7 +187,8 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1') {
     error,
     setError,
     connection,
-    connect
+    connect,
+    refreshProfiles
   }
 }
 

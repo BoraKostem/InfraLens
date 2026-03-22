@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import appLogoUrl from '../../../assets/aws-lens-logo.png'
 import type { ServiceDescriptor, ServiceId } from '@shared/types'
-import { closeAwsTerminal, invalidatePageCache, listServices, useAwsActivity, type CacheTag } from './api'
+import { chooseAndImportConfig, closeAwsTerminal, invalidatePageCache, listServices, saveCredentials, useAwsActivity, type CacheTag } from './api'
 import { AcmConsole } from './AcmConsole'
 import { AutoScalingConsole } from './AutoScalingConsole'
 import { AwsTerminalPanel } from './AwsTerminalPanel'
@@ -36,6 +36,7 @@ import { WorkspaceApp } from './WorkspaceApp'
 type Screen = 'profiles' | ServiceId
 type PendingTerminalCommand = { id: number; command: string } | null
 type RefreshState = { screen: Screen; sawPending: boolean } | null
+type FabMode = 'closed' | 'menu' | 'credentials'
 
 const SERVICE_DESCRIPTIONS: Record<ServiceId, string> = {
   terraform: 'Terraform project browser and command execution workspace.',
@@ -234,6 +235,12 @@ export function App() {
   const [pendingTerminalCommand, setPendingTerminalCommand] = useState<PendingTerminalCommand>(null)
   const [pageRefreshNonceByScreen, setPageRefreshNonceByScreen] = useState<Record<string, number>>({})
   const [refreshState, setRefreshState] = useState<RefreshState>(null)
+  const [fabMode, setFabMode] = useState<FabMode>('closed')
+  const [credName, setCredName] = useState('')
+  const [credKeyId, setCredKeyId] = useState('')
+  const [credSecret, setCredSecret] = useState('')
+  const [credSaving, setCredSaving] = useState(false)
+  const [credError, setCredError] = useState('')
   const connectionState = useAwsPageConnection('us-east-1')
   const awsActivity = useAwsActivity()
 
@@ -338,6 +345,35 @@ export function App() {
     })
   }
 
+  async function handleLoadAwsConfig(): Promise<void> {
+    setFabMode('closed')
+    try {
+      const imported = await chooseAndImportConfig()
+      if (imported.length > 0) {
+        await connectionState.refreshProfiles()
+      }
+    } catch (err) {
+      connectionState.setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function handleSaveCredentials(): Promise<void> {
+    setCredSaving(true)
+    setCredError('')
+    try {
+      await saveCredentials(credName, credKeyId, credSecret)
+      await connectionState.refreshProfiles()
+      setCredName('')
+      setCredKeyId('')
+      setCredSecret('')
+      setFabMode('closed')
+    } catch (err) {
+      setCredError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setCredSaving(false)
+    }
+  }
+
   function renderScreenContent(targetScreen: Screen): React.ReactNode {
     const targetService = services.find((service) => service.id === targetScreen)
 
@@ -367,7 +403,7 @@ export function App() {
                   </div>
                 </div>
                 <div className="button-row">
-                  <button type="button" className="accent" onClick={() => { connectionState.setProfile(entry.name) }}>
+                  <button type="button" className="accent" onClick={() => { connectionState.selectProfile(entry.name) }}>
                     {connectionState.profile === entry.name ? 'Selected' : 'Select'}
                   </button>
                   <button type="button" className={connectionState.pinnedProfileNames.includes(entry.name) ? 'active' : ''} onClick={() => connectionState.togglePinnedProfile(entry.name)}>
@@ -474,7 +510,7 @@ export function App() {
             key={pinnedName}
             type="button"
             className={`rail-avatar ${connectionState.profile === pinnedName ? 'active' : ''}`}
-            onClick={() => { connectionState.setProfile(pinnedName); setScreen('overview') }}
+            onClick={() => { connectionState.selectProfile(pinnedName); setScreen('overview') }}
             title={pinnedName}
           >
             {getProfileBadge(pinnedName)}
@@ -606,7 +642,7 @@ export function App() {
                     </div>
                   </div>
                   <div className="button-row">
-                    <button type="button" className="accent" onClick={() => { connectionState.setProfile(entry.name) }}>
+                    <button type="button" className="accent" onClick={() => { connectionState.selectProfile(entry.name) }}>
                       {connectionState.profile === entry.name ? 'Selected' : 'Select'}
                     </button>
                     <button type="button" className={connectionState.pinnedProfileNames.includes(entry.name) ? 'active' : ''} onClick={() => connectionState.togglePinnedProfile(entry.name)}>
@@ -815,6 +851,65 @@ export function App() {
           setPendingTerminalCommand((current) => (current?.id === id ? null : current))
         }}
       />
+
+      {/* FAB — Add Profile */}
+      <div className="fab-container">
+        {fabMode === 'menu' && (
+          <div className="fab-menu">
+            <button type="button" className="fab-menu-item" onClick={() => void handleLoadAwsConfig()}>
+              Load AWS Config
+            </button>
+            <button type="button" className="fab-menu-item" onClick={() => { setCredError(''); setFabMode('credentials') }}>
+              Add with Credentials
+            </button>
+          </div>
+        )}
+        <button
+          type="button"
+          className={`fab-button ${fabMode !== 'closed' ? 'active' : ''}`}
+          onClick={() => setFabMode(fabMode === 'closed' ? 'menu' : 'closed')}
+          aria-label="Add profile"
+          title="Add profile"
+        >
+          <span className="fab-icon">+</span>
+        </button>
+      </div>
+
+      {fabMode !== 'closed' && (
+        <div className="fab-backdrop" onClick={() => setFabMode('closed')} />
+      )}
+
+      {fabMode === 'credentials' && (
+        <div className="fab-modal-overlay" onClick={() => setFabMode('closed')}>
+          <div className="fab-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="fab-modal-title">Add AWS Credentials</div>
+            <label className="field">
+              <span>Profile Name</span>
+              <input value={credName} onChange={(e) => setCredName(e.target.value)} placeholder="e.g. my-project" autoFocus />
+            </label>
+            <label className="field">
+              <span>Access Key ID</span>
+              <input value={credKeyId} onChange={(e) => setCredKeyId(e.target.value)} placeholder="AKIA..." />
+            </label>
+            <label className="field">
+              <span>Secret Access Key</span>
+              <input type="password" value={credSecret} onChange={(e) => setCredSecret(e.target.value)} placeholder="wJalr..." />
+            </label>
+            {credError && <div className="fab-modal-error">{credError}</div>}
+            <div className="button-row">
+              <button type="button" onClick={() => setFabMode('closed')}>Cancel</button>
+              <button
+                type="button"
+                className="accent"
+                disabled={credSaving || !credName.trim() || !credKeyId.trim() || !credSecret.trim()}
+                onClick={() => void handleSaveCredentials()}
+              >
+                {credSaving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

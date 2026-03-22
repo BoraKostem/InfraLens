@@ -6,6 +6,9 @@ import type { AwsConnection, BastionLaunchConfig, Ec2InstanceAction, EcsFargateS
 
 const awsLensApi = {
   listProfiles: () => ipcRenderer.invoke('profiles:list'),
+  chooseAndImportConfig: () => ipcRenderer.invoke('profiles:choose-and-import'),
+  saveCredentials: (profileName: string, accessKeyId: string, secretAccessKey: string) =>
+    ipcRenderer.invoke('profiles:save-credentials', profileName, accessKeyId, secretAccessKey),
   listRegions: () => ipcRenderer.invoke('regions:list'),
   listServices: () => ipcRenderer.invoke('services:list'),
   getCallerIdentity: (connection: AwsConnection) => ipcRenderer.invoke('sts:get-caller-identity', connection),

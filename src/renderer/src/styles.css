@@ -3807,3 +3807,179 @@ button.overview-tile.clickable.active strong {
 .iam-inline-form input {
   flex: 1;
 }
+
+/* ── FAB (Floating Action Button) ────────────────────────── */
+
+.fab-container {
+  position: fixed;
+  bottom: 5rem;
+  right: 2rem;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.6rem;
+}
+
+.fab-button {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 2rem;
+  font-weight: 300;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  box-shadow: 0 6px 24px rgba(223, 105, 42, 0.45);
+  transition: transform 200ms ease, background 140ms ease, box-shadow 200ms ease;
+  padding: 0;
+}
+
+.fab-button:hover {
+  background: var(--accent-strong);
+  transform: scale(1.08);
+  box-shadow: 0 8px 30px rgba(245, 133, 64, 0.5);
+}
+
+.fab-button.active {
+  transform: rotate(45deg);
+}
+
+.fab-button.active:hover {
+  transform: rotate(45deg) scale(1.08);
+}
+
+.fab-icon {
+  line-height: 1;
+  margin-top: -2px;
+}
+
+.fab-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  animation: fab-menu-in 160ms ease;
+}
+
+@keyframes fab-menu-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.95); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.fab-menu-item {
+  white-space: nowrap;
+  padding: 0.65rem 1.2rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel-strong);
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: right;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.fab-menu-item:hover {
+  background: var(--bg-soft);
+  border-color: var(--accent);
+}
+
+.fab-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+}
+
+/* ── FAB Credentials Modal ───────────────────────────────── */
+
+.fab-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  background: rgba(0, 0, 0, 0.55);
+  display: grid;
+  place-items: center;
+  animation: fab-modal-fade 160ms ease;
+}
+
+@keyframes fab-modal-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.fab-modal {
+  background: var(--bg-panel-strong);
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius);
+  padding: 1.6rem 2rem;
+  min-width: 380px;
+  max-width: 480px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  animation: fab-modal-slide 200ms ease;
+}
+
+@keyframes fab-modal-slide {
+  from { opacity: 0; transform: translateY(16px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.fab-modal-title {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.fab-modal .field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.fab-modal .field span {
+  font-size: 0.82rem;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.fab-modal .field input {
+  padding: 0.6rem 0.8rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: 0.92rem;
+}
+
+.fab-modal .field input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.fab-modal .button-row {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: flex-end;
+  margin-top: 0.4rem;
+}
+
+.fab-modal .button-row button {
+  padding: 0.55rem 1.2rem;
+  font-size: 0.88rem;
+  border-radius: 10px;
+}
+
+.fab-modal-error {
+  color: var(--danger);
+  font-size: 0.85rem;
+  padding: 0.4rem 0.6rem;
+  background: rgba(224, 82, 82, 0.1);
+  border-radius: 8px;
+}
