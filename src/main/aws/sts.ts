@@ -5,15 +5,12 @@ import {
   GetCallerIdentityCommand,
   STSClient
 } from '@aws-sdk/client-sts'
-import { fromIni } from '@aws-sdk/credential-provider-ini'
 
 import type { AccessKeyOwnership, AssumeRoleResult, AwsConnection, CallerIdentity, StsDecodedAuthorizationMessage } from '@shared/types'
+import { awsClientConfig } from './client'
 
 function createClient(connection: AwsConnection): STSClient {
-  return new STSClient({
-    region: connection.region,
-    credentials: fromIni({ profile: connection.profile })
-  })
+  return new STSClient(awsClientConfig(connection))
 }
 
 export async function getCallerIdentity(connection: AwsConnection): Promise<CallerIdentity> {

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 
 import { app, BrowserWindow, dialog, ipcMain, nativeImage } from 'electron'
 
+import { hasPendingAwsCredentialActivity, waitForAwsCredentialActivity } from './aws/client'
 import { registerAwsIpcHandlers } from './awsIpc'
 import { registerEc2IpcHandlers } from './ec2Ipc'
 import { registerEcrIpcHandlers } from './ecrIpc'
@@ -180,11 +181,17 @@ app.on('before-quit', (e) => {
     isQuitting = true
   }
 
-  if (isQuitting || pendingRequests.size === 0) return
+  if (isQuitting || (pendingRequests.size === 0 && !hasPendingAwsCredentialActivity())) return
   isQuitting = true
   e.preventDefault()
   const timeout = new Promise<void>(resolve => setTimeout(resolve, 5000))
-  Promise.race([Promise.allSettled([...pendingRequests]), timeout]).then(() => {
+  Promise.race([
+    Promise.all([
+      Promise.allSettled([...pendingRequests]),
+      waitForAwsCredentialActivity(5000)
+    ]),
+    timeout
+  ]).then(() => {
     app.quit()
   })
 })

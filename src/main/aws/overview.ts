@@ -276,6 +276,18 @@ async function countVpc(connection: AwsConnection): Promise<number> {
   return count
 }
 
+async function countAllVpc(connection: AwsConnection): Promise<number> {
+  const client = new EC2Client(awsClientConfig(connection))
+  let count = 0
+  let nextToken: string | undefined
+  do {
+    const output = await client.send(new DescribeVpcsCommand({ NextToken: nextToken }))
+    count += output.Vpcs?.length ?? 0
+    nextToken = output.NextToken
+  } while (nextToken)
+  return count
+}
+
 async function countLoadBalancers(connection: AwsConnection): Promise<number> {
   const client = new ElasticLoadBalancingV2Client(awsClientConfig(connection))
   let count = 0
@@ -402,12 +414,53 @@ async function countIam(connection: AwsConnection): Promise<number> {
 
 /* ── safe-fetch: returns zero counts on permission / network errors ── */
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function isRetryableError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /Throttl|TooManyRequests|RequestLimitExceeded|Timeout|timed out|ECONNRESET|network/i.test(message)
+}
+
 async function safeCount<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
-  try {
-    return await fn()
-  } catch {
-    return fallback
+  const maxAttempts = 3
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await fn()
+    } catch (error) {
+      if (attempt >= maxAttempts || !isRetryableError(error)) {
+        return fallback
+      }
+      await sleep(150 * attempt)
+    }
   }
+
+  return fallback
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length)
+  let cursor = 0
+
+  async function worker(): Promise<void> {
+    while (cursor < items.length) {
+      const index = cursor
+      cursor += 1
+      results[index] = await fn(items[index], index)
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, () => worker())
+  )
+
+  return results
 }
 
 async function listTaggedLambda(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
@@ -645,9 +698,6 @@ export async function getOverviewMetrics(
   connection: AwsConnection,
   regions: string[]
 ): Promise<OverviewMetrics> {
-  const regionMetrics: RegionMetric[] = []
-  const regionCosts: RegionCostRow[] = []
-
   // Global services (not region-scoped) — query once using the first region
   const globalConn = { ...connection, region: regions[0] ?? connection.region }
   const [s3Global, r53Global, iamGlobal, ctGlobal] = await Promise.all([
@@ -657,10 +707,9 @@ export async function getOverviewMetrics(
     safeCount(() => countCloudTrail(globalConn), 0)
   ])
 
-  await Promise.all(
-    regions.map(async (region, index) => {
+  const regionResults = await mapWithConcurrency(regions, 3, async (region, index) => {
       const regionConn = { ...connection, region }
-      const [ec2, lambda, eks, asg, rds, cfn, ecr, ecs, vpc, elb, sg, sns, sqs, acm, kms, waf, sm, kp, cw] = await Promise.all([
+      const [ec2, lambda, eks, asg, rds, cfn, ecr, ecs, vpc, allVpc, elb, sg, sns, sqs, acm, kms, waf, sm, kp, cw] = await Promise.all([
         safeCount(() => countEc2(regionConn), { count: 0, instances: [] }),
         safeCount(() => countLambda(regionConn), { count: 0, functions: [] }),
         safeCount(() => countEks(regionConn), { count: 0, clusters: [] }),
@@ -670,6 +719,7 @@ export async function getOverviewMetrics(
         safeCount(() => countEcr(regionConn), 0),
         safeCount(() => countEcs(regionConn), 0),
         safeCount(() => countVpc(regionConn), 0),
+        safeCount(() => countAllVpc(regionConn), 0),
         safeCount(() => countLoadBalancers(regionConn), 0),
         safeCount(() => countSecurityGroups(regionConn), 0),
         safeCount(() => countSns(regionConn), 0),
@@ -692,7 +742,7 @@ export async function getOverviewMetrics(
         s3 + rds + cfn + ecr + ecs + vpc + elb + r53 + sg + sns + sqs +
         acm + kms + waf + sm + kp + cw + ct + iam
 
-      regionMetrics.push({
+      const metric: RegionMetric = {
         region,
         ec2Count: ec2.count,
         lambdaCount: lambda.count,
@@ -718,7 +768,7 @@ export async function getOverviewMetrics(
         cloudtrailCount: ct,
         iamCount: iam,
         totalResources
-      })
+      }
 
       const ec2Cost = ec2.count * COST_EC2_INSTANCE
       const lambdaCost = lambda.count * COST_LAMBDA_FUNCTION
@@ -746,16 +796,22 @@ export async function getOverviewMetrics(
         cfnCost + ecrCost + ecsCost + vpcCost + elbCost + r53Cost + sgCost +
         snsCost + sqsCost + acmCost + kmsCost + wafCost + smCost + kpCost + cwCost
 
-      regionCosts.push({
+      const cost: RegionCostRow = {
         region, ec2Cost, lambdaCost, eksCost, asgCost, s3Cost, rdsCost, cfnCost,
         ecrCost, ecsCost, vpcCost, elbCost, r53Cost, sgCost, snsCost, sqsCost,
         acmCost, kmsCost, wafCost, smCost, kpCost, cwCost, totalCost
-      })
-    })
+      }
+
+      return { metric, cost, isActive: totalResources > 0 || allVpc > 0 }
+    }
   )
+
+  const regionMetrics = regionResults.map((result) => result.metric)
+  const regionCosts = regionResults.map((result) => result.cost)
 
   const totalResources = regionMetrics.reduce((s, r) => s + r.totalResources, 0)
   const totalCost = regionCosts.reduce((s, r) => s + r.totalCost, 0)
+  const activeRegionCount = regionResults.filter((result) => result.isActive).length
 
   return {
     regions: regionMetrics,
@@ -763,7 +819,7 @@ export async function getOverviewMetrics(
     globalTotals: {
       totalResources,
       totalCost,
-      regionCount: regions.length
+      regionCount: activeRegionCount
     }
   }
 }
