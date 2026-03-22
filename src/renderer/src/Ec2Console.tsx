@@ -72,6 +72,20 @@ function getColumnValue(inst: Ec2InstanceSummary, key: ColumnKey): string {
   }
 }
 
+function iamProfilePlaceholder(detail: Ec2InstanceDetail | null, iamAssoc: Ec2IamAssociation | null): string {
+  const raw = iamAssoc?.iamProfileArn && iamAssoc.iamProfileArn !== '-'
+    ? iamAssoc.iamProfileArn
+    : detail?.iamProfile && detail.iamProfile !== '-'
+      ? detail.iamProfile
+      : ''
+
+  if (!raw) {
+    return 'Instance profile name'
+  }
+
+  return raw.split('/').pop() ?? raw
+}
+
 function KV({ items }: { items: Array<[string, string]> }) {
   return (
     <div className="ec2-kv">
@@ -120,6 +134,7 @@ export function Ec2Console({
   const [iamName, setIamName] = useState('')
   const [sshUser, setSshUser] = useState('ec2-user')
   const [sshKey, setSshKey] = useState('')
+  const [showDescribe, setShowDescribe] = useState(false)
 
   /* ── Snapshots state ─────────────────────────────────────── */
   const [snapshots, setSnapshots] = useState<Ec2SnapshotSummary[]>([])
@@ -259,6 +274,13 @@ export function Ec2Console({
     await runEc2InstanceAction(connection, selectedId, action)
     setMsg(`${action} sent`)
     await reload()
+  }
+
+  async function doDescribe() {
+    if (!selectedId) return
+    await selectInstance(selectedId)
+    setShowDescribe(true)
+    setMsg(`Loaded describe data for ${selectedId}`)
   }
 
   async function doTerminate() {
@@ -633,6 +655,7 @@ export function Ec2Console({
                   <div className="ec2-sidebar-section">
                     <h3>Actions</h3>
                     <div className="ec2-actions-grid">
+                      <button className="ec2-action-btn" type="button" onClick={() => void doDescribe()}>Describe</button>
                       <button className="ec2-action-btn start" type="button" onClick={() => void doAction('start')}>Start</button>
                       <ConfirmButton className="ec2-action-btn stop" type="button" onConfirm={() => void doAction('stop')}>Stop</ConfirmButton>
                       <ConfirmButton className="ec2-action-btn" type="button" onConfirm={() => void doAction('reboot')}>Reboot</ConfirmButton>
@@ -657,6 +680,20 @@ export function Ec2Console({
                       }}>Go to CloudWatch</button>
                     </div>
                   </div>
+
+                  {showDescribe && detail && (
+                    <div className="ec2-sidebar-section">
+                      <div className="ec2-btn-row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                        <h3 style={{ margin: 0 }}>Describe Output</h3>
+                        <button className="ec2-action-btn" type="button" onClick={() => setShowDescribe(false)}>Close</button>
+                      </div>
+                      <pre className="s3-preview-text">{JSON.stringify({
+                        instance: detail,
+                        iamAssociation: iamAssoc,
+                        vpc: vpcDetail
+                      }, null, 2)}</pre>
+                    </div>
+                  )}
 
                   {/* Resize (expandable) */}
                   {showResize && detail && (
@@ -778,7 +815,7 @@ export function Ec2Console({
                     <div className="ec2-iam-controls">
                       <input
                         className="ec2-iam-input"
-                        placeholder="Instance profile name"
+                        placeholder={iamProfilePlaceholder(detail, iamAssoc)}
                         value={iamName}
                         onChange={e => setIamName(e.target.value)}
                       />
