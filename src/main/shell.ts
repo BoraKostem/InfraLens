@@ -20,6 +20,16 @@ function quoteForAppleScript(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
+function buildPowerShellUtf8Command(): string {
+  return [
+    'chcp 65001 > $null',
+    '$utf8 = [System.Text.UTF8Encoding]::new($false)',
+    '[Console]::InputEncoding = $utf8',
+    '[Console]::OutputEncoding = $utf8',
+    '$OutputEncoding = $utf8'
+  ].join('; ')
+}
+
 export function getTerminalCwd(): string {
   return process.env.USERPROFILE || process.env.HOME || process.cwd()
 }
@@ -45,6 +55,7 @@ export function buildAwsContextCommand(profile: string, region: string): string 
 
   if (shell.kind === 'powershell') {
     return [
+      buildPowerShellUtf8Command(),
       `$env:AWS_PROFILE = ${quotePowerShell(profile)}`,
       `$env:AWS_DEFAULT_REGION = ${quotePowerShell(region)}`,
       `$env:AWS_REGION = ${quotePowerShell(region)}`,
@@ -65,6 +76,7 @@ function buildKubectlStartupCommand(profile: string, region: string, clusterName
 
   if (shell.kind === 'powershell') {
     return [
+      buildPowerShellUtf8Command(),
       `$env:AWS_PROFILE = ${quotePowerShell(profile)}`,
       `$env:AWS_DEFAULT_REGION = ${quotePowerShell(region)}`,
       `$env:AWS_REGION = ${quotePowerShell(region)}`,

@@ -75,7 +75,10 @@ function createSession(sender: WebContents, connection: AwsConnection): Terminal
       ...process.env,
       AWS_PROFILE: connection.profile,
       AWS_DEFAULT_REGION: connection.region,
-      AWS_REGION: connection.region
+      AWS_REGION: connection.region,
+      LANG: 'en_US.UTF-8',
+      LC_ALL: 'en_US.UTF-8',
+      PYTHONIOENCODING: 'utf-8'
     }
   })
 
