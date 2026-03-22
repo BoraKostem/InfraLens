@@ -68,25 +68,42 @@ function resolvePreloadPath(): string {
   return candidates[0]
 }
 
-function resolveIconPath(): string {
-  const ext = process.platform === 'darwin' ? 'icns' : process.platform === 'win32' ? 'ico' : 'png'
+function resolveIconPath(forDock = false): string {
+  // nativeImage doesn't read .icns properly, so use PNG for dock icon on macOS
+  const ext = process.platform === 'darwin'
+    ? (forDock ? 'png' : 'icns')
+    : process.platform === 'win32' ? 'ico' : 'png'
+  const filename = forDock ? 'aws-lens-logo-dock' : 'aws-lens-logo'
   const candidates = [
-    path.join(process.resourcesPath, 'assets', `aws-lens-logo.${ext}`),
-    path.join(__dirname, `../../assets/aws-lens-logo.${ext}`),
-    path.join(process.cwd(), `assets/aws-lens-logo.${ext}`)
+    path.join(process.resourcesPath, 'assets', `${filename}.${ext}`),
+    path.join(app.getAppPath(), `assets/${filename}.${ext}`),
+    path.join(__dirname, `../../assets/${filename}.${ext}`),
+    path.join(process.cwd(), `assets/${filename}.${ext}`)
   ]
   for (const c of candidates) {
     if (fs.existsSync(c)) return c
   }
+  // Fallback to regular icon if dock-specific not found
+  if (forDock) return resolveIconPath(false)
   return candidates[0]
 }
 
 function createWindow(): void {
-  const icon = nativeImage.createFromPath(resolveIconPath())
+  const iconPath = resolveIconPath()
+  const icon = nativeImage.createFromPath(iconPath)
+
+  // Set dock icon on macOS (Windows/Linux use BrowserWindow.icon automatically)
+  if (process.platform === 'darwin' && app.dock) {
+    const dockIconPath = resolveIconPath(true)
+    const dockIcon = nativeImage.createFromPath(dockIconPath)
+    if (!dockIcon.isEmpty()) {
+      app.dock.setIcon(dockIcon)
+    }
+  }
 
   mainWindow = new BrowserWindow({
     title: 'AWS Lens',
-    icon,
+    icon: icon.isEmpty() ? undefined : icon,
     width: 1640,
     height: 1040,
     minWidth: 1280,
