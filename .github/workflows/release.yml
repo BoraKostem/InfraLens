@@ -150,6 +150,14 @@ jobs:
           fi
           echo "installer_path=${files[0]}" >> "$GITHUB_OUTPUT"
 
+      - name: Normalize Windows installer filename
+        id: normalize-installer
+        shell: bash
+        run: |
+          mkdir -p signing-input
+          cp "${{ steps.locate-installer.outputs.installer_path }}" signing-input/windows-installer.exe
+          echo "normalized_path=signing-input/windows-installer.exe" >> "$GITHUB_OUTPUT"
+
       - name: Prepare signed output directory
         shell: bash
         run: mkdir -p release-signed
@@ -162,8 +170,8 @@ jobs:
           password: ${{ secrets.ES_PASSWORD }}
           credential_id: ${{ secrets.CREDENTIAL_ID }}
           totp_secret: ${{ secrets.ES_TOTP_SECRET }}
-          input_file_path: ${{ github.workspace }}/${{ steps.locate-installer.outputs.installer_path }}
-          output_dir_path: ${{ github.workspace }}/release-signed
+          file_path: ${{ github.workspace }}/${{ steps.normalize-installer.outputs.normalized_path }}
+          output_path: ${{ github.workspace }}/release-signed
 
       - name: Inspect signed output
         shell: bash
