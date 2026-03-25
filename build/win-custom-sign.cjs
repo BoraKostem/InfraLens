@@ -33,7 +33,8 @@ exports.default = async function signWithSslCom(configuration) {
 
   const result = spawnSync('cmd.exe', ['/c', toolPath, ...args], {
     stdio: 'inherit',
-    shell: false
+    shell: false,
+    cwd: path.dirname(toolPath)
   })
 
   if (result.error) {
