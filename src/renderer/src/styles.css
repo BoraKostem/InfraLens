@@ -621,6 +621,23 @@ button.overview-tile.clickable.active strong {
   grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
 }
 
+.session-hub-compare-layout {
+  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+}
+
+.session-hub-compare-table {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.8fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.session-hub-compare-cell {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 /* ── Signal cards ──────────────────────────────────────────── */
 
 .signal-card {
@@ -1051,6 +1068,14 @@ button.overview-tile.clickable.active strong {
   border: 1px solid rgba(255, 139, 114, 0.35);
   background: rgba(255, 139, 114, 0.12);
   color: #ffd9d0;
+}
+
+.success-banner {
+  padding: 0.9rem 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(96, 211, 148, 0.35);
+  background: rgba(96, 211, 148, 0.12);
+  color: #d8ffe8;
 }
 
 .empty-state {
@@ -1854,7 +1879,9 @@ button.overview-tile.clickable.active strong {
   .session-hub-tiles,
   .session-hub-form-grid,
   .session-hub-session-grid,
-  .session-hub-compare-grid {
+  .session-hub-compare-grid,
+  .session-hub-compare-table,
+  .session-hub-compare-layout {
     grid-template-columns: 1fr;
   }
 

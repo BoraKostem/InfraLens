@@ -550,6 +550,7 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
   const [mainTabLoading, setMainTabLoading] = useState<MainTab | null>('users')
   const [tabsOpen, setTabsOpen] = useState(true)
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
 
   /* ── Users ───────────────────────────────────────────────── */
   const [users, setUsers] = useState<IamUserSummary[]>([])
@@ -638,6 +639,7 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
     setSelectedSimEntity(null)
     setSimResults([])
     setError('')
+    setSuccess('')
     void loadMainTab(tab)
   }
 
@@ -791,11 +793,14 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
   async function handlePutUserInlinePolicy() {
     if (!connection || !selectedUser || !inlinePolicyName.trim() || !inlinePolicyJson.trim()) return
     setError('')
+    setSuccess('')
     try {
-      await putIamUserInlinePolicy(connection, selectedUser.userName, inlinePolicyName.trim(), inlinePolicyJson.trim())
+      const policyName = inlinePolicyName.trim()
+      await putIamUserInlinePolicy(connection, selectedUser.userName, policyName, inlinePolicyJson.trim())
       setUserInlinePolicies(await listIamUserInlinePolicies(connection, selectedUser.userName))
       setInlinePolicyName('')
       setInlinePolicyJson('')
+      setSuccess(`Saved inline policy ${policyName} for user ${selectedUser.userName}.`)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
@@ -805,9 +810,11 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
     if (!connection || !selectedUser) return
     if (!confirmIamDelete('inline policy', `${policyName} for user ${selectedUser.userName}`)) return
     setError('')
+    setSuccess('')
     try {
       await deleteIamUserInlinePolicy(connection, selectedUser.userName, policyName)
       setUserInlinePolicies(await listIamUserInlinePolicies(connection, selectedUser.userName))
+      setSuccess(`Deleted inline policy ${policyName} from user ${selectedUser.userName}.`)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
@@ -969,11 +976,14 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
   async function handlePutRoleInlinePolicy() {
     if (!connection || !selectedRole || !roleInlineName.trim() || !roleInlineJson.trim()) return
     setError('')
+    setSuccess('')
     try {
-      await putIamRoleInlinePolicy(connection, selectedRole.roleName, roleInlineName.trim(), roleInlineJson.trim())
+      const policyName = roleInlineName.trim()
+      await putIamRoleInlinePolicy(connection, selectedRole.roleName, policyName, roleInlineJson.trim())
       setRoleInlinePolicies(await listIamRoleInlinePolicies(connection, selectedRole.roleName))
       setRoleInlineName('')
       setRoleInlineJson('')
+      setSuccess(`Saved inline policy ${policyName} for role ${selectedRole.roleName}.`)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
@@ -983,9 +993,11 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
     if (!connection || !selectedRole) return
     if (!confirmIamDelete('inline policy', `${policyName} for role ${selectedRole.roleName}`)) return
     setError('')
+    setSuccess('')
     try {
       await deleteIamRoleInlinePolicy(connection, selectedRole.roleName, policyName)
       setRoleInlinePolicies(await listIamRoleInlinePolicies(connection, selectedRole.roleName))
+      setSuccess(`Deleted inline policy ${policyName} from role ${selectedRole.roleName}.`)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
@@ -994,8 +1006,10 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
   async function handleUpdateTrustPolicy() {
     if (!connection || !selectedRole || !roleTrustPolicy.trim()) return
     setError('')
+    setSuccess('')
     try {
       await updateIamRoleTrustPolicy(connection, selectedRole.roleName, roleTrustPolicy.trim())
+      setSuccess(`Updated trust policy for role ${selectedRole.roleName}.`)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
@@ -1216,6 +1230,7 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
       </div>
 
       {error && <div className="svc-error">{error}</div>}
+      {success && <div className="empty-state compact">{success}</div>}
 
       {/* ══════════════════ USERS ══════════════════ */}
       {mainTab === 'users' && (

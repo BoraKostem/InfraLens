@@ -164,6 +164,26 @@ function getProfileBadge(name?: string | null): string {
     .join('')
 }
 
+function getRoleDisplayName(roleArn?: string | null): string {
+  if (!roleArn) {
+    return ''
+  }
+
+  const trimmed = roleArn.trim()
+  if (!trimmed) {
+    return ''
+  }
+
+  const roleMarker = ':role/'
+  const markerIndex = trimmed.indexOf(roleMarker)
+  if (markerIndex >= 0) {
+    return trimmed.slice(markerIndex + roleMarker.length)
+  }
+
+  const slashIndex = trimmed.lastIndexOf('/')
+  return slashIndex >= 0 ? trimmed.slice(slashIndex + 1) : trimmed
+}
+
 function PlaceholderScreen({ service }: { service: ServiceDescriptor }) {
   return (
     <>
@@ -265,6 +285,7 @@ export function App() {
   const [credSecret, setCredSecret] = useState('')
   const [credSaving, setCredSaving] = useState(false)
   const [credError, setCredError] = useState('')
+  const [profileActionMsg, setProfileActionMsg] = useState('')
   const connectionState = useAwsPageConnection('us-east-1')
   const awsActivity = useAwsActivity()
 
@@ -300,6 +321,15 @@ export function App() {
 
   const sidebarProfileLabel = connectionState.selectedProfile?.name || connectionState.profile || ''
   const profileBadge = getProfileBadge(sidebarProfileLabel)
+  const primaryProfileLabel = connectionState.activeSession?.sourceProfile || connectionState.selectedProfile?.name || connectionState.profile || 'No profile selected'
+  const assumedRoleLabel = connectionState.activeSession
+    ? `Assumed role: ${getRoleDisplayName(connectionState.activeSession.roleArn) || connectionState.activeSession.label}`
+    : ''
+  const profileMetaLabel = connectionState.activeSession
+    ? assumedRoleLabel
+    : connectionState.selectedProfile
+      ? `${connectionState.selectedProfile.source} profile`
+      : 'Click to select a profile'
   const overviewService = services.find((service) => service.id === 'overview')
   const sessionHubService = services.find((service) => service.id === 'session-hub')
   const activityLabel = awsActivity.pendingCount > 0
@@ -377,10 +407,14 @@ export function App() {
 
   async function handleLoadAwsConfig(): Promise<void> {
     setFabMode('closed')
+    setProfileActionMsg('')
     try {
       const imported = await chooseAndImportConfig()
       if (imported.length > 0) {
         await connectionState.refreshProfiles()
+        setProfileActionMsg(`Imported ${imported.length} profile${imported.length === 1 ? '' : 's'} from AWS config`)
+      } else {
+        setProfileActionMsg('No new profiles were imported')
       }
     } catch (err) {
       connectionState.setError(err instanceof Error ? err.message : String(err))
@@ -390,6 +424,7 @@ export function App() {
   async function handleSaveCredentials(): Promise<void> {
     setCredSaving(true)
     setCredError('')
+    setProfileActionMsg('')
     try {
       await saveCredentials(credName, credKeyId, credSecret)
       await connectionState.refreshProfiles()
@@ -397,6 +432,7 @@ export function App() {
       setCredKeyId('')
       setCredSecret('')
       setFabMode('closed')
+      setProfileActionMsg(`Profile "${credName}" saved`)
     } catch (err) {
       setCredError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -411,6 +447,7 @@ export function App() {
     }
 
     try {
+      setProfileActionMsg('')
       const wasSelectedProfile = connectionState.profile === profileName
       await deleteProfile(profileName)
 
@@ -424,6 +461,7 @@ export function App() {
       }
 
       await connectionState.refreshProfiles()
+      setProfileActionMsg(`Profile "${profileName}" deleted`)
 
       if (screen !== 'profiles' && wasSelectedProfile) {
         setScreen('profiles')
@@ -631,14 +669,8 @@ export function App() {
             <div className="field">
               <span>Profile</span>
               <button type="button" className="selector-trigger sidebar-selector" onClick={() => setScreen('profiles')}>
-                <strong>{connectionState.connection?.label || connectionState.selectedProfile?.name || 'No profile selected'}</strong>
-                <span>
-                  {connectionState.activeSession
-                    ? `Assumed session via ${connectionState.activeSession.sourceProfile || connectionState.activeSession.profile}`
-                    : connectionState.selectedProfile
-                      ? `${connectionState.selectedProfile.source} profile`
-                      : 'Click to select a profile'}
-                </span>
+                <strong>{primaryProfileLabel}</strong>
+                <span>{profileMetaLabel}</span>
               </button>
             </div>
             <label className="field">
@@ -711,6 +743,7 @@ export function App() {
 
       <main className="catalog-main">
         {(catalogError || connectionState.error) && <div className="error-banner">{catalogError || connectionState.error}</div>}
+        {profileActionMsg && <div className="success-banner">{profileActionMsg}</div>}
         {visitedScreens.map((visitedScreen) => (
           <section
             key={`${visitedScreen}:${pageRefreshNonceByScreen[visitedScreen] ?? 0}`}

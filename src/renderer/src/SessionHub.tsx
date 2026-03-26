@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import type { AssumeRoleRequest, AwsAssumeRoleTarget, AwsConnection, AwsSessionSummary, CallerIdentity, IamRoleSummary, OverviewStatistics } from '@shared/types'
+import type { AssumeRoleRequest, AwsAssumeRoleTarget, AwsConnection, AwsSessionSummary, CallerIdentity, IamRoleSummary, OverviewMetrics, OverviewStatistics, RegionMetric } from '@shared/types'
 import {
   assumeRoleSession,
   assumeSavedRoleTarget,
   deleteAssumedSession,
   deleteAssumeRoleTarget,
   getCallerIdentity,
+  getOverviewMetrics,
   getOverviewStatistics,
   listIamRoles,
   saveAssumeRoleTarget
@@ -35,7 +36,39 @@ type CompareOption = {
 type CompareResult = {
   option: CompareOption
   identity: CallerIdentity
+  metrics: OverviewMetrics
+  regionalMetrics: RegionMetric | null
   statistics: OverviewStatistics
+}
+
+const COMPARE_SERVICE_ROWS: Array<{ label: string; key: keyof RegionMetric }> = [
+  { label: 'EC2 Instances', key: 'ec2Count' },
+  { label: 'Lambda Functions', key: 'lambdaCount' },
+  { label: 'EKS Clusters', key: 'eksCount' },
+  { label: 'Auto Scaling Groups', key: 'asgCount' },
+  { label: 'S3 Buckets', key: 's3Count' },
+  { label: 'RDS Databases', key: 'rdsCount' },
+  { label: 'CloudFormation Stacks', key: 'cloudformationCount' },
+  { label: 'ECR Repositories', key: 'ecrCount' },
+  { label: 'ECS Clusters', key: 'ecsCount' },
+  { label: 'VPCs', key: 'vpcCount' },
+  { label: 'Load Balancers', key: 'loadBalancerCount' },
+  { label: 'Route53 Zones', key: 'route53Count' },
+  { label: 'Security Groups', key: 'securityGroupCount' },
+  { label: 'SNS Topics', key: 'snsCount' },
+  { label: 'SQS Queues', key: 'sqsCount' },
+  { label: 'ACM Certificates', key: 'acmCount' },
+  { label: 'KMS Keys', key: 'kmsCount' },
+  { label: 'WAF Web ACLs', key: 'wafCount' },
+  { label: 'Secrets', key: 'secretsManagerCount' },
+  { label: 'Key Pairs', key: 'keyPairCount' },
+  { label: 'CloudWatch Assets', key: 'cloudwatchCount' },
+  { label: 'CloudTrail Trails', key: 'cloudtrailCount' },
+  { label: 'IAM Resources', key: 'iamCount' }
+]
+
+function compareValueClass(left: string | number, right: string | number): string {
+  return String(left) === String(right) ? 'hero-path' : ''
 }
 
 function WritableSuggestionField({
@@ -402,16 +435,23 @@ export function SessionHub({
     }
 
     setCompareBusy(true)
-    setError('')
+      setError('')
 
     try {
       const results = await Promise.all(selected.map(async (option) => {
-        const [identity, statistics] = await Promise.all([
+        const [identity, metrics, statistics] = await Promise.all([
           getCallerIdentity(option.connection),
+          getOverviewMetrics(option.connection, [option.connection.region]),
           getOverviewStatistics(option.connection)
         ])
 
-        return { option, identity, statistics }
+        return {
+          option,
+          identity,
+          metrics,
+          regionalMetrics: metrics.regions[0] ?? null,
+          statistics
+        }
       }))
       setCompareResults(results)
     } catch (err) {
@@ -439,7 +479,17 @@ export function SessionHub({
   const currentContextMeta = connectionState.activeSession
     ? connectionState.activeSession.assumedRoleArn || connectionState.activeSession.roleArn
     : connectionState.selectedProfile?.name || connectionState.profile || 'No profile selected'
-
+  const comparePairs = compareResults && compareResults.length === 2 ? compareResults : null
+  const compareSummaryRows = comparePairs ? [
+    { label: 'Account', left: comparePairs[0].identity.account || '-', right: comparePairs[1].identity.account || '-' },
+    { label: 'ARN', left: comparePairs[0].identity.arn || '-', right: comparePairs[1].identity.arn || '-' },
+    { label: 'Region', left: comparePairs[0].option.connection.region || '-', right: comparePairs[1].option.connection.region || '-' },
+    { label: 'Monthly Cost', left: comparePairs[0].metrics.globalTotals.totalCost, right: comparePairs[1].metrics.globalTotals.totalCost },
+    { label: 'Total Resources', left: comparePairs[0].metrics.globalTotals.totalResources, right: comparePairs[1].metrics.globalTotals.totalResources },
+    { label: 'Insights', left: comparePairs[0].statistics.insights.length, right: comparePairs[1].statistics.insights.length },
+    { label: 'Signals', left: comparePairs[0].statistics.signals.length, right: comparePairs[1].statistics.signals.length },
+    { label: 'Service Stats', left: comparePairs[0].statistics.stats.length, right: comparePairs[1].statistics.stats.length }
+  ] : []
   void countdownTick
 
   return (
@@ -688,67 +738,87 @@ export function SessionHub({
       </section>
 
       <div className="overview-section-title">Account Comparison</div>
-      <section className="workspace-grid">
-        <div className="column stack">
-          <div className="panel">
-            <div className="panel-header">
-              <h3>Compare Contexts</h3>
-            </div>
-            <div className="session-hub-form-grid">
-              <label className="field">
-                <span>Left Context</span>
-                <select value={compareLeft} onChange={(event) => setCompareLeft(event.target.value)}>
-                  {compareOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
-                </select>
-              </label>
-              <label className="field">
-                <span>Right Context</span>
-                <select value={compareRight} onChange={(event) => setCompareRight(event.target.value)}>
-                  <option value="">Select...</option>
-                  {compareOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
-                </select>
-              </label>
-            </div>
-            <div className="button-row session-hub-toolbar">
-              <button type="button" className="accent" disabled={compareBusy} onClick={() => void handleCompare()}>
-                {compareBusy ? 'Comparing...' : 'Compare'}
-              </button>
-            </div>
-          </div>
+      <section className="panel">
+        <div className="panel-header">
+          <h3>Compare Contexts</h3>
         </div>
-
-        <div className="column stack">
-          {compareResults ? (
-            compareResults.map((result) => (
-              <div key={result.option.id} className="panel">
-                <div className="panel-header">
-                  <h3>{result.option.label}</h3>
-                </div>
-                <div className="table-grid">
-                  <div className="table-row session-hub-compare-grid">
-                    <div>Account</div>
-                    <div>{result.identity.account}</div>
-                  </div>
-                  <div className="table-row session-hub-compare-grid">
-                    <div>ARN</div>
-                    <div>{result.identity.arn}</div>
-                  </div>
-                  {result.statistics.stats.slice(0, 5).map((stat) => (
-                    <div key={`${result.option.id}-${stat.label}`} className="table-row session-hub-compare-grid">
-                      <div>{stat.label}</div>
-                      <div>{stat.value}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))
-          ) : (
-            <div className="panel">
-              <div className="empty-state compact">Select two contexts to compare baseline overview statistics.</div>
-            </div>
-          )}
+        <div className="session-hub-form-grid">
+          <label className="field">
+            <span>Left Context</span>
+            <select value={compareLeft} onChange={(event) => setCompareLeft(event.target.value)}>
+              {compareOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+            </select>
+          </label>
+          <label className="field">
+            <span>Right Context</span>
+            <select value={compareRight} onChange={(event) => setCompareRight(event.target.value)}>
+              <option value="">Select...</option>
+              {compareOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+            </select>
+          </label>
+        </div>
+        <div className="button-row session-hub-toolbar">
+          <button type="button" className="accent" disabled={compareBusy} onClick={() => void handleCompare()}>
+            {compareBusy ? 'Comparing...' : 'Compare'}
+          </button>
         </div>
       </section>
+
+      {comparePairs ? (
+        <section className="workspace-grid session-hub-compare-layout">
+          <div className="column stack">
+            <div className="panel">
+              <div className="panel-header">
+                <h3>Context Summary</h3>
+              </div>
+              <div className="table-grid">
+                <div className="table-row table-head session-hub-compare-table">
+                  <div>Metric</div>
+                  <div>{comparePairs[0].option.label}</div>
+                  <div>{comparePairs[1].option.label}</div>
+                </div>
+                {compareSummaryRows.map((row) => (
+                  <div key={row.label} className="table-row session-hub-compare-table">
+                    <div>{row.label}</div>
+                    <div className={`session-hub-compare-cell ${compareValueClass(row.left, row.right)}`}>{String(row.left)}</div>
+                    <div className={`session-hub-compare-cell ${compareValueClass(row.right, row.left)}`}>{String(row.right)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="column stack">
+            <div className="panel">
+              <div className="panel-header">
+                <h3>Service Inventory Comparison</h3>
+              </div>
+              <div className="table-grid">
+                <div className="table-row table-head session-hub-compare-table">
+                  <div>Service</div>
+                  <div>{comparePairs[0].option.label}</div>
+                  <div>{comparePairs[1].option.label}</div>
+                </div>
+                {COMPARE_SERVICE_ROWS.map((row) => (
+                  <div key={row.label} className="table-row session-hub-compare-table">
+                    <div>{row.label}</div>
+                    <div className={`session-hub-compare-cell ${compareValueClass(comparePairs[0].regionalMetrics?.[row.key] ?? '-', comparePairs[1].regionalMetrics?.[row.key] ?? '-')}`}>
+                      {String(comparePairs[0].regionalMetrics?.[row.key] ?? '-')}
+                    </div>
+                    <div className={`session-hub-compare-cell ${compareValueClass(comparePairs[1].regionalMetrics?.[row.key] ?? '-', comparePairs[0].regionalMetrics?.[row.key] ?? '-')}`}>
+                      {String(comparePairs[1].regionalMetrics?.[row.key] ?? '-')}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : (
+        <section className="panel">
+          <div className="empty-state compact">Select two contexts to compare summary totals and full regional inventory.</div>
+        </section>
+      )}
     </>
   )
 }
