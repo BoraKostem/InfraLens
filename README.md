@@ -2,7 +2,7 @@
 
 # AWS Lens
 
-**Unified desktop console for AWS resource management, inspection, and infrastructure operations.**
+**Desktop companion for working across multiple AWS accounts and regions, designed to speed up debugging and common quick actions by turning multi-step console tasks into simpler flows and grouping related services into a more informative interface, not to replace the AWS Console.**
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-blue.svg)](#package-desktop-builds)
