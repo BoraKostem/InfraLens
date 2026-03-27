@@ -1038,6 +1038,88 @@ export type S3BucketSummary = {
   region: string
 }
 
+export type S3GovernanceSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info'
+
+export type S3GovernanceFlagStatus =
+  | 'enabled'
+  | 'disabled'
+  | 'partial'
+  | 'present'
+  | 'missing'
+  | 'suspended'
+  | 'unknown'
+
+export type S3BucketGovernanceCheck = {
+  status: S3GovernanceFlagStatus
+  summary: string
+}
+
+export type S3BucketGovernanceFinding = {
+  id: string
+  severity: S3GovernanceSeverity
+  title: string
+  summary: string
+  nextStep: string
+}
+
+export type S3BucketGovernancePosture = {
+  bucketName: string
+  region: string
+  publicAccessBlock: S3BucketGovernanceCheck & {
+    blockPublicAcls: boolean | null
+    ignorePublicAcls: boolean | null
+    blockPublicPolicy: boolean | null
+    restrictPublicBuckets: boolean | null
+  }
+  encryption: S3BucketGovernanceCheck & {
+    algorithm: string
+    kmsKeyId: string
+  }
+  versioning: S3BucketGovernanceCheck & {
+    mfaDelete: boolean | null
+  }
+  lifecycle: S3BucketGovernanceCheck & {
+    ruleCount: number
+  }
+  policy: S3BucketGovernanceCheck & {
+    statementCount: number
+  }
+  logging: S3BucketGovernanceCheck & {
+    targetBucket: string
+    targetPrefix: string
+  }
+  replication: S3BucketGovernanceCheck & {
+    ruleCount: number
+    destinationBuckets: string[]
+  }
+  important: boolean
+  importantReason: string
+  highestSeverity: S3GovernanceSeverity
+  findings: S3BucketGovernanceFinding[]
+}
+
+export type S3GovernanceSummary = {
+  bucketCount: number
+  riskyBucketCount: number
+  publicAccessRiskCount: number
+  unencryptedBucketCount: number
+  missingLifecycleCount: number
+  importantWithoutVersioningCount: number
+  bucketsBySeverity: Record<S3GovernanceSeverity, number>
+}
+
+export type S3GovernanceOverview = {
+  generatedAt: string
+  summary: S3GovernanceSummary
+  buckets: S3BucketGovernancePosture[]
+}
+
+export type S3BucketGovernanceDetail = {
+  posture: S3BucketGovernancePosture
+  policyJson: string
+  lifecycleJson: string
+}
+
 export type S3ObjectSummary = {
   key: string
   size: number

@@ -24,7 +24,26 @@ import {
   stopDbInstance
 } from './aws/rds'
 import { deleteRoute53Record, listRoute53HostedZones, listRoute53Records, upsertRoute53Record } from './aws/route53'
-import { createBucket, createFolder, deleteObject, downloadObject, downloadObjectToPath, getObjectContent, getPresignedUrl, listBucketObjects, listBuckets, openDownloadedObject, openInVSCode, putObjectContent, uploadObject } from './aws/s3'
+import {
+  createBucket,
+  createFolder,
+  deleteObject,
+  downloadObject,
+  downloadObjectToPath,
+  enableBucketEncryption,
+  enableBucketVersioning,
+  getBucketGovernanceDetail,
+  getObjectContent,
+  getPresignedUrl,
+  listBucketGovernance,
+  listBucketObjects,
+  listBuckets,
+  openDownloadedObject,
+  openInVSCode,
+  putBucketPolicy,
+  putObjectContent,
+  uploadObject
+} from './aws/s3'
 import { createTopic, deleteTopic, getTopicDetail, listSubscriptions, listTopics, publishMessage, setTopicAttribute, subscribe, tagTopic, unsubscribe, untagTopic } from './aws/sns'
 import { buildQueueTimeline, changeMessageVisibility, createQueue, deleteMessage, deleteQueue, getQueueDetail, listQueues, purgeQueue, receiveMessages, sendMessage, setQueueAttributes, tagQueue, untagQueue } from './aws/sqs'
 
@@ -155,6 +174,12 @@ export function registerServiceIpcHandlers(): void {
   ipcMain.handle('s3:list-buckets', async (_event, connection: AwsConnection) =>
     wrap(() => listBuckets(connection))
   )
+  ipcMain.handle('s3:list-governance', async (_event, connection: AwsConnection) =>
+    wrap(() => listBucketGovernance(connection))
+  )
+  ipcMain.handle('s3:get-governance-detail', async (_event, connection: AwsConnection, bucketName: string) =>
+    wrap(() => getBucketGovernanceDetail(connection, bucketName))
+  )
   ipcMain.handle('s3:list-objects', async (_event, connection: AwsConnection, bucketName: string, prefix: string) =>
     wrap(() => listBucketObjects(connection, bucketName, prefix))
   )
@@ -190,6 +215,15 @@ export function registerServiceIpcHandlers(): void {
   )
   ipcMain.handle('s3:upload-object', async (_event, connection: AwsConnection, bucketName: string, key: string, localPath: string) =>
     wrap(() => uploadObject(connection, bucketName, key, localPath))
+  )
+  ipcMain.handle('s3:enable-versioning', async (_event, connection: AwsConnection, bucketName: string) =>
+    wrap(() => enableBucketVersioning(connection, bucketName))
+  )
+  ipcMain.handle('s3:enable-encryption', async (_event, connection: AwsConnection, bucketName: string) =>
+    wrap(() => enableBucketEncryption(connection, bucketName))
+  )
+  ipcMain.handle('s3:put-policy', async (_event, connection: AwsConnection, bucketName: string, policyJson: string) =>
+    wrap(() => putBucketPolicy(connection, bucketName, policyJson))
   )
 
   ipcMain.handle('rds:list-instances', async (_event, connection: AwsConnection) =>

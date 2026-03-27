@@ -80,6 +80,8 @@ import type {
   SqsSendResult,
   SqsTimelineEvent,
   S3BucketSummary,
+  S3BucketGovernanceDetail,
+  S3GovernanceOverview,
   S3ObjectContent,
   S3ObjectSummary,
   StsDecodedAuthorizationMessage,
@@ -200,6 +202,8 @@ const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
   getMetricStatistics: 'cloudwatch',
   getEc2AllMetricSeries: 'cloudwatch',
   listS3Buckets: 's3',
+  listS3Governance: 's3',
+  getS3GovernanceDetail: 's3',
   listS3Objects: 's3',
   getS3PresignedUrl: 's3',
   getS3ObjectContent: 's3',
@@ -327,6 +331,9 @@ const MUTATING_METHODS = new Set<keyof AwsLensBridge>([
   'openS3InVSCode',
   'putS3ObjectContent',
   'uploadS3Object',
+  'enableS3BucketVersioning',
+  'enableS3BucketEncryption',
+  'putS3BucketPolicy',
   'startRdsInstance',
   'stopRdsInstance',
   'rebootRdsInstance',
@@ -954,6 +961,14 @@ export async function listS3Buckets(connection: AwsConnection): Promise<S3Bucket
   return unwrap((await awsBridge().listS3Buckets(connection)) as Wrapped<S3BucketSummary[]>)
 }
 
+export async function listS3Governance(connection: AwsConnection): Promise<S3GovernanceOverview> {
+  return unwrap((await awsBridge().listS3Governance(connection)) as Wrapped<S3GovernanceOverview>)
+}
+
+export async function getS3GovernanceDetail(connection: AwsConnection, bucketName: string): Promise<S3BucketGovernanceDetail> {
+  return unwrap((await awsBridge().getS3GovernanceDetail(connection, bucketName)) as Wrapped<S3BucketGovernanceDetail>)
+}
+
 export async function listS3Objects(connection: AwsConnection, bucketName: string, prefix = ''): Promise<S3ObjectSummary[]> {
   return unwrap((await awsBridge().listS3Objects(connection, bucketName, prefix)) as Wrapped<S3ObjectSummary[]>)
 }
@@ -1000,6 +1015,18 @@ export async function putS3ObjectContent(connection: AwsConnection, bucketName: 
 
 export async function uploadS3Object(connection: AwsConnection, bucketName: string, key: string, localPath: string): Promise<void> {
   return unwrap((await awsBridge().uploadS3Object(connection, bucketName, key, localPath)) as Wrapped<void>)
+}
+
+export async function enableS3BucketVersioning(connection: AwsConnection, bucketName: string): Promise<void> {
+  return unwrap((await awsBridge().enableS3BucketVersioning(connection, bucketName)) as Wrapped<void>)
+}
+
+export async function enableS3BucketEncryption(connection: AwsConnection, bucketName: string): Promise<void> {
+  return unwrap((await awsBridge().enableS3BucketEncryption(connection, bucketName)) as Wrapped<void>)
+}
+
+export async function putS3BucketPolicy(connection: AwsConnection, bucketName: string, policyJson: string): Promise<void> {
+  return unwrap((await awsBridge().putS3BucketPolicy(connection, bucketName, policyJson)) as Wrapped<void>)
 }
 
 export async function listRdsInstances(connection: AwsConnection): Promise<RdsInstanceSummary[]> {

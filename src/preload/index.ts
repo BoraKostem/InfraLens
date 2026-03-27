@@ -200,6 +200,9 @@ const awsLensApi = {
 
   /* S3 */
   listS3Buckets: (connection: AwsConnection) => ipcRenderer.invoke('s3:list-buckets', connection),
+  listS3Governance: (connection: AwsConnection) => ipcRenderer.invoke('s3:list-governance', connection),
+  getS3GovernanceDetail: (connection: AwsConnection, bucketName: string) =>
+    ipcRenderer.invoke('s3:get-governance-detail', connection, bucketName),
   listS3Objects: (connection: AwsConnection, bucketName: string, prefix: string) =>
     ipcRenderer.invoke('s3:list-objects', connection, bucketName, prefix),
   createS3Bucket: (connection: AwsConnection, bucketName: string) =>
@@ -224,6 +227,12 @@ const awsLensApi = {
     ipcRenderer.invoke('s3:put-object-content', connection, bucketName, key, content, contentType),
   uploadS3Object: (connection: AwsConnection, bucketName: string, key: string, localPath: string) =>
     ipcRenderer.invoke('s3:upload-object', connection, bucketName, key, localPath),
+  enableS3BucketVersioning: (connection: AwsConnection, bucketName: string) =>
+    ipcRenderer.invoke('s3:enable-versioning', connection, bucketName),
+  enableS3BucketEncryption: (connection: AwsConnection, bucketName: string) =>
+    ipcRenderer.invoke('s3:enable-encryption', connection, bucketName),
+  putS3BucketPolicy: (connection: AwsConnection, bucketName: string, policyJson: string) =>
+    ipcRenderer.invoke('s3:put-policy', connection, bucketName, policyJson),
 
   /* RDS */
   listRdsInstances: (connection: AwsConnection) => ipcRenderer.invoke('rds:list-instances', connection),

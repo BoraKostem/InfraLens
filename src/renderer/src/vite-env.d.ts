@@ -119,6 +119,8 @@ declare global {
       startAutoScalingRefresh: (connection: AwsConnection, groupName: string) => Promise<unknown>
       deleteAutoScalingGroup: (connection: AwsConnection, groupName: string, forceDelete?: boolean) => Promise<unknown>
       listS3Buckets: (connection: AwsConnection) => Promise<unknown>
+      listS3Governance: (connection: AwsConnection) => Promise<unknown>
+      getS3GovernanceDetail: (connection: AwsConnection, bucketName: string) => Promise<unknown>
       listS3Objects: (connection: AwsConnection, bucketName: string, prefix: string) => Promise<unknown>
       createS3Bucket: (connection: AwsConnection, bucketName: string) => Promise<unknown>
       deleteS3Object: (connection: AwsConnection, bucketName: string, key: string) => Promise<unknown>
@@ -131,6 +133,9 @@ declare global {
       getS3ObjectContent: (connection: AwsConnection, bucketName: string, key: string) => Promise<unknown>
       putS3ObjectContent: (connection: AwsConnection, bucketName: string, key: string, content: string, contentType?: string) => Promise<unknown>
       uploadS3Object: (connection: AwsConnection, bucketName: string, key: string, localPath: string) => Promise<unknown>
+      enableS3BucketVersioning: (connection: AwsConnection, bucketName: string) => Promise<unknown>
+      enableS3BucketEncryption: (connection: AwsConnection, bucketName: string) => Promise<unknown>
+      putS3BucketPolicy: (connection: AwsConnection, bucketName: string, policyJson: string) => Promise<unknown>
       listRdsInstances: (connection: AwsConnection) => Promise<unknown>
       listRdsClusters: (connection: AwsConnection) => Promise<unknown>
       describeRdsInstance: (connection: AwsConnection, dbInstanceIdentifier: string) => Promise<unknown>
