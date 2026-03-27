@@ -1098,6 +1098,70 @@ export type RdsClusterSummary = {
   readerNodes: RdsClusterNodeSummary[]
 }
 
+export type RdsOperationalStatusTone = 'good' | 'neutral' | 'warning' | 'risk'
+
+export type RdsMaintenanceItem = {
+  resourceIdentifier: string
+  resourceType: 'instance' | 'cluster'
+  sourceIdentifier: string
+  action: string
+  description: string
+  autoAppliedAfter: string
+  currentApplyDate: string
+  optInStatus: string
+}
+
+export type RdsRiskFinding = {
+  id: string
+  severity: 'info' | 'warning' | 'risk'
+  title: string
+  message: string
+  recommendation: string
+}
+
+export type RdsPostureBadge = {
+  id: string
+  label: string
+  value: string
+  tone: RdsOperationalStatusTone
+}
+
+export type RdsSummaryTile = {
+  id: string
+  label: string
+  value: string
+  tone: RdsOperationalStatusTone
+}
+
+export type RdsReplicaTopology = {
+  sourceInstanceIdentifier: string
+  replicaInstanceIdentifiers: string[]
+}
+
+export type RdsClusterFailoverReadiness = {
+  ready: boolean
+  summary: string
+  reasons: string[]
+}
+
+export type RdsOperationalPosture = {
+  badges: RdsPostureBadge[]
+  summaryTiles: RdsSummaryTile[]
+  findings: RdsRiskFinding[]
+  maintenanceItems: RdsMaintenanceItem[]
+  recommendations: string[]
+  parameterGroupReferences: string[]
+  subnetGroupReferences: string[]
+  backupRetentionPeriod: number
+  preferredBackupWindow: string
+  preferredMaintenanceWindow: string
+  isEncrypted: boolean
+  isPubliclyAccessible: boolean
+  isMultiAz: boolean
+  replicaTopology?: RdsReplicaTopology
+  failoverReadiness?: RdsClusterFailoverReadiness
+}
+
 export type RdsInstanceDetail = {
   summary: RdsInstanceSummary
   arn: string
@@ -1112,7 +1176,9 @@ export type RdsInstanceDetail = {
   masterUsername: string
   databaseName: string
   subnetGroup: string
+  parameterGroups: string[]
   vpcSecurityGroupIds: string[]
+  posture: RdsOperationalPosture
   connectionDetails: Array<{ label: string; value: string }>
   rawJson: string
 }
@@ -1124,8 +1190,11 @@ export type RdsClusterDetail = {
   backupRetentionPeriod: number
   preferredBackupWindow: string
   preferredMaintenanceWindow: string
+  parameterGroups: string[]
+  subnetGroup: string
   vpcSecurityGroupIds: string[]
   serverlessV2Scaling: string
+  posture: RdsOperationalPosture
   connectionDetails: Array<{ label: string; value: string }>
   rawJson: string
 }
