@@ -72,6 +72,7 @@ import type {
   Route53RecordSummary,
   ReachabilityPathResult,
   SecretCreateInput,
+  SecretDependencyReport,
   SecretTag,
   SecretsManagerSecretDetail,
   SecretsManagerSecretSummary,
@@ -1269,6 +1270,10 @@ export async function listSecrets(connection: AwsConnection): Promise<SecretsMan
 
 export async function describeSecret(connection: AwsConnection, secretId: string): Promise<SecretsManagerSecretDetail> {
   return unwrap((await awsBridge().describeSecret(connection, secretId)) as Wrapped<SecretsManagerSecretDetail>)
+}
+
+export async function getSecretDependencyReport(connection: AwsConnection, secretId: string): Promise<SecretDependencyReport> {
+  return unwrap((await awsBridge().getSecretDependencyReport(connection, secretId)) as Wrapped<SecretDependencyReport>)
 }
 
 export async function getSecretValue(connection: AwsConnection, secretId: string, versionId?: string): Promise<SecretsManagerSecretValue> {

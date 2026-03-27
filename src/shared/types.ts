@@ -2051,6 +2051,76 @@ export type SecretsManagerSecretDetail = {
   policy: string
 }
 
+export type SecretDependencyConfidence = 'high' | 'medium' | 'low'
+
+export type SecretDependencySignal = 'confirmed' | 'heuristic'
+
+export type SecretDependencyEvidence = {
+  kind:
+    | 'direct-arn-reference'
+    | 'name-reference'
+    | 'task-definition-secret'
+    | 'repository-credentials'
+    | 'kubectl-config-reference'
+  field: string
+  summary: string
+}
+
+export type SecretDependencyNavigationTarget = {
+  service: 'lambda' | 'ecs' | 'eks'
+  resourceId: string
+  clusterArn: string
+  clusterName: string
+  serviceName: string
+  region: string
+}
+
+export type SecretDependencyItem = {
+  id: string
+  serviceType: string
+  resourceName: string
+  resourceId: string
+  region: string
+  evidence: SecretDependencyEvidence[]
+  reason: string
+  confidence: SecretDependencyConfidence
+  signal: SecretDependencySignal
+  navigation: SecretDependencyNavigationTarget | null
+}
+
+export type SecretDependencyRiskLevel = 'info' | 'warning' | 'critical'
+
+export type SecretDependencyRisk = {
+  id:
+    | 'rotation-disabled'
+    | 'stale-access'
+    | 'appears-unused'
+    | 'many-consumers'
+  level: SecretDependencyRiskLevel
+  title: string
+  detail: string
+}
+
+export type SecretDependencyPosture = {
+  rotationEnabled: boolean
+  nextRotationDate: string
+  versionCount: number
+  hasPolicy: boolean
+  tags: Record<string, string>
+  lastAccessedDate: string
+}
+
+export type SecretDependencyReport = {
+  secretArn: string
+  secretName: string
+  region: string
+  generatedAt: string
+  posture: SecretDependencyPosture
+  dependencies: SecretDependencyItem[]
+  risks: SecretDependencyRisk[]
+  notes: string[]
+}
+
 export type SecretTag = {
   key: string
   value: string

@@ -69,7 +69,13 @@ function KV({ items }: { items: Array<[string, string]> }) {
   )
 }
 
-export function EcsConsole({ connection }: { connection: AwsConnection }) {
+export function EcsConsole({
+  connection,
+  focusService
+}: {
+  connection: AwsConnection
+  focusService?: { token: number; clusterArn: string; serviceName: string } | null
+}) {
   const [mainTab, setMainTab] = useState<MainTab>('services')
   const [sideTab, setSideTab] = useState<SideTab>('overview')
   const [loading, setLoading] = useState(false)
@@ -98,6 +104,7 @@ export function EcsConsole({ connection }: { connection: AwsConnection }) {
 
   /* ── Action state ──────────────────────────────────────── */
   const [desiredCount, setDesiredCount] = useState('1')
+  const [appliedFocusToken, setAppliedFocusToken] = useState(0)
 
   /* ── Derived ───────────────────────────────────────────── */
   const selectedCluster = useMemo(() => clusters.find(c => c.clusterArn === selectedClusterArn) ?? null, [clusters, selectedClusterArn])
@@ -160,6 +167,27 @@ export function EcsConsole({ connection }: { connection: AwsConnection }) {
   }
 
 useEffect(() => { void load() }, [connection.sessionId, connection.region])
+
+  useEffect(() => {
+    if (!focusService || focusService.token === appliedFocusToken) {
+      return
+    }
+
+    if (focusService.clusterArn && focusService.clusterArn !== selectedClusterArn) {
+      setAppliedFocusToken(focusService.token)
+      void load(focusService.clusterArn, focusService.serviceName)
+      return
+    }
+
+    const match = services.find((service) => service.serviceName === focusService.serviceName)
+    if (!match) {
+      return
+    }
+
+    setAppliedFocusToken(focusService.token)
+    setMainTab('services')
+    void selectService(match.serviceName)
+  }, [appliedFocusToken, focusService, selectedClusterArn, services])
 
   async function selectService(serviceName: string) {
     setSelectedServiceName(serviceName)

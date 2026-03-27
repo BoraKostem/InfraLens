@@ -16,6 +16,7 @@ import {
   createSecret,
   deleteSecret,
   describeSecret,
+  getSecretDependencyReport,
   getSecretValue,
   listSecrets,
   putSecretResourcePolicy,
@@ -64,6 +65,9 @@ export function registerSecurityIpcHandlers(): void {
   ipcMain.handle('secrets:list', async (_event, connection: AwsConnection) => wrap(() => listSecrets(connection)))
   ipcMain.handle('secrets:describe', async (_event, connection: AwsConnection, secretId: string) =>
     wrap(() => describeSecret(connection, secretId))
+  )
+  ipcMain.handle('secrets:dependency-report', async (_event, connection: AwsConnection, secretId: string) =>
+    wrap(() => getSecretDependencyReport(connection, secretId))
   )
   ipcMain.handle('secrets:get-value', async (_event, connection: AwsConnection, secretId: string, versionId?: string) =>
     wrap(() => getSecretValue(connection, secretId, versionId))

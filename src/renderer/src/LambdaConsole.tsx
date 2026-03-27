@@ -36,7 +36,13 @@ function getVal(fn: LambdaFunctionSummary, k: ColKey) {
 
 type View = 'list' | 'code' | 'create'
 
-export function LambdaConsole({ connection }: { connection: AwsConnection }) {
+export function LambdaConsole({
+  connection,
+  focusFunctionName
+}: {
+  connection: AwsConnection
+  focusFunctionName?: { token: number; functionName: string } | null
+}) {
   const [functions, setFunctions] = useState<LambdaFunctionSummary[]>([])
   const [selectedName, setSelectedName] = useState('')
   const [detail, setDetail] = useState<LambdaFunctionDetail | null>(null)
@@ -53,6 +59,7 @@ export function LambdaConsole({ connection }: { connection: AwsConnection }) {
   const [invokeResult, setInvokeResult] = useState('')
   const [invoking, setInvoking] = useState(false)
   const [showInvoke, setShowInvoke] = useState(false)
+  const [appliedFocusToken, setAppliedFocusToken] = useState(0)
 
   const [createForm, setCreateForm] = useState<LambdaCreateConfig>({
     functionName: '', runtime: 'python3.12', handler: 'lambda_function.handler', role: '', code: STARTER.python, description: '', timeout: 30, memorySize: 128
@@ -70,6 +77,21 @@ export function LambdaConsole({ connection }: { connection: AwsConnection }) {
   }
 
 useEffect(() => { void load() }, [connection.sessionId, connection.region])
+
+  useEffect(() => {
+    if (!focusFunctionName || focusFunctionName.token === appliedFocusToken) {
+      return
+    }
+
+    const match = functions.find((fn) => fn.functionName === focusFunctionName.functionName)
+    if (!match) {
+      return
+    }
+
+    setAppliedFocusToken(focusFunctionName.token)
+    setView('list')
+    void handleSelect(match.functionName)
+  }, [appliedFocusToken, focusFunctionName, functions])
 
   const activeCols = COLUMNS.filter(c => visCols.has(c.key))
   const filtered = useMemo(() => {

@@ -18,10 +18,100 @@
   --ui-pad: 0.85rem;
   --ui-gap: 0.8rem;
   --ui-font: 0.94rem;
+  --scrollbar-track: rgba(255, 255, 255, 0.015);
+  --scrollbar-track-border: rgba(255, 255, 255, 0.035);
+  --scrollbar-thumb: rgba(210, 220, 235, 0.14);
+  --scrollbar-thumb-hover: rgba(223, 105, 42, 0.34);
+  --scrollbar-thumb-active: rgba(245, 133, 64, 0.48);
 }
 
 * {
   box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar,
+.catalog-shell-frame::-webkit-scrollbar,
+.catalog-main::-webkit-scrollbar,
+.catalog-main-content::-webkit-scrollbar,
+.profile-rail::-webkit-scrollbar,
+.service-nav-scroll::-webkit-scrollbar,
+.service-nav-panel::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track,
+.catalog-shell-frame::-webkit-scrollbar-track,
+.catalog-main::-webkit-scrollbar-track,
+.catalog-main-content::-webkit-scrollbar-track,
+.profile-rail::-webkit-scrollbar-track,
+.service-nav-scroll::-webkit-scrollbar-track,
+.service-nav-panel::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px var(--scrollbar-track-border);
+}
+
+*::-webkit-scrollbar-thumb,
+.catalog-shell-frame::-webkit-scrollbar-thumb,
+.catalog-main::-webkit-scrollbar-thumb,
+.catalog-main-content::-webkit-scrollbar-thumb,
+.profile-rail::-webkit-scrollbar-thumb,
+.service-nav-scroll::-webkit-scrollbar-thumb,
+.service-nav-panel::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--scrollbar-thumb), rgba(160, 172, 190, 0.1));
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+  min-height: 28px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+*::-webkit-scrollbar-thumb:hover,
+.catalog-shell-frame::-webkit-scrollbar-thumb:hover,
+.catalog-main::-webkit-scrollbar-thumb:hover,
+.catalog-main-content::-webkit-scrollbar-thumb:hover,
+.profile-rail::-webkit-scrollbar-thumb:hover,
+.service-nav-scroll::-webkit-scrollbar-thumb:hover,
+.service-nav-panel::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, var(--scrollbar-thumb-hover), rgba(223, 105, 42, 0.2));
+  background-clip: padding-box;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+*::-webkit-scrollbar-thumb:active,
+.catalog-shell-frame::-webkit-scrollbar-thumb:active,
+.catalog-main::-webkit-scrollbar-thumb:active,
+.catalog-main-content::-webkit-scrollbar-thumb:active,
+.profile-rail::-webkit-scrollbar-thumb:active,
+.service-nav-scroll::-webkit-scrollbar-thumb:active,
+.service-nav-panel::-webkit-scrollbar-thumb:active {
+  background: linear-gradient(180deg, var(--scrollbar-thumb-active), rgba(223, 105, 42, 0.28));
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-button,
+.catalog-shell-frame::-webkit-scrollbar-button,
+.catalog-main::-webkit-scrollbar-button,
+.catalog-main-content::-webkit-scrollbar-button,
+.profile-rail::-webkit-scrollbar-button,
+.service-nav-scroll::-webkit-scrollbar-button,
+.service-nav-panel::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+*::-webkit-scrollbar-corner,
+.catalog-shell-frame::-webkit-scrollbar-corner,
+.catalog-main::-webkit-scrollbar-corner,
+.catalog-main-content::-webkit-scrollbar-corner,
+.profile-rail::-webkit-scrollbar-corner,
+.service-nav-scroll::-webkit-scrollbar-corner,
+.service-nav-panel::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 body {

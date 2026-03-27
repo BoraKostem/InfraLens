@@ -72,7 +72,13 @@ function StatusBadge({ status }: { status: string }) {
 
 /* ── Main EKS Console ───────────────────────────────────── */
 
-export function EksConsole({ connection }: { connection: AwsConnection }) {
+export function EksConsole({
+  connection,
+  focusClusterName
+}: {
+  connection: AwsConnection
+  focusClusterName?: { token: number; clusterName: string } | null
+}) {
   /* ── State ──────────────────────────────────────────── */
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -121,6 +127,7 @@ export function EksConsole({ connection }: { connection: AwsConnection }) {
   const [terminalBusy, setTerminalBusy] = useState(false)
   const [terminalKubeconfigPath, setTerminalKubeconfigPath] = useState('')
   const terminalOutputRef = useRef<HTMLDivElement>(null)
+  const [appliedFocusToken, setAppliedFocusToken] = useState(0)
 
   /* ── Derived ────────────────────────────────────────── */
   const activeClusterCols = CLUSTER_COLUMNS.filter(c => visibleClusterCols.has(c.key))
@@ -163,6 +170,21 @@ export function EksConsole({ connection }: { connection: AwsConnection }) {
   }
 
 useEffect(() => { void reload() }, [connection.sessionId, connection.region])
+
+  useEffect(() => {
+    if (!focusClusterName || focusClusterName.token === appliedFocusToken) {
+      return
+    }
+
+    const match = clusters.find((cluster) => cluster.name === focusClusterName.clusterName)
+    if (!match) {
+      return
+    }
+
+    setAppliedFocusToken(focusClusterName.token)
+    setSideTab('overview')
+    void selectCluster(match.name)
+  }, [appliedFocusToken, clusters, focusClusterName])
 
   async function selectCluster(name: string) {
     setSelectedCluster(name)

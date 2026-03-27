@@ -404,6 +404,8 @@ const awsLensApi = {
   /* Secrets Manager */
   listSecrets: (connection: AwsConnection) => ipcRenderer.invoke('secrets:list', connection),
   describeSecret: (connection: AwsConnection, secretId: string) => ipcRenderer.invoke('secrets:describe', connection, secretId),
+  getSecretDependencyReport: (connection: AwsConnection, secretId: string) =>
+    ipcRenderer.invoke('secrets:dependency-report', connection, secretId),
   getSecretValue: (connection: AwsConnection, secretId: string, versionId?: string) =>
     ipcRenderer.invoke('secrets:get-value', connection, secretId, versionId),
   createSecret: (connection: AwsConnection, input: unknown) => ipcRenderer.invoke('secrets:create', connection, input),

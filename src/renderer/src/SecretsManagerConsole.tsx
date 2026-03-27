@@ -4,6 +4,7 @@ import {
   createSecret,
   deleteSecret,
   describeSecret,
+  getSecretDependencyReport,
   getSecretValue,
   listSecrets,
   putSecretResourcePolicy,
@@ -16,13 +17,12 @@ import {
 } from './api'
 import type {
   AwsConnection,
+  SecretDependencyReport,
   SecretsManagerSecretDetail,
   SecretsManagerSecretSummary,
   SecretsManagerSecretValue
 } from '@shared/types'
 import { ConfirmButton } from './ConfirmButton'
-
-/* ── Column definitions for the secrets table ────────────── */
 
 type ColKey = 'name' | 'description' | 'rotation' | 'versions' | 'lastChanged' | 'lastAccessed'
 
@@ -32,60 +32,90 @@ const COLUMNS: { key: ColKey; label: string; color: string }[] = [
   { key: 'rotation', label: 'Rotation', color: '#22c55e' },
   { key: 'versions', label: 'Versions', color: '#f59e0b' },
   { key: 'lastChanged', label: 'Last Changed', color: '#8b5cf6' },
-  { key: 'lastAccessed', label: 'Last Accessed', color: '#a855f7' },
+  { key: 'lastAccessed', label: 'Last Accessed', color: '#a855f7' }
 ]
 
-function getColValue(s: SecretsManagerSecretSummary, key: ColKey): string {
+function getColValue(secret: SecretsManagerSecretSummary, key: ColKey): string {
   switch (key) {
-    case 'name': return s.name
-    case 'description': return s.description || '-'
-    case 'rotation': return s.rotationEnabled ? 'Enabled' : 'Disabled'
-    case 'versions': return String(s.versionCount)
-    case 'lastChanged': return fmtTs(s.lastChangedDate)
-    case 'lastAccessed': return fmtTs(s.lastAccessedDate)
+    case 'name': return secret.name
+    case 'description': return secret.description || '-'
+    case 'rotation': return secret.rotationEnabled ? 'Enabled' : 'Disabled'
+    case 'versions': return String(secret.versionCount)
+    case 'lastChanged': return fmtTs(secret.lastChangedDate)
+    case 'lastAccessed': return fmtTs(secret.lastAccessedDate)
   }
 }
 
-function fmtTs(v: string) { return v && v !== '-' ? new Date(v).toLocaleString() : '-' }
+function fmtTs(value: string) {
+  return value && value !== '-' ? new Date(value).toLocaleString() : '-'
+}
 
-/* ── Main tab types ──────────────────────────────────────── */
+function confidenceTone(value: 'high' | 'medium' | 'low') {
+  if (value === 'high') return 'enabled'
+  if (value === 'medium') return 'warn'
+  return 'muted'
+}
+
+function riskTone(value: 'info' | 'warning' | 'critical') {
+  if (value === 'critical') return 'deleted'
+  if (value === 'warning') return 'disabled'
+  return 'ok'
+}
 
 type MainTab = 'secrets' | 'create'
-type SideTab = 'overview' | 'value' | 'versions' | 'policy' | 'tags'
+type SideTab = 'overview' | 'dependencies' | 'value' | 'versions' | 'policy' | 'tags'
 
-/* ── SecretsManagerConsole ───────────────────────────────── */
+type SecretDependencyNavigation =
+  | { service: 'lambda'; functionName: string }
+  | { service: 'ecs'; clusterArn: string; serviceName: string }
+  | { service: 'eks'; clusterName: string }
 
-export function SecretsManagerConsole({ connection }: { connection: AwsConnection }) {
+export function SecretsManagerConsole({
+  connection,
+  onNavigate
+}: {
+  connection: AwsConnection
+  onNavigate?: (target: SecretDependencyNavigation) => void
+}) {
   const [mainTab, setMainTab] = useState<MainTab>('secrets')
   const [sideTab, setSideTab] = useState<SideTab>('overview')
   const [loading, setLoading] = useState(false)
+  const [dependencyLoading, setDependencyLoading] = useState(false)
   const [error, setError] = useState('')
   const [msg, setMsg] = useState('')
 
-  /* ── Filter state ──────────────────────────────────────── */
   const [filter, setFilter] = useState('')
-  const [visCols, setVisCols] = useState<Set<ColKey>>(() => new Set(COLUMNS.map(c => c.key)))
+  const [visCols, setVisCols] = useState<Set<ColKey>>(() => new Set(COLUMNS.map((col) => col.key)))
 
-  /* ── Secrets state ─────────────────────────────────────── */
   const [secrets, setSecrets] = useState<SecretsManagerSecretSummary[]>([])
   const [selectedSecretId, setSelectedSecretId] = useState('')
   const [detail, setDetail] = useState<SecretsManagerSecretDetail | null>(null)
   const [secretValue, setSecretValueState] = useState<SecretsManagerSecretValue | null>(null)
+  const [dependencyReport, setDependencyReport] = useState<SecretDependencyReport | null>(null)
   const [valueDraft, setValueDraft] = useState('')
   const [descriptionDraft, setDescriptionDraft] = useState('')
   const [policyDraft, setPolicyDraft] = useState('')
 
-  /* ── Create form state ─────────────────────────────────── */
   const [newName, setNewName] = useState('')
   const [newDescription, setNewDescription] = useState('')
   const [newValue, setNewValue] = useState('')
   const [newKmsKeyId, setNewKmsKeyId] = useState('')
 
-  /* ── Tag state ─────────────────────────────────────────── */
   const [tagKey, setTagKey] = useState('')
   const [tagValue, setTagValue] = useState('')
 
-  /* ── Data loading ──────────────────────────────────────── */
+  async function loadDependencyReport(secretId: string) {
+    setDependencyLoading(true)
+    try {
+      setDependencyReport(await getSecretDependencyReport(connection, secretId))
+    } catch (e) {
+      setDependencyReport(null)
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setDependencyLoading(false)
+    }
+  }
+
   async function refresh(nextSecretId?: string) {
     setError('')
     setLoading(true)
@@ -97,8 +127,10 @@ export function SecretsManagerConsole({ connection }: { connection: AwsConnectio
       if (!target) {
         setDetail(null)
         setSecretValueState(null)
+        setDependencyReport(null)
         return
       }
+
       const [nextDetail, nextValue] = await Promise.all([
         describeSecret(connection, target),
         getSecretValue(connection, target)
@@ -108,6 +140,7 @@ export function SecretsManagerConsole({ connection }: { connection: AwsConnectio
       setValueDraft(nextValue.secretString || nextValue.secretBinary)
       setDescriptionDraft(nextDetail.description)
       setPolicyDraft(nextDetail.policy)
+      void loadDependencyReport(target)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -115,27 +148,28 @@ export function SecretsManagerConsole({ connection }: { connection: AwsConnectio
     }
   }
 
-useEffect(() => { void refresh() }, [connection.sessionId, connection.region])
+  useEffect(() => { void refresh() }, [connection.sessionId, connection.region])
 
   async function selectSecret(arn: string) {
     setSelectedSecretId(arn)
     setError('')
+    setDependencyReport(null)
     try {
-      const [d, v] = await Promise.all([
+      const [nextDetail, nextValue] = await Promise.all([
         describeSecret(connection, arn),
         getSecretValue(connection, arn)
       ])
-      setDetail(d)
-      setSecretValueState(v)
-      setValueDraft(v.secretString || v.secretBinary)
-      setDescriptionDraft(d.description)
-      setPolicyDraft(d.policy)
+      setDetail(nextDetail)
+      setSecretValueState(nextValue)
+      setValueDraft(nextValue.secretString || nextValue.secretBinary)
+      setDescriptionDraft(nextDetail.description)
+      setPolicyDraft(nextDetail.policy)
+      void loadDependencyReport(arn)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
   }
 
-  /* ── Action handlers ───────────────────────────────────── */
   async function doCreate() {
     if (!newName) return
     setError('')
@@ -154,7 +188,9 @@ useEffect(() => { void refresh() }, [connection.sessionId, connection.region])
       setMsg('Secret created')
       setMainTab('secrets')
       await refresh(arn)
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
   }
 
   async function doUpdateValue() {
@@ -163,7 +199,9 @@ useEffect(() => { void refresh() }, [connection.sessionId, connection.region])
       await updateSecretValue(connection, selectedSecretId, valueDraft)
       setMsg('Value updated')
       await refresh(selectedSecretId)
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
   }
 
   async function doUpdateDescription() {
@@ -172,7 +210,9 @@ useEffect(() => { void refresh() }, [connection.sessionId, connection.region])
       await updateSecretDescription(connection, selectedSecretId, descriptionDraft)
       setMsg('Description updated')
       await refresh(selectedSecretId)
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
   }
 
   async function doRotate() {
@@ -181,7 +221,9 @@ useEffect(() => { void refresh() }, [connection.sessionId, connection.region])
       await rotateSecret(connection, selectedSecretId)
       setMsg('Rotation triggered')
       await refresh(selectedSecretId)
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
   }
 
   async function doDelete() {
@@ -192,8 +234,11 @@ useEffect(() => { void refresh() }, [connection.sessionId, connection.region])
       setSelectedSecretId('')
       setDetail(null)
       setSecretValueState(null)
+      setDependencyReport(null)
       await refresh()
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
   }
 
   async function doRestore() {
@@ -202,7 +247,9 @@ useEffect(() => { void refresh() }, [connection.sessionId, connection.region])
       await restoreSecret(connection, selectedSecretId)
       setMsg('Secret restored')
       await refresh(selectedSecretId)
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
   }
 
   async function doSavePolicy() {
@@ -211,7 +258,9 @@ useEffect(() => { void refresh() }, [connection.sessionId, connection.region])
       await putSecretResourcePolicy(connection, selectedSecretId, policyDraft)
       setMsg('Policy saved')
       await refresh(selectedSecretId)
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
   }
 
   async function doAddTag() {
@@ -222,7 +271,9 @@ useEffect(() => { void refresh() }, [connection.sessionId, connection.region])
       setTagValue('')
       setMsg('Tag added')
       await refresh(selectedSecretId)
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
   }
 
   async function doRemoveTag(key: string) {
@@ -231,29 +282,31 @@ useEffect(() => { void refresh() }, [connection.sessionId, connection.region])
       await untagSecret(connection, selectedSecretId, [key])
       setMsg('Tag removed')
       await refresh(selectedSecretId)
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
   }
 
   async function doLoadVersion(versionId: string) {
     if (!selectedSecretId) return
     try {
-      const v = await getSecretValue(connection, selectedSecretId, versionId)
-      setSecretValueState(v)
-      setValueDraft(v.secretString || v.secretBinary)
+      const value = await getSecretValue(connection, selectedSecretId, versionId)
+      setSecretValueState(value)
+      setValueDraft(value.secretString || value.secretBinary)
       setMsg(`Loaded version ${versionId}`)
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
   }
 
-  /* ── Filtering ─────────────────────────────────────────── */
-  const activeCols = COLUMNS.filter(c => visCols.has(c.key))
+  const activeCols = COLUMNS.filter((col) => visCols.has(col.key))
 
   const filteredSecrets = useMemo(() => {
     if (!filter) return secrets
-    const q = filter.toLowerCase()
-    return secrets.filter(s => activeCols.some(c => getColValue(s, c.key).toLowerCase().includes(q)))
+    const query = filter.toLowerCase()
+    return secrets.filter((secret) => activeCols.some((col) => getColValue(secret, col.key).toLowerCase().includes(query)))
   }, [secrets, filter, activeCols])
 
-  /* ── Create view ───────────────────────────────────────── */
   if (mainTab === 'create') {
     return (
       <div className="svc-console">
@@ -261,15 +314,13 @@ useEffect(() => { void refresh() }, [connection.sessionId, connection.region])
           <button className="svc-tab" type="button" onClick={() => setMainTab('secrets')}>Cancel</button>
           <button className="svc-tab active" type="button">Create Secret</button>
         </div>
-
         {error && <div className="svc-error">{error}</div>}
-
         <div className="svc-panel">
           <div className="svc-form">
-            <label><span>Name</span><input value={newName} onChange={e => setNewName(e.target.value)} placeholder="my-secret" /></label>
-            <label><span>Description</span><input value={newDescription} onChange={e => setNewDescription(e.target.value)} placeholder="Optional description" /></label>
-            <label><span>KMS Key ID</span><input value={newKmsKeyId} onChange={e => setNewKmsKeyId(e.target.value)} placeholder="Optional KMS key" /></label>
-            <label><span>Initial Value</span><textarea value={newValue} onChange={e => setNewValue(e.target.value)} placeholder="Secret string value" /></label>
+            <label><span>Name</span><input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="my-secret" /></label>
+            <label><span>Description</span><input value={newDescription} onChange={(event) => setNewDescription(event.target.value)} placeholder="Optional description" /></label>
+            <label><span>KMS Key ID</span><input value={newKmsKeyId} onChange={(event) => setNewKmsKeyId(event.target.value)} placeholder="Optional KMS key" /></label>
+            <label><span>Initial Value</span><textarea value={newValue} onChange={(event) => setNewValue(event.target.value)} placeholder="Secret string value" /></label>
           </div>
           <div className="svc-btn-row" style={{ marginTop: 12 }}>
             <button type="button" className="svc-btn success" disabled={!newName} onClick={() => void doCreate()}>Create Secret</button>
@@ -279,65 +330,50 @@ useEffect(() => { void refresh() }, [connection.sessionId, connection.region])
     )
   }
 
-  /* ── Main secrets view ─────────────────────────────────── */
   return (
     <div className="svc-console">
-      {/* ── Tab bar ──────────────────────────────────────── */}
       <div className="svc-tab-bar">
-        <button
-          className={`svc-tab ${mainTab === 'secrets' ? 'active' : ''}`}
-          type="button"
-          onClick={() => setMainTab('secrets')}
-        >Secrets</button>
+        <button className={`svc-tab ${mainTab === 'secrets' ? 'active' : ''}`} type="button" onClick={() => setMainTab('secrets')}>Secrets</button>
         <button className="svc-tab right" type="button" onClick={() => void refresh()}>Refresh</button>
       </div>
 
       {msg && <div className="svc-msg">{msg}</div>}
       {error && <div className="svc-error">{error}</div>}
 
-      {/* ── Search ───────────────────────────────────────── */}
-      <input
-        className="svc-search"
-        placeholder="Filter rows across selected columns..."
-        value={filter}
-        onChange={e => setFilter(e.target.value)}
-      />
+      <input className="svc-search" placeholder="Filter rows across selected columns..." value={filter} onChange={(event) => setFilter(event.target.value)} />
 
-      {/* ── Column chips ─────────────────────────────────── */}
       <div className="svc-chips">
-        {COLUMNS.map(col => (
+        {COLUMNS.map((col) => (
           <button
             key={col.key}
             className={`svc-chip ${visCols.has(col.key) ? 'active' : ''}`}
             type="button"
             style={visCols.has(col.key) ? { background: col.color, borderColor: col.color } : undefined}
-            onClick={() => setVisCols(p => { const n = new Set(p); n.has(col.key) ? n.delete(col.key) : n.add(col.key); return n })}
+            onClick={() => setVisCols((previous) => {
+              const next = new Set(previous)
+              if (next.has(col.key)) next.delete(col.key)
+              else next.add(col.key)
+              return next
+            })}
           >{col.label}</button>
         ))}
       </div>
 
-      {/* ── Layout: table + sidebar ──────────────────────── */}
       <div className="svc-layout">
-        {/* ── Table area ─────────────────────────────────── */}
         <div className="svc-table-area">
           <table className="svc-table">
             <thead>
-              <tr>{activeCols.map(c => <th key={c.key}>{c.label}</th>)}</tr>
+              <tr>{activeCols.map((col) => <th key={col.key}>{col.label}</th>)}</tr>
             </thead>
             <tbody>
               {loading && <tr><td colSpan={activeCols.length}>Gathering data</td></tr>}
-              {!loading && filteredSecrets.map(s => (
-                <tr
-                  key={s.arn}
-                  className={s.arn === selectedSecretId ? 'active' : ''}
-                  onClick={() => void selectSecret(s.arn)}
-                >
-                  {activeCols.map(c => (
-                    <td key={c.key}>
-                      {c.key === 'rotation'
-                        ? <span className={`svc-badge ${s.rotationEnabled ? 'enabled' : 'disabled'}`}>{s.rotationEnabled ? 'Enabled' : 'Disabled'}</span>
-                        : getColValue(s, c.key)
-                      }
+              {!loading && filteredSecrets.map((secret) => (
+                <tr key={secret.arn} className={secret.arn === selectedSecretId ? 'active' : ''} onClick={() => void selectSecret(secret.arn)}>
+                  {activeCols.map((col) => (
+                    <td key={col.key}>
+                      {col.key === 'rotation'
+                        ? <span className={`svc-badge ${secret.rotationEnabled ? 'enabled' : 'disabled'}`}>{secret.rotationEnabled ? 'Enabled' : 'Disabled'}</span>
+                        : getColValue(secret, col.key)}
                     </td>
                   ))}
                 </tr>
@@ -348,17 +384,17 @@ useEffect(() => { void refresh() }, [connection.sessionId, connection.region])
           {!loading && !filteredSecrets.length && <div className="svc-empty">No secrets found.</div>}
         </div>
 
-        {/* ── Sidebar ────────────────────────────────────── */}
         <div className="svc-sidebar">
           <div className="svc-side-tabs">
             <button className={sideTab === 'overview' ? 'active' : ''} type="button" onClick={() => setSideTab('overview')}>Overview</button>
+            <button className={sideTab === 'dependencies' ? 'active' : ''} type="button" onClick={() => setSideTab('dependencies')}>Dependencies</button>
             <button className={sideTab === 'value' ? 'active' : ''} type="button" onClick={() => setSideTab('value')}>Value</button>
             <button className={sideTab === 'versions' ? 'active' : ''} type="button" onClick={() => setSideTab('versions')}>Versions</button>
             <button className={sideTab === 'policy' ? 'active' : ''} type="button" onClick={() => setSideTab('policy')}>Policy</button>
             <button className={sideTab === 'tags' ? 'active' : ''} type="button" onClick={() => setSideTab('tags')}>Tags</button>
           </div>
+          <div className="svc-sidebar-body">
 
-          {/* ── Overview tab ─────────────────────────────── */}
           {sideTab === 'overview' && (
             <>
               <div className="svc-section">
@@ -396,11 +432,7 @@ useEffect(() => { void refresh() }, [connection.sessionId, connection.region])
                 <div className="svc-section">
                   <h3>Description</h3>
                   <div className="svc-form">
-                    <textarea
-                      value={descriptionDraft}
-                      onChange={e => setDescriptionDraft(e.target.value)}
-                      style={{ width: '100%' }}
-                    />
+                    <textarea value={descriptionDraft} onChange={(event) => setDescriptionDraft(event.target.value)} style={{ width: '100%' }} />
                   </div>
                   <div className="svc-btn-row">
                     <button type="button" className="svc-btn primary" onClick={() => void doUpdateDescription()}>Update Description</button>
@@ -410,7 +442,135 @@ useEffect(() => { void refresh() }, [connection.sessionId, connection.region])
             </>
           )}
 
-          {/* ── Value tab ────────────────────────────────── */}
+          {sideTab === 'dependencies' && (
+            <div className="svc-section">
+              <h3>Dependency Map</h3>
+              <p style={{ marginTop: 0, color: '#9ca7b7', fontSize: 12 }}>
+                Detection is conservative and heuristic unless the evidence shows a direct secret ARN or explicit task-definition secret mapping.
+              </p>
+              {dependencyLoading && <div className="svc-empty">Scanning likely consumers...</div>}
+              {!dependencyLoading && !dependencyReport && <div className="svc-empty">Select a secret to analyze likely consumers.</div>}
+              {!dependencyLoading && dependencyReport && (
+                <>
+                  <div className="svc-kv" style={{ marginBottom: 12 }}>
+                    <div className="svc-kv-row"><div className="svc-kv-label">Likely Consumers</div><div className="svc-kv-value">{dependencyReport.dependencies.length}</div></div>
+                    <div className="svc-kv-row"><div className="svc-kv-label">Generated</div><div className="svc-kv-value">{fmtTs(dependencyReport.generatedAt)}</div></div>
+                    <div className="svc-kv-row"><div className="svc-kv-label">Region</div><div className="svc-kv-value">{dependencyReport.region}</div></div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                    {dependencyReport.risks.length > 0
+                      ? dependencyReport.risks.map((risk) => <span key={risk.id} className={`svc-badge ${riskTone(risk.level)}`}>{risk.title}</span>)
+                      : <span className="svc-badge ok">No immediate dependency risks</span>}
+                  </div>
+
+                  {dependencyReport.risks.length > 0 && (
+                    <div style={{ marginBottom: 12 }}>
+                      {dependencyReport.risks.map((risk) => (
+                        <div key={risk.id} style={{ fontSize: 12, color: '#cbd5e1', marginBottom: 6 }}>
+                          <strong>{risk.title}:</strong> {risk.detail}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="svc-table-wrap secrets-dependency-table-wrap" style={{ maxHeight: 'calc(100vh - 600px)', marginBottom: 12 }}>
+                    <table className="svc-table secrets-dependency-table">
+                      <thead>
+                        <tr>
+                          <th>Service</th>
+                          <th>Resource</th>
+                          <th>Region</th>
+                          <th>Signal</th>
+                          <th>Evidence</th>
+                          <th>Open</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dependencyReport.dependencies.map((dependency) => (
+                          <tr key={dependency.id}>
+                            <td>{dependency.serviceType}</td>
+                            <td>
+                              <div>{dependency.resourceName}</div>
+                              <div style={{ fontSize: 11, color: '#9ca7b7' }}>{dependency.resourceId}</div>
+                            </td>
+                            <td>{dependency.region}</td>
+                            <td>
+                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                <span className={`svc-badge ${dependency.signal === 'confirmed' ? 'enabled' : 'warn'}`}>
+                                  {dependency.signal === 'confirmed' ? 'Strong signal' : 'Heuristic'}
+                                </span>
+                                <span className={`svc-badge ${confidenceTone(dependency.confidence)}`}>{dependency.confidence}</span>
+                              </div>
+                            </td>
+                            <td>
+                              <div style={{ fontSize: 12, color: '#cbd5e1', marginBottom: 4 }}>{dependency.reason}</div>
+                              <div style={{ fontSize: 11, color: '#9ca7b7' }}>
+                                {dependency.evidence.map((item) => `${item.field}: ${item.summary}`).join(' | ')}
+                              </div>
+                            </td>
+                            <td>
+                              <button
+                                type="button"
+                                className="svc-btn muted"
+                                style={{ padding: '4px 10px', fontSize: 11 }}
+                                disabled={!dependency.navigation || !onNavigate}
+                                onClick={() => {
+                                  if (!dependency.navigation || !onNavigate) return
+                                  if (dependency.navigation.service === 'lambda') {
+                                    onNavigate({ service: 'lambda', functionName: dependency.navigation.resourceId })
+                                    return
+                                  }
+                                  if (dependency.navigation.service === 'ecs') {
+                                    onNavigate({
+                                      service: 'ecs',
+                                      clusterArn: dependency.navigation.clusterArn,
+                                      serviceName: dependency.navigation.serviceName
+                                    })
+                                    return
+                                  }
+                                  onNavigate({ service: 'eks', clusterName: dependency.navigation.clusterName })
+                                }}
+                              >Open</button>
+                            </td>
+                          </tr>
+                        ))}
+                        {dependencyReport.dependencies.length === 0 && (
+                          <tr>
+                            <td colSpan={6}>No likely consumers found in the current scan.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="svc-section" style={{ padding: 0, border: 'none' }}>
+                    <h3>Secret Posture</h3>
+                    <div className="svc-kv">
+                      <div className="svc-kv-row"><div className="svc-kv-label">Rotation</div><div className="svc-kv-value">{dependencyReport.posture.rotationEnabled ? <span className="svc-badge enabled">Enabled</span> : <span className="svc-badge disabled">Disabled</span>}</div></div>
+                      <div className="svc-kv-row"><div className="svc-kv-label">Next Rotation</div><div className="svc-kv-value">{fmtTs(dependencyReport.posture.nextRotationDate)}</div></div>
+                      <div className="svc-kv-row"><div className="svc-kv-label">Versions</div><div className="svc-kv-value">{dependencyReport.posture.versionCount}</div></div>
+                      <div className="svc-kv-row"><div className="svc-kv-label">Policy</div><div className="svc-kv-value">{dependencyReport.posture.hasPolicy ? 'Present' : 'Missing'}</div></div>
+                      <div className="svc-kv-row"><div className="svc-kv-label">Last Accessed</div><div className="svc-kv-value">{fmtTs(dependencyReport.posture.lastAccessedDate)}</div></div>
+                      <div className="svc-kv-row"><div className="svc-kv-label">Tags</div><div className="svc-kv-value">{Object.keys(dependencyReport.posture.tags).length}</div></div>
+                    </div>
+                    <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      {Object.entries(dependencyReport.posture.tags).length > 0
+                        ? Object.entries(dependencyReport.posture.tags).map(([key, value]) => <span key={key} className="svc-badge ok">{key}={value}</span>)
+                        : <span className="svc-badge muted">No tags</span>}
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 12 }}>
+                    {dependencyReport.notes.map((note) => (
+                      <div key={note} style={{ fontSize: 12, color: '#9ca7b7', marginBottom: 4 }}>{note}</div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           {sideTab === 'value' && (
             <div className="svc-section">
               <h3>Secret Value</h3>
@@ -424,7 +584,7 @@ useEffect(() => { void refresh() }, [connection.sessionId, connection.region])
                   )}
                   <textarea
                     value={valueDraft}
-                    onChange={e => setValueDraft(e.target.value)}
+                    onChange={(event) => setValueDraft(event.target.value)}
                     rows={10}
                     style={{ width: '100%', fontFamily: 'monospace', fontSize: 12, background: '#0f1318', border: '1px solid #3b4350', borderRadius: 4, color: '#edf1f6', padding: 10, resize: 'vertical' }}
                   />
@@ -436,7 +596,6 @@ useEffect(() => { void refresh() }, [connection.sessionId, connection.region])
             </div>
           )}
 
-          {/* ── Versions tab ─────────────────────────────── */}
           {sideTab === 'versions' && (
             <div className="svc-section">
               <h3>Versions</h3>
@@ -452,18 +611,13 @@ useEffect(() => { void refresh() }, [connection.sessionId, connection.region])
                       </tr>
                     </thead>
                     <tbody>
-                      {detail.versions.map(v => (
-                        <tr key={v.versionId}>
-                          <td style={{ fontFamily: 'monospace', fontSize: 11 }}>{v.versionId}</td>
-                          <td>{v.stages.join(', ') || '-'}</td>
-                          <td>{fmtTs(v.createdDate)}</td>
+                      {detail.versions.map((version) => (
+                        <tr key={version.versionId}>
+                          <td style={{ fontFamily: 'monospace', fontSize: 11 }}>{version.versionId}</td>
+                          <td>{version.stages.join(', ') || '-'}</td>
+                          <td>{fmtTs(version.createdDate)}</td>
                           <td>
-                            <button
-                              type="button"
-                              className="svc-btn muted"
-                              style={{ padding: '4px 10px', fontSize: 11 }}
-                              onClick={() => void doLoadVersion(v.versionId)}
-                            >Load</button>
+                            <button type="button" className="svc-btn muted" style={{ padding: '4px 10px', fontSize: 11 }} onClick={() => void doLoadVersion(version.versionId)}>Load</button>
                           </td>
                         </tr>
                       ))}
@@ -478,7 +632,6 @@ useEffect(() => { void refresh() }, [connection.sessionId, connection.region])
             </div>
           )}
 
-          {/* ── Policy tab ───────────────────────────────── */}
           {sideTab === 'policy' && (
             <div className="svc-section">
               <h3>Resource Policy</h3>
@@ -486,7 +639,7 @@ useEffect(() => { void refresh() }, [connection.sessionId, connection.region])
                 <>
                   <textarea
                     value={policyDraft}
-                    onChange={e => setPolicyDraft(e.target.value)}
+                    onChange={(event) => setPolicyDraft(event.target.value)}
                     rows={12}
                     style={{ width: '100%', fontFamily: 'monospace', fontSize: 12, background: '#0f1318', border: '1px solid #3b4350', borderRadius: 4, color: '#edf1f6', padding: 10, resize: 'vertical' }}
                   />
@@ -498,7 +651,6 @@ useEffect(() => { void refresh() }, [connection.sessionId, connection.region])
             </div>
           )}
 
-          {/* ── Tags tab ─────────────────────────────────── */}
           {sideTab === 'tags' && (
             <div className="svc-section">
               <h3>Tags</h3>
@@ -515,17 +667,12 @@ useEffect(() => { void refresh() }, [connection.sessionId, connection.region])
                           </tr>
                         </thead>
                         <tbody>
-                          {Object.entries(detail.tags).map(([k, v]) => (
-                            <tr key={k}>
-                              <td>{k}</td>
-                              <td>{v}</td>
+                          {Object.entries(detail.tags).map(([key, value]) => (
+                            <tr key={key}>
+                              <td>{key}</td>
+                              <td>{value}</td>
                               <td>
-                                <button
-                                  type="button"
-                                  className="svc-btn danger"
-                                  style={{ padding: '4px 10px', fontSize: 11 }}
-                                  onClick={() => void doRemoveTag(k)}
-                                >Remove</button>
+                                <button type="button" className="svc-btn danger" style={{ padding: '4px 10px', fontSize: 11 }} onClick={() => void doRemoveTag(key)}>Remove</button>
                               </td>
                             </tr>
                           ))}
@@ -536,14 +683,15 @@ useEffect(() => { void refresh() }, [connection.sessionId, connection.region])
                     <div className="svc-empty" style={{ padding: '8px 0' }}>No tags.</div>
                   )}
                   <div className="svc-inline">
-                    <input value={tagKey} onChange={e => setTagKey(e.target.value)} placeholder="Key" style={{ width: 120 }} />
-                    <input value={tagValue} onChange={e => setTagValue(e.target.value)} placeholder="Value" style={{ width: 160 }} />
+                    <input value={tagKey} onChange={(event) => setTagKey(event.target.value)} placeholder="Key" style={{ width: 120 }} />
+                    <input value={tagValue} onChange={(event) => setTagValue(event.target.value)} placeholder="Value" style={{ width: 160 }} />
                     <button type="button" className="svc-btn primary" onClick={() => void doAddTag()}>Add Tag</button>
                   </div>
                 </>
               ) : <div className="svc-empty">Select a secret to manage tags.</div>}
             </div>
           )}
+          </div>
         </div>
       </div>
     </div>

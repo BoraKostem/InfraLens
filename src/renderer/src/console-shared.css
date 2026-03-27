@@ -268,18 +268,34 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  overflow-x: hidden;
   max-height: calc(100vh - 340px);
 }
 
 .svc-side-tabs {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 auto;
   display: flex;
   gap: 0;
   border-bottom: 1px solid #3b4350;
   background: #252b33;
+  background-image: linear-gradient(90deg, rgba(37, 43, 51, 0) 0%, rgba(37, 43, 51, 0) calc(100% - 30px), rgba(37, 43, 51, 0.96) 100%);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.svc-sidebar-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .svc-side-tabs button {
+  flex: 0 0 auto;
+  position: relative;
   padding: 10px 18px;
   background: transparent;
   border: 0;
@@ -302,15 +318,59 @@
   border-bottom-color: #4a8fe7;
 }
 
+.svc-side-tabs button:last-child {
+  padding-right: 30px;
+}
+
+.svc-side-tabs button:last-child::after {
+  content: '›';
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #9ca7b7;
+  font-size: 14px;
+  pointer-events: none;
+}
+
 /* ── Sidebar sections ─────────────────────────────────────── */
 
 .svc-section {
   padding: 16px;
   border-bottom: 1px solid #3b4350;
+  min-width: 0;
 }
 
 .svc-section:last-child {
   border-bottom: 0;
+}
+
+.secrets-dependency-table-wrap {
+  position: relative;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: auto;
+}
+
+.secrets-dependency-table-wrap::after {
+  content: '›';
+  position: sticky;
+  right: 0;
+  float: right;
+  top: 0;
+  height: 36px;
+  width: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9ca7b7;
+  background: linear-gradient(90deg, rgba(42, 48, 57, 0), rgba(42, 48, 57, 0.96) 45%);
+  pointer-events: none;
+  font-size: 18px;
+}
+
+.secrets-dependency-table {
+  min-width: 760px;
 }
 
 .svc-section h3 {

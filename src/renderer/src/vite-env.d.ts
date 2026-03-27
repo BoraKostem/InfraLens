@@ -229,6 +229,7 @@ declare global {
       deleteAcmCertificate: (connection: AwsConnection, certificateArn: string) => Promise<unknown>
       listSecrets: (connection: AwsConnection) => Promise<unknown>
       describeSecret: (connection: AwsConnection, secretId: string) => Promise<unknown>
+      getSecretDependencyReport: (connection: AwsConnection, secretId: string) => Promise<unknown>
       getSecretValue: (connection: AwsConnection, secretId: string, versionId?: string) => Promise<unknown>
       createSecret: (connection: AwsConnection, input: unknown) => Promise<unknown>
       deleteSecret: (connection: AwsConnection, secretId: string, forceDeleteWithoutRecovery: boolean) => Promise<unknown>

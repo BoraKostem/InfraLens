@@ -58,6 +58,19 @@ type LoadBalancerFocus = {
   token: number
   loadBalancerArn: string
 }
+type LambdaFocus = {
+  token: number
+  functionName: string
+}
+type EcsFocus = {
+  token: number
+  clusterArn: string
+  serviceName: string
+}
+type EksFocus = {
+  token: number
+  clusterName: string
+}
 
 const SERVICE_DESCRIPTIONS: Record<ServiceId, string> = {
   terraform: 'Terraform project browser and command execution workspace.',
@@ -308,6 +321,9 @@ export function App() {
   const [profileActionMsg, setProfileActionMsg] = useState('')
   const [route53Focus, setRoute53Focus] = useState<Route53Focus | null>(null)
   const [loadBalancerFocus, setLoadBalancerFocus] = useState<LoadBalancerFocus | null>(null)
+  const [lambdaFocus, setLambdaFocus] = useState<LambdaFocus | null>(null)
+  const [ecsFocus, setEcsFocus] = useState<EcsFocus | null>(null)
+  const [eksFocus, setEksFocus] = useState<EksFocus | null>(null)
   const connectionState = useAwsPageConnection('us-east-1')
   const awsActivity = useAwsActivity()
 
@@ -670,9 +686,9 @@ export function App() {
     if (targetScreen === 'route53' && targetService?.id === 'route53') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <Route53Console connection={connection} focusRecord={route53Focus} />}</ConnectedServiceScreen>
     if (targetScreen === 's3' && targetService?.id === 's3') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <S3Console connection={connection} />}</ConnectedServiceScreen>
     if (targetScreen === 'rds' && targetService?.id === 'rds') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <RdsConsole connection={connection} />}</ConnectedServiceScreen>
-    if (targetScreen === 'lambda' && targetService?.id === 'lambda') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <LambdaConsole connection={connection} />}</ConnectedServiceScreen>
+    if (targetScreen === 'lambda' && targetService?.id === 'lambda') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <LambdaConsole connection={connection} focusFunctionName={lambdaFocus} />}</ConnectedServiceScreen>
     if (targetScreen === 'auto-scaling' && targetService?.id === 'auto-scaling') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <AutoScalingConsole connection={connection} />}</ConnectedServiceScreen>
-    if (targetScreen === 'ecs' && targetService?.id === 'ecs') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <EcsConsole connection={connection} />}</ConnectedServiceScreen>
+    if (targetScreen === 'ecs' && targetService?.id === 'ecs') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <EcsConsole connection={connection} focusService={ecsFocus} />}</ConnectedServiceScreen>
     if (targetScreen === 'acm' && targetService?.id === 'acm') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <AcmConsole connection={connection} onOpenRoute53={(record) => {
       setRoute53Focus({ token: Date.now(), record })
       setScreen('route53')
@@ -681,10 +697,27 @@ export function App() {
       setScreen('load-balancers')
     }} />}</ConnectedServiceScreen>
     if (targetScreen === 'ecr' && targetService?.id === 'ecr') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <EcrConsole connection={connection} />}</ConnectedServiceScreen>
-    if (targetScreen === 'eks' && targetService?.id === 'eks') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <EksConsole connection={connection} />}</ConnectedServiceScreen>
+    if (targetScreen === 'eks' && targetService?.id === 'eks') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <EksConsole connection={connection} focusClusterName={eksFocus} />}</ConnectedServiceScreen>
     if (targetScreen === 'iam' && targetService?.id === 'iam') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <IamConsole connection={connection} />}</ConnectedServiceScreen>
     if (targetScreen === 'identity-center' && targetService?.id === 'identity-center') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <IdentityCenterConsole connection={connection} />}</ConnectedServiceScreen>
-    if (targetScreen === 'secrets-manager' && targetService?.id === 'secrets-manager') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <SecretsManagerConsole connection={connection} />}</ConnectedServiceScreen>
+    if (targetScreen === 'secrets-manager' && targetService?.id === 'secrets-manager') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <SecretsManagerConsole connection={connection} onNavigate={(target) => {
+      if (target.service === 'lambda') {
+        setLambdaFocus({ token: Date.now(), functionName: target.functionName })
+        setScreen('lambda')
+        return
+      }
+
+      if (target.service === 'ecs') {
+        setEcsFocus({ token: Date.now(), clusterArn: target.clusterArn, serviceName: target.serviceName })
+        setScreen('ecs')
+        return
+      }
+
+      if (target.service === 'eks') {
+        setEksFocus({ token: Date.now(), clusterName: target.clusterName })
+        setScreen('eks')
+      }
+    }} />}</ConnectedServiceScreen>
     if (targetScreen === 'key-pairs' && targetService?.id === 'key-pairs') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <KeyPairsConsole connection={connection} />}</ConnectedServiceScreen>
     if (targetScreen === 'sts' && targetService?.id === 'sts') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <StsConsole connection={connection} />}</ConnectedServiceScreen>
     if (targetScreen === 'kms' && targetService?.id === 'kms') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <KmsConsole connection={connection} />}</ConnectedServiceScreen>
