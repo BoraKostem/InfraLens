@@ -364,6 +364,7 @@ export function App() {
   const activeCacheTag = screenCacheTag(screen)
   const activePageNonce = pageRefreshNonceByScreen[screen] ?? 0
   const isCurrentScreenRefreshing = refreshState?.screen === screen
+  const showCatalogFab = screen === 'profiles'
   const connectionScopeKey = connectionState.connection
     ? `${connectionState.connection.sessionId}:${connectionState.connection.region}`
     : 'disconnected'
@@ -379,6 +380,12 @@ export function App() {
       void closeAwsTerminal()
     }
   }, [terminalOpen])
+
+  useEffect(() => {
+    if (!showCatalogFab && fabMode !== 'closed') {
+      setFabMode('closed')
+    }
+  }, [fabMode, showCatalogFab])
 
   useEffect(() => {
     setVisitedScreens((current) => (current.includes(screen) ? current : [...current, screen]))
@@ -1075,6 +1082,7 @@ export function App() {
       />
 
       {/* FAB — Add Profile */}
+      {showCatalogFab && (
       <div className="fab-container">
         {fabMode === 'menu' && (
           <div className="fab-menu">
@@ -1096,12 +1104,13 @@ export function App() {
           <span className="fab-icon">+</span>
         </button>
       </div>
+      )}
 
-      {fabMode !== 'closed' && (
+      {showCatalogFab && fabMode !== 'closed' && (
         <div className="fab-backdrop" onClick={() => setFabMode('closed')} />
       )}
 
-      {fabMode === 'credentials' && (
+      {showCatalogFab && fabMode === 'credentials' && (
         <div className="fab-modal-overlay" onClick={() => setFabMode('closed')}>
           <div className="fab-modal" onClick={(e) => e.stopPropagation()}>
             <div className="fab-modal-title">Add AWS Credentials</div>

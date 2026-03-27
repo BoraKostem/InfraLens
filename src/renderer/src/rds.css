@@ -243,6 +243,93 @@
   color: #d0d8e2;
 }
 
+.rds-overview-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.rds-overview-kicker {
+  color: #7d8aa0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.rds-summary-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.rds-summary-tile {
+  border: 1px solid #3b4350;
+  border-radius: 6px;
+  background: #222933;
+  padding: 10px 12px;
+}
+
+.rds-summary-tile-label {
+  color: #8f9bae;
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+
+.rds-summary-tile-value {
+  color: #edf1f6;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.rds-posture-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rds-posture-badge {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 6px 10px;
+  border: 1px solid #3b4350;
+  background: #222933;
+  font-size: 12px;
+}
+
+.rds-posture-badge strong {
+  color: #edf1f6;
+}
+
+.rds-tone-good {
+  border-color: #27543a;
+  background: #1d3125;
+  color: #9dd8ae;
+}
+
+.rds-tone-neutral {
+  border-color: #3b4350;
+  background: #222933;
+  color: #c9d2df;
+}
+
+.rds-tone-warning {
+  border-color: #6b5418;
+  background: #312710;
+  color: #f4d682;
+}
+
+.rds-tone-risk {
+  border-color: #6d3232;
+  background: #341b1b;
+  color: #f2aaaa;
+}
+
 .rds-sidebar-hint {
   color: #9ca7b7;
   font-size: 11px;
@@ -422,6 +509,98 @@
   font-size: 11px;
 }
 
+.rds-stack-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rds-state-card,
+.rds-finding-card,
+.rds-maintenance-card,
+.rds-topology-card {
+  border: 1px solid #3b4350;
+  border-radius: 6px;
+  background: #222933;
+  padding: 10px 12px;
+}
+
+.rds-state-card-body {
+  margin-top: 8px;
+  line-height: 1.4;
+}
+
+.rds-finding-card {
+  border-left-width: 4px;
+}
+
+.rds-finding-info {
+  border-left-color: #4a8fe7;
+}
+
+.rds-finding-warning {
+  border-left-color: #d4a72c;
+}
+
+.rds-finding-risk {
+  border-left-color: #eb5757;
+}
+
+.rds-finding-title {
+  font-weight: 700;
+  color: #edf1f6;
+  margin-bottom: 6px;
+}
+
+.rds-finding-text,
+.rds-finding-recommendation,
+.rds-maintenance-text,
+.rds-topology-meta {
+  color: #cbd4df;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.rds-finding-recommendation {
+  margin-top: 8px;
+  color: #9fb0c7;
+}
+
+.rds-maintenance-head,
+.rds-topology-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.rds-topology-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.rds-section-subtitle {
+  color: #9ca7b7;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.rds-topology-card {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rds-topology-card.active {
+  border-color: #4a8fe7;
+  box-shadow: inset 0 0 0 1px #4a8fe7;
+}
+
 /* ── Suggestions ──────────────────────────────────────────── */
 
 .rds-suggestions {
@@ -520,5 +699,10 @@
 
   .rds-table-area {
     max-height: 400px;
+  }
+
+  .rds-summary-tiles,
+  .rds-topology-grid {
+    grid-template-columns: 1fr;
   }
 }
