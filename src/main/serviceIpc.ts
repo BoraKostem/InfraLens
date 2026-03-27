@@ -16,7 +16,7 @@ import {
   listStackResources,
   startStackDriftDetection
 } from './aws/cloudformation'
-import { createFargateService, deleteService, describeService, forceRedeploy, getContainerLogs, listClusters, listServices, listTasks, stopTask, updateDesiredCount } from './aws/ecs'
+import { createFargateService, deleteService, describeService, forceRedeploy, getContainerLogs, getServiceDiagnostics, listClusters, listServices, listTasks, stopTask, updateDesiredCount } from './aws/ecs'
 import { createInstance, deleteInstance, listAccountAssignments, listGroups, listInstances, listPermissionSets, listUsers, simulatePermissions } from './aws/identityCenter'
 import { createLambdaFunction, deleteLambdaFunction, getLambdaFunctionCode, getLambdaFunctionDetails, invokeLambdaFunction, listLambdaFunctions } from './aws/lambda'
 import {
@@ -122,6 +122,9 @@ export function registerServiceIpcHandlers(): void {
   )
   ipcMain.handle('ecs:describe-service', async (_event, connection: AwsConnection, clusterArn: string, serviceName: string) =>
     wrap(() => describeService(connection, clusterArn, serviceName))
+  )
+  ipcMain.handle('ecs:get-diagnostics', async (_event, connection: AwsConnection, clusterArn: string, serviceName: string) =>
+    wrap(() => getServiceDiagnostics(connection, clusterArn, serviceName))
   )
   ipcMain.handle('ecs:list-tasks', async (_event, connection: AwsConnection, clusterArn: string, serviceName?: string) =>
     wrap(() => listTasks(connection, clusterArn, serviceName))

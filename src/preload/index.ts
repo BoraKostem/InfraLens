@@ -159,6 +159,8 @@ const awsLensApi = {
     ipcRenderer.invoke('ecs:list-services', connection, clusterArn),
   describeEcsService: (connection: AwsConnection, clusterArn: string, serviceName: string) =>
     ipcRenderer.invoke('ecs:describe-service', connection, clusterArn, serviceName),
+  getEcsDiagnostics: (connection: AwsConnection, clusterArn: string, serviceName: string) =>
+    ipcRenderer.invoke('ecs:get-diagnostics', connection, clusterArn, serviceName),
   listEcsTasks: (connection: AwsConnection, clusterArn: string, serviceName?: string) =>
     ipcRenderer.invoke('ecs:list-tasks', connection, clusterArn, serviceName),
   updateEcsDesiredCount: (connection: AwsConnection, clusterArn: string, serviceName: string, desiredCount: number) =>

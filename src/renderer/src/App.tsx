@@ -688,7 +688,7 @@ export function App() {
     if (targetScreen === 'rds' && targetService?.id === 'rds') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <RdsConsole connection={connection} />}</ConnectedServiceScreen>
     if (targetScreen === 'lambda' && targetService?.id === 'lambda') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <LambdaConsole connection={connection} focusFunctionName={lambdaFocus} />}</ConnectedServiceScreen>
     if (targetScreen === 'auto-scaling' && targetService?.id === 'auto-scaling') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <AutoScalingConsole connection={connection} />}</ConnectedServiceScreen>
-    if (targetScreen === 'ecs' && targetService?.id === 'ecs') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <EcsConsole connection={connection} focusService={ecsFocus} />}</ConnectedServiceScreen>
+    if (targetScreen === 'ecs' && targetService?.id === 'ecs') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <EcsConsole connection={connection} focusService={ecsFocus} onRunTerminalCommand={handleOpenTerminalCommand} />}</ConnectedServiceScreen>
     if (targetScreen === 'acm' && targetService?.id === 'acm') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <AcmConsole connection={connection} onOpenRoute53={(record) => {
       setRoute53Focus({ token: Date.now(), record })
       setScreen('route53')
@@ -1005,7 +1005,7 @@ export function App() {
 
         {screen === 'ecs' && selectedService?.id === 'ecs' && (
           <ConnectedServiceScreen service={selectedService!} state={connectionState}>
-            {(connection) => <EcsConsole connection={connection} />}
+                {(connection) => <EcsConsole connection={connection} onRunTerminalCommand={handleOpenTerminalCommand} />}
           </ConnectedServiceScreen>
         )}
 

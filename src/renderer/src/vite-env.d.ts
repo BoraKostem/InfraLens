@@ -100,6 +100,7 @@ declare global {
       listEcsClusters: (connection: AwsConnection) => Promise<unknown>
       listEcsServices: (connection: AwsConnection, clusterArn: string) => Promise<unknown>
       describeEcsService: (connection: AwsConnection, clusterArn: string, serviceName: string) => Promise<unknown>
+      getEcsDiagnostics: (connection: AwsConnection, clusterArn: string, serviceName: string) => Promise<unknown>
       listEcsTasks: (connection: AwsConnection, clusterArn: string, serviceName?: string) => Promise<unknown>
       updateEcsDesiredCount: (connection: AwsConnection, clusterArn: string, serviceName: string, desiredCount: number) => Promise<unknown>
       forceEcsRedeploy: (connection: AwsConnection, clusterArn: string, serviceName: string) => Promise<unknown>

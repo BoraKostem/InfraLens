@@ -1402,7 +1402,9 @@ export type EcsContainerSummary = {
   containerArn: string
   lastStatus: string
   exitCode: number | null
+  reason: string
   image: string
+  imageDigest: string
   cpu: string
   memory: string
   healthStatus: string
@@ -1461,6 +1463,114 @@ export type EcsFargateServiceConfig = {
 export type EcsLogEvent = {
   timestamp: number
   message: string
+}
+
+export type EcsDiagnosticsSeverity = 'critical' | 'warning' | 'info'
+
+export type EcsDiagnosticsStatus = 'healthy' | 'warning' | 'critical' | 'unknown'
+
+export type EcsDiagnosticsSummaryTile = {
+  key: string
+  label: string
+  value: string
+  tone: EcsDiagnosticsStatus
+  detail: string
+}
+
+export type EcsDiagnosticsIndicator = {
+  id: string
+  title: string
+  severity: EcsDiagnosticsSeverity
+  status: 'detected' | 'clear'
+  detail: string
+}
+
+export type EcsDiagnosticsTimelineItem = {
+  id: string
+  timestamp: string
+  category: 'deployment' | 'service-event' | 'task-stop'
+  severity: EcsDiagnosticsSeverity
+  title: string
+  detail: string
+  relatedTaskArn?: string
+}
+
+export type EcsTaskDefinitionContainerReference = {
+  name: string
+  image: string
+  imageDigest: string
+  cpu: string
+  memory: string
+  essential: boolean
+  logDriver: string
+  logGroup: string
+  logRegion: string
+  logStreamPrefix: string
+}
+
+export type EcsTaskDefinitionReference = {
+  taskDefinitionArn: string
+  family: string
+  revision: number
+  networkMode: string
+  executionRoleArn: string
+  taskRoleArn: string
+  containerImages: EcsTaskDefinitionContainerReference[]
+}
+
+export type EcsDiagnosticsTaskRow = {
+  taskArn: string
+  taskId: string
+  taskDefinitionArn: string
+  lastStatus: string
+  desiredStatus: string
+  startedAt: string
+  stoppedAt: string
+  stoppedReason: string
+  launchType: string
+  healthStatus: string
+  isFailed: boolean
+  isPending: boolean
+  containers: EcsContainerSummary[]
+}
+
+export type EcsDiagnosticsTaskSelection = {
+  taskArn: string
+  taskId: string
+  stoppedReason: string
+  lastStatus: string
+  desiredStatus: string
+  startedAt: string
+  stoppedAt: string
+  healthStatus: string
+  containers: EcsContainerSummary[]
+}
+
+export type EcsDiagnosticsLogTarget = {
+  taskArn: string
+  taskId: string
+  containerName: string
+  logGroup: string
+  logStream: string
+  available: boolean
+  reason: string
+}
+
+export type EcsServiceDiagnostics = {
+  service: EcsServiceDetail
+  deployments: EcsDeployment[]
+  summaryTiles: EcsDiagnosticsSummaryTile[]
+  indicators: EcsDiagnosticsIndicator[]
+  likelyPatterns: string[]
+  timeline: EcsDiagnosticsTimelineItem[]
+  recentDeployments: EcsDeployment[]
+  unstableTasks: EcsDiagnosticsTaskRow[]
+  failedTasks: EcsDiagnosticsTaskRow[]
+  pendingTasks: EcsDiagnosticsTaskRow[]
+  taskRows: EcsDiagnosticsTaskRow[]
+  selectedTask: EcsDiagnosticsTaskSelection | null
+  taskDefinition: EcsTaskDefinitionReference | null
+  logTargets: EcsDiagnosticsLogTarget[]
 }
 
 /* ── IAM ─────────────────────────────────────────────────── */

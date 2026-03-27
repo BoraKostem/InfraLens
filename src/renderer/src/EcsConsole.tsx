@@ -4,26 +4,25 @@ import './ecs.css'
 import type {
   AwsConnection,
   EcsContainerSummary,
-  EcsServiceDetail,
-  EcsServiceSummary,
-  EcsTaskSummary
+  EcsDiagnosticsIndicator,
+  EcsDiagnosticsTaskRow,
+  EcsServiceDiagnostics,
+  EcsServiceSummary
 } from '@shared/types'
 import {
-  describeEcsService,
   forceEcsRedeploy,
   getEcsContainerLogs,
+  getEcsDiagnostics,
   listEcsClusters,
   listEcsServices,
-  listEcsTasks,
   stopEcsTask,
   updateEcsDesiredCount
 } from './api'
 import { ConfirmButton } from './ConfirmButton'
 
 type MainTab = 'services' | 'tasks'
-type SideTab = 'overview' | 'events'
 type ServiceColumnKey = 'serviceName' | 'status' | 'running' | 'launchType' | 'taskDefinition' | 'deploymentStatus'
-type TaskColumnKey = 'taskId' | 'lastStatus' | 'startedAt' | 'cpu' | 'memory' | 'containers'
+type TaskColumnKey = 'taskId' | 'lastStatus' | 'health' | 'startedAt' | 'stoppedReason' | 'containers'
 
 const SERVICE_COLUMNS: { key: ServiceColumnKey; label: string; color: string }[] = [
   { key: 'serviceName', label: 'Service', color: '#3b82f6' },
@@ -37,13 +36,25 @@ const SERVICE_COLUMNS: { key: ServiceColumnKey; label: string; color: string }[]
 const TASK_COLUMNS: { key: TaskColumnKey; label: string; color: string }[] = [
   { key: 'taskId', label: 'Task ID', color: '#3b82f6' },
   { key: 'lastStatus', label: 'Status', color: '#22c55e' },
+  { key: 'health', label: 'Health', color: '#e11d48' },
   { key: 'startedAt', label: 'Started', color: '#14b8a6' },
-  { key: 'cpu', label: 'CPU', color: '#8b5cf6' },
-  { key: 'memory', label: 'Memory', color: '#f59e0b' },
+  { key: 'stoppedReason', label: 'Stop Reason', color: '#f59e0b' },
   { key: 'containers', label: 'Containers', color: '#06b6d4' }
 ]
 
-function fmtTs(v: string) { return v && v !== '-' ? new Date(v).toLocaleString() : '-' }
+function fmtTs(v: string): string {
+  return v && v !== '-' ? new Date(v).toLocaleString() : '-'
+}
+
+function taskStateTone(task: EcsDiagnosticsTaskRow): string {
+  if (task.isFailed) return 'FAILED'
+  if (task.isPending) return 'PENDING'
+  return task.lastStatus
+}
+
+function diagnosticsCommand(clusterArn: string, serviceName: string): string {
+  return `aws ecs describe-services --cluster "${clusterArn}" --services "${serviceName}" --include TAGS`
+}
 
 function getServiceCellValue(svc: EcsServiceSummary, key: ServiceColumnKey): string {
   switch (key) {
@@ -54,6 +65,12 @@ function getServiceCellValue(svc: EcsServiceSummary, key: ServiceColumnKey): str
     case 'taskDefinition': return svc.taskDefinition.split('/').pop() ?? svc.taskDefinition
     case 'deploymentStatus': return svc.deploymentStatus
   }
+}
+
+function healthTone(severity: EcsDiagnosticsIndicator['severity']): string {
+  if (severity === 'critical') return 'critical'
+  if (severity === 'warning') return 'warning'
+  return 'info'
 }
 
 function KV({ items }: { items: Array<[string, string]> }) {
@@ -71,65 +88,73 @@ function KV({ items }: { items: Array<[string, string]> }) {
 
 export function EcsConsole({
   connection,
-  focusService
+  focusService,
+  onRunTerminalCommand
 }: {
   connection: AwsConnection
   focusService?: { token: number; clusterArn: string; serviceName: string } | null
+  onRunTerminalCommand?: (command: string) => void
 }) {
   const [mainTab, setMainTab] = useState<MainTab>('services')
-  const [sideTab, setSideTab] = useState<SideTab>('overview')
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
-
-  /* ── Filter state ──────────────────────────────────────── */
   const [search, setSearch] = useState('')
   const [visibleServiceCols, setVisibleServiceCols] = useState<Set<ServiceColumnKey>>(
-    new Set(SERVICE_COLUMNS.map(c => c.key))
+    new Set(SERVICE_COLUMNS.map((column) => column.key))
   )
   const [visibleTaskCols, setVisibleTaskCols] = useState<Set<TaskColumnKey>>(
-    new Set(TASK_COLUMNS.map(c => c.key))
+    new Set(TASK_COLUMNS.map((column) => column.key))
   )
-
-  /* ── Data state ────────────────────────────────────────── */
   const [clusters, setClusters] = useState<Array<{ clusterArn: string; clusterName: string; activeServicesCount: number; runningTasksCount: number }>>([])
   const [selectedClusterArn, setSelectedClusterArn] = useState('')
   const [services, setServices] = useState<EcsServiceSummary[]>([])
   const [selectedServiceName, setSelectedServiceName] = useState('')
-  const [detail, setDetail] = useState<EcsServiceDetail | null>(null)
-  const [tasks, setTasks] = useState<EcsTaskSummary[]>([])
+  const [diagnostics, setDiagnostics] = useState<EcsServiceDiagnostics | null>(null)
+  const [selectedTaskArn, setSelectedTaskArn] = useState('')
+  const [selectedLogTargetKey, setSelectedLogTargetKey] = useState('')
   const [logs, setLogs] = useState<Array<{ timestamp: number; message: string }>>([])
-  const [logContainer, setLogContainer] = useState('')
-
-  /* ── Action state ──────────────────────────────────────── */
+  const [logStatus, setLogStatus] = useState('')
   const [desiredCount, setDesiredCount] = useState('1')
   const [appliedFocusToken, setAppliedFocusToken] = useState(0)
 
-  /* ── Derived ───────────────────────────────────────────── */
-  const selectedCluster = useMemo(() => clusters.find(c => c.clusterArn === selectedClusterArn) ?? null, [clusters, selectedClusterArn])
-
-  const activeServiceCols = SERVICE_COLUMNS.filter(c => visibleServiceCols.has(c.key))
-  const activeTaskCols = TASK_COLUMNS.filter(c => visibleTaskCols.has(c.key))
+  const activeServiceCols = SERVICE_COLUMNS.filter((column) => visibleServiceCols.has(column.key))
+  const activeTaskCols = TASK_COLUMNS.filter((column) => visibleTaskCols.has(column.key))
 
   const filteredServices = useMemo(() => {
     if (!search) return services
-    const q = search.toLowerCase()
-    return services.filter(svc =>
-      Array.from(visibleServiceCols).some(key => getServiceCellValue(svc, key).toLowerCase().includes(q))
+    const query = search.toLowerCase()
+    return services.filter((service) =>
+      Array.from(visibleServiceCols).some((key) => getServiceCellValue(service, key).toLowerCase().includes(query))
     )
-  }, [services, search, visibleServiceCols])
+  }, [search, services, visibleServiceCols])
 
+  const taskRows = diagnostics?.taskRows ?? []
   const filteredTasks = useMemo(() => {
-    if (!search) return tasks
-    const q = search.toLowerCase()
-    return tasks.filter(t => {
-      const taskId = t.taskArn.split('/').pop() ?? ''
-      return taskId.toLowerCase().includes(q) || t.lastStatus.toLowerCase().includes(q)
-    })
-  }, [tasks, search])
+    if (!search) return taskRows
+    const query = search.toLowerCase()
+    return taskRows.filter((task) =>
+      task.taskId.toLowerCase().includes(query) ||
+      task.lastStatus.toLowerCase().includes(query) ||
+      task.stoppedReason.toLowerCase().includes(query) ||
+      task.containers.some((container) => container.name.toLowerCase().includes(query) || container.image.toLowerCase().includes(query))
+    )
+  }, [search, taskRows])
 
-  /* ── Data loading ──────────────────────────────────────── */
+  const selectedTask = useMemo(() => {
+    if (!diagnostics) return null
+    return diagnostics.taskRows.find((task) => task.taskArn === selectedTaskArn) ?? diagnostics.taskRows[0] ?? diagnostics.selectedTask
+  }, [diagnostics, selectedTaskArn])
+
+  const selectedLogTarget = useMemo(() => {
+    if (!diagnostics) return null
+    const fallback = selectedTask
+      ? diagnostics.logTargets.find((target) => target.taskArn === selectedTask.taskArn && target.available) ?? null
+      : diagnostics.logTargets.find((target) => target.available) ?? null
+    return diagnostics.logTargets.find((target) => `${target.taskArn}:${target.containerName}` === selectedLogTargetKey) ?? fallback
+  }, [diagnostics, selectedLogTargetKey, selectedTask])
+
   async function load(clusterArn?: string, serviceName?: string) {
     setLoading(true)
     setError('')
@@ -138,27 +163,35 @@ export function EcsConsole({
       setClusters(nextClusters)
       const resolvedCluster = clusterArn ?? selectedClusterArn ?? nextClusters[0]?.clusterArn ?? ''
       setSelectedClusterArn(resolvedCluster)
-      if (!resolvedCluster) { setLoading(false); return }
+
+      if (!resolvedCluster) {
+        setServices([])
+        setDiagnostics(null)
+        return
+      }
 
       const nextServices = await listEcsServices(connection, resolvedCluster)
       setServices(nextServices)
       const resolvedService = serviceName ?? selectedServiceName ?? nextServices[0]?.serviceName ?? ''
       setSelectedServiceName(resolvedService)
 
-      if (resolvedService) {
-        const [nextDetail, nextTasks] = await Promise.all([
-          describeEcsService(connection, resolvedCluster, resolvedService),
-          listEcsTasks(connection, resolvedCluster, resolvedService)
-        ])
-        setDetail(nextDetail)
-        setDesiredCount(String(nextDetail.desiredCount))
-        setTasks(nextTasks)
-      } else {
-        setDetail(null)
-        setTasks([])
+      if (!resolvedService) {
+        setDiagnostics(null)
+        setLogs([])
+        setLogStatus('')
+        return
       }
+
+      const nextDiagnostics = await getEcsDiagnostics(connection, resolvedCluster, resolvedService)
+      setDiagnostics(nextDiagnostics)
+      setDesiredCount(String(nextDiagnostics.service.desiredCount))
+      const nextSelectedTaskArn = nextDiagnostics.taskRows[0]?.taskArn ?? ''
+      setSelectedTaskArn(nextSelectedTaskArn)
+      const nextLogTarget = nextDiagnostics.logTargets.find((target) => target.taskArn === nextSelectedTaskArn && target.available) ??
+        nextDiagnostics.logTargets.find((target) => target.available)
+      setSelectedLogTargetKey(nextLogTarget ? `${nextLogTarget.taskArn}:${nextLogTarget.containerName}` : '')
       setLogs([])
-      setLogContainer('')
+      setLogStatus('')
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -166,12 +199,12 @@ export function EcsConsole({
     }
   }
 
-useEffect(() => { void load() }, [connection.sessionId, connection.region])
+  useEffect(() => {
+    void load()
+  }, [connection.sessionId, connection.region])
 
   useEffect(() => {
-    if (!focusService || focusService.token === appliedFocusToken) {
-      return
-    }
+    if (!focusService || focusService.token === appliedFocusToken) return
 
     if (focusService.clusterArn && focusService.clusterArn !== selectedClusterArn) {
       setAppliedFocusToken(focusService.token)
@@ -180,35 +213,62 @@ useEffect(() => { void load() }, [connection.sessionId, connection.region])
     }
 
     const match = services.find((service) => service.serviceName === focusService.serviceName)
-    if (!match) {
-      return
-    }
+    if (!match) return
 
     setAppliedFocusToken(focusService.token)
     setMainTab('services')
     void selectService(match.serviceName)
   }, [appliedFocusToken, focusService, selectedClusterArn, services])
 
+  useEffect(() => {
+    if (!selectedLogTarget || !selectedLogTarget.available) {
+      setLogs([])
+      setLogStatus(selectedLogTarget ? selectedLogTarget.reason : '')
+      return
+    }
+
+    const logTarget = selectedLogTarget
+    let cancelled = false
+    async function run() {
+      setLogStatus('Loading logs...')
+      try {
+        const nextLogs = await getEcsContainerLogs(connection, logTarget.logGroup, logTarget.logStream)
+        if (cancelled) return
+        setLogs(nextLogs)
+        setLogStatus(nextLogs.length > 0 ? '' : 'No recent log lines were returned for this container.')
+      } catch (e) {
+        if (cancelled) return
+        setLogs([])
+        setLogStatus(e instanceof Error ? e.message : String(e))
+      }
+    }
+
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [connection, selectedLogTarget])
+
   async function selectService(serviceName: string) {
     setSelectedServiceName(serviceName)
-    setSideTab('overview')
     setMsg('')
+    setError('')
     setLogs([])
-    setLogContainer('')
+    setLogStatus('')
     try {
-      const [nextDetail, nextTasks] = await Promise.all([
-        describeEcsService(connection, selectedClusterArn, serviceName),
-        listEcsTasks(connection, selectedClusterArn, serviceName)
-      ])
-      setDetail(nextDetail)
-      setDesiredCount(String(nextDetail.desiredCount))
-      setTasks(nextTasks)
+      const nextDiagnostics = await getEcsDiagnostics(connection, selectedClusterArn, serviceName)
+      setDiagnostics(nextDiagnostics)
+      setDesiredCount(String(nextDiagnostics.service.desiredCount))
+      const nextSelectedTaskArn = nextDiagnostics.taskRows[0]?.taskArn ?? ''
+      setSelectedTaskArn(nextSelectedTaskArn)
+      const nextLogTarget = nextDiagnostics.logTargets.find((target) => target.taskArn === nextSelectedTaskArn && target.available) ??
+        nextDiagnostics.logTargets.find((target) => target.available)
+      setSelectedLogTargetKey(nextLogTarget ? `${nextLogTarget.taskArn}:${nextLogTarget.containerName}` : '')
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
   }
 
-  /* ── Actions ───────────────────────────────────────────── */
   async function doScale() {
     setBusy(true)
     setMsg('')
@@ -251,56 +311,57 @@ useEffect(() => { void load() }, [connection.sessionId, connection.region])
     }
   }
 
-  async function loadLogs(container: EcsContainerSummary) {
-    if (!container.logGroup || !container.logStream) return
-    setLogContainer(container.name)
-    try {
-      setLogs(await getEcsContainerLogs(connection, container.logGroup, container.logStream))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    }
+  function selectTask(taskArn: string) {
+    setSelectedTaskArn(taskArn)
+    const logTarget = diagnostics?.logTargets.find((target) => target.taskArn === taskArn && target.available) ?? null
+    setSelectedLogTargetKey(logTarget ? `${logTarget.taskArn}:${logTarget.containerName}` : '')
+  }
+
+  function selectContainerLog(container: EcsContainerSummary) {
+    if (!selectedTask) return
+    setSelectedLogTargetKey(`${selectedTask.taskArn}:${container.name}`)
   }
 
   function toggleServiceCol(key: ServiceColumnKey) {
-    setVisibleServiceCols(prev => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next })
+    setVisibleServiceCols((previous) => {
+      const next = new Set(previous)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
   }
 
   function toggleTaskCol(key: TaskColumnKey) {
-    setVisibleTaskCols(prev => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next })
+    setVisibleTaskCols((previous) => {
+      const next = new Set(previous)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
   }
 
-  if (loading) return <div className="ecs-empty">Loading ECS data...</div>
+  if (loading && !diagnostics && services.length === 0) {
+    return <div className="ecs-empty">Loading ECS deployment diagnostics...</div>
+  }
 
   return (
     <div className="ecs-console">
-      {/* ── Main tabs ─────────────────────────────────── */}
       <div className="ecs-tab-bar">
-        <button
-          className={`ecs-tab ${mainTab === 'services' ? 'active' : ''}`}
-          type="button"
-          onClick={() => setMainTab('services')}
-        >Services</button>
-        <button
-          className={`ecs-tab ${mainTab === 'tasks' ? 'active' : ''}`}
-          type="button"
-          onClick={() => setMainTab('tasks')}
-        >Tasks ({tasks.length})</button>
+        <button className={`ecs-tab ${mainTab === 'services' ? 'active' : ''}`} type="button" onClick={() => setMainTab('services')}>Services</button>
+        <button className={`ecs-tab ${mainTab === 'tasks' ? 'active' : ''}`} type="button" onClick={() => setMainTab('tasks')}>Tasks ({taskRows.length})</button>
         <button className="ecs-tab" type="button" onClick={() => void load(selectedClusterArn, selectedServiceName)} style={{ marginLeft: 'auto' }}>Refresh</button>
       </div>
 
       {error && <div className="ecs-error">{error}</div>}
       {msg && <div className="ecs-msg">{msg}</div>}
 
-      {/* ── Cluster selector ─────────────────────────── */}
       <div className="ecs-filter-bar">
         <span className="ecs-filter-label">Cluster</span>
-        <select
-          className="ecs-select"
-          value={selectedClusterArn}
-          onChange={e => void load(e.target.value)}
-        >
-          {clusters.map(c => (
-            <option key={c.clusterArn} value={c.clusterArn}>{c.clusterName} ({c.activeServicesCount} svc / {c.runningTasksCount} tasks)</option>
+        <select className="ecs-select" value={selectedClusterArn} onChange={(event) => void load(event.target.value)}>
+          {clusters.map((cluster) => (
+            <option key={cluster.clusterArn} value={cluster.clusterArn}>
+              {cluster.clusterName} ({cluster.activeServicesCount} svc / {cluster.runningTasksCount} tasks)
+            </option>
           ))}
           {!clusters.length && <option value="">No clusters</option>}
         </select>
@@ -308,233 +369,362 @@ useEffect(() => { void load() }, [connection.sessionId, connection.region])
 
       <input
         className="ecs-search-input"
-        placeholder="Filter rows across selected columns..."
+        placeholder="Filter services, tasks, reasons, and images..."
         value={search}
-        onChange={e => setSearch(e.target.value)}
+        onChange={(event) => setSearch(event.target.value)}
       />
 
       <div className="ecs-column-chips">
-        {(mainTab === 'services' ? SERVICE_COLUMNS : TASK_COLUMNS).map(col => {
+        {(mainTab === 'services' ? SERVICE_COLUMNS : TASK_COLUMNS).map((column) => {
           const active = mainTab === 'services'
-            ? visibleServiceCols.has(col.key as ServiceColumnKey)
-            : visibleTaskCols.has(col.key as TaskColumnKey)
+            ? visibleServiceCols.has(column.key as ServiceColumnKey)
+            : visibleTaskCols.has(column.key as TaskColumnKey)
+
           return (
             <button
-              key={col.key}
+              key={column.key}
               className={`ecs-chip ${active ? 'active' : ''}`}
               type="button"
-              style={active ? { background: col.color, borderColor: col.color, color: '#fff' } : undefined}
+              style={active ? { background: column.color, borderColor: column.color, color: '#fff' } : undefined}
               onClick={() => mainTab === 'services'
-                ? toggleServiceCol(col.key as ServiceColumnKey)
-                : toggleTaskCol(col.key as TaskColumnKey)
-              }
+                ? toggleServiceCol(column.key as ServiceColumnKey)
+                : toggleTaskCol(column.key as TaskColumnKey)}
             >
-              {col.label}
+              {column.label}
             </button>
           )
         })}
       </div>
 
-      {/* ── Main layout (table + sidebar) ─────────────── */}
-      <div className="ecs-main-layout">
-        <div className="ecs-table-area">
-          {mainTab === 'services' ? (
-            <>
-              <table className="ecs-data-table">
-                <thead>
-                  <tr>
-                    {activeServiceCols.map(col => <th key={col.key}>{col.label}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredServices.map(svc => (
-                    <tr
-                      key={svc.serviceName}
-                      className={svc.serviceName === selectedServiceName ? 'active' : ''}
-                      onClick={() => void selectService(svc.serviceName)}
-                    >
-                      {activeServiceCols.map(col => (
-                        <td key={col.key}>
-                          {col.key === 'status'
-                            ? <span className={`ecs-badge ${svc.status}`}>{svc.status}</span>
-                            : col.key === 'deploymentStatus'
-                            ? <span className={`ecs-badge ${svc.deploymentStatus}`}>{svc.deploymentStatus}</span>
-                            : getServiceCellValue(svc, col.key)
-                          }
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!filteredServices.length && <div className="ecs-empty">No services match filters.</div>}
-            </>
-          ) : (
-            <>
-              <table className="ecs-data-table">
-                <thead>
-                  <tr>
-                    {activeTaskCols.map(col => <th key={col.key}>{col.label}</th>)}
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredTasks.map(t => {
-                    const taskId = t.taskArn.split('/').pop() ?? t.taskArn
-                    return (
-                      <tr key={t.taskArn}>
-                        {activeTaskCols.map(col => (
-                          <td key={col.key}>
-                            {col.key === 'taskId' ? taskId
-                              : col.key === 'lastStatus' ? <span className={`ecs-badge ${t.lastStatus}`}>{t.lastStatus}</span>
-                              : col.key === 'startedAt' ? fmtTs(t.startedAt)
-                              : col.key === 'cpu' ? t.cpu
-                              : col.key === 'memory' ? t.memory
-                              : col.key === 'containers' ? (
-                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                  {t.containers.map(c => (
-                                    <button
-                                      key={c.name}
-                                      type="button"
-                                      className={`ecs-container-pill ${logContainer === c.name ? 'active' : ''}`}
-                                      onClick={() => void loadLogs(c)}
-                                    >
-                                      {c.name}
-                                    </button>
-                                  ))}
-                                </div>
-                              ) : ''
-                            }
-                          </td>
-                        ))}
-                        <td>
-                          <ConfirmButton
-                            className="ecs-action-btn stop"
-                            type="button"
-                            disabled={busy}
-                            confirmLabel="Confirm?"
-                            onConfirm={() => void doStopTask(t.taskArn)}
-                            style={{ padding: '3px 8px', fontSize: 11 }}
-                          >Stop</ConfirmButton>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-              {!filteredTasks.length && <div className="ecs-empty">No tasks running.</div>}
-            </>
-          )}
-        </div>
+      <div className="ecs-summary-grid">
+        {(diagnostics?.summaryTiles ?? []).map((tile) => (
+          <div key={tile.key} className={`ecs-summary-tile tone-${tile.tone}`}>
+            <div className="ecs-summary-label">{tile.label}</div>
+            <div className="ecs-summary-value">{tile.value}</div>
+            <div className="ecs-summary-detail">{tile.detail}</div>
+          </div>
+        ))}
+      </div>
 
-        {/* ── Sidebar ─────────────────────────────── */}
-        <div className="ecs-sidebar">
-          <div className="ecs-side-tabs">
-            <button className={sideTab === 'overview' ? 'active' : ''} type="button" onClick={() => setSideTab('overview')}>Overview</button>
-            <button className={sideTab === 'events' ? 'active' : ''} type="button" onClick={() => setSideTab('events')}>Events</button>
+      {!diagnostics && !loading && (
+        <div className="ecs-empty">Select a cluster and service to inspect deployment diagnostics.</div>
+      )}
+
+      {diagnostics && (
+        <div className="ecs-diagnostics-layout">
+          <div className="ecs-diagnostics-main">
+            <div className="ecs-main-layout">
+              <div className="ecs-table-area">
+                {mainTab === 'services' ? (
+                  <>
+                    <table className="ecs-data-table">
+                      <thead>
+                        <tr>
+                          {activeServiceCols.map((column) => <th key={column.key}>{column.label}</th>)}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredServices.map((service) => (
+                          <tr
+                            key={service.serviceName}
+                            className={service.serviceName === selectedServiceName ? 'active' : ''}
+                            onClick={() => void selectService(service.serviceName)}
+                          >
+                            {activeServiceCols.map((column) => (
+                              <td key={column.key}>
+                                {column.key === 'status'
+                                  ? <span className={`ecs-badge ${service.status}`}>{service.status}</span>
+                                  : column.key === 'deploymentStatus'
+                                  ? <span className={`ecs-badge ${service.deploymentStatus}`}>{service.deploymentStatus}</span>
+                                  : getServiceCellValue(service, column.key)}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {!filteredServices.length && <div className="ecs-empty">No services match the current filters.</div>}
+                  </>
+                ) : (
+                  <>
+                    <table className="ecs-data-table">
+                      <thead>
+                        <tr>
+                          {activeTaskCols.map((column) => <th key={column.key}>{column.label}</th>)}
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredTasks.map((task) => (
+                          <tr
+                            key={task.taskArn}
+                            className={task.taskArn === selectedTask?.taskArn ? 'active' : ''}
+                            onClick={() => selectTask(task.taskArn)}
+                          >
+                            {activeTaskCols.map((column) => (
+                              <td key={column.key}>
+                                {column.key === 'taskId' ? task.taskId
+                                  : column.key === 'lastStatus' ? <span className={`ecs-badge ${taskStateTone(task)}`}>{task.lastStatus}</span>
+                                  : column.key === 'health' ? <span className={`ecs-badge ${task.healthStatus}`}>{task.healthStatus}</span>
+                                  : column.key === 'startedAt' ? fmtTs(task.startedAt)
+                                  : column.key === 'stoppedReason' ? (task.stoppedReason || '-')
+                                  : (
+                                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                      {task.containers.map((container) => (
+                                        <button
+                                          key={`${task.taskArn}:${container.name}`}
+                                          type="button"
+                                          className={`ecs-container-pill ${selectedLogTargetKey === `${task.taskArn}:${container.name}` ? 'active' : ''}`}
+                                          onClick={(event) => {
+                                            event.stopPropagation()
+                                            setSelectedTaskArn(task.taskArn)
+                                            selectContainerLog(container)
+                                          }}
+                                        >
+                                          {container.name}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                              </td>
+                            ))}
+                            <td>
+                              <ConfirmButton
+                                className="ecs-action-btn stop"
+                                type="button"
+                                disabled={busy || task.lastStatus === 'STOPPED'}
+                                confirmLabel="Stop task?"
+                                onConfirm={() => void doStopTask(task.taskArn)}
+                                style={{ padding: '3px 8px', fontSize: 11 }}
+                              >
+                                Stop
+                              </ConfirmButton>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {!filteredTasks.length && <div className="ecs-empty">No tasks match the current filters.</div>}
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="ecs-panel-grid">
+              <section className="ecs-panel">
+                <div className="ecs-panel-header">
+                  <h3>Diagnostics Summary</h3>
+                  <span className="ecs-panel-subtitle">{diagnostics.service.serviceName}</span>
+                </div>
+                <div className="ecs-pattern-list">
+                  {diagnostics.likelyPatterns.map((pattern, index) => (
+                    <div key={`${index}-${pattern}`} className="ecs-pattern-item">{pattern}</div>
+                  ))}
+                </div>
+                <div className="ecs-health-list">
+                  {diagnostics.indicators.map((indicator) => (
+                    <div key={indicator.id} className={`ecs-health-item ${healthTone(indicator.severity)} ${indicator.status}`}>
+                      <div className="ecs-health-title-row">
+                        <div className="ecs-health-title">{indicator.title}</div>
+                        <span className={`ecs-status-pill ${indicator.status}`}>{indicator.status}</span>
+                      </div>
+                      <div className="ecs-health-detail">{indicator.detail}</div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section className="ecs-panel">
+                <div className="ecs-panel-header">
+                  <h3>Failure and Event Timeline</h3>
+                  <span className="ecs-panel-subtitle">{diagnostics.timeline.length} recent signals</span>
+                </div>
+                <div className="ecs-timeline">
+                  {diagnostics.timeline.map((item) => (
+                    <div key={item.id} className={`ecs-timeline-item ${item.severity}`}>
+                      <div className="ecs-timeline-meta">
+                        <span className="ecs-timeline-time">{fmtTs(item.timestamp)}</span>
+                        <span className={`ecs-status-pill ${item.category}`}>{item.category}</span>
+                      </div>
+                      <div className="ecs-timeline-title">{item.title}</div>
+                      <div className="ecs-timeline-detail">{item.detail}</div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </div>
           </div>
 
-          {sideTab === 'overview' && (
-            <>
-              {/* Service details */}
-              {detail && (
-                <div className="ecs-sidebar-section">
-                  <h3>Service Details</h3>
+          <aside className="ecs-sidebar">
+            <div className="ecs-sidebar-section">
+              <h3>Operator Actions</h3>
+              <div className="ecs-actions-grid">
+                <ConfirmButton className="ecs-action-btn redeploy" type="button" disabled={busy} confirmLabel="Deploy now?" onConfirm={() => void doRedeploy()}>
+                  Force Deployment
+                </ConfirmButton>
+                <button className="ecs-action-btn apply" type="button" disabled={!onRunTerminalCommand} onClick={() => onRunTerminalCommand?.(diagnosticsCommand(selectedClusterArn, selectedServiceName))}>
+                  Open Command
+                </button>
+              </div>
+              <div style={{ marginTop: 12 }}>
+                <div className="ecs-sidebar-hint">Update desired count explicitly</div>
+                <div className="ecs-inline-form">
+                  <input value={desiredCount} onChange={(event) => setDesiredCount(event.target.value)} style={{ width: 60, flex: 'none' }} />
+                  <button className="ecs-action-btn apply" type="button" disabled={busy} onClick={() => void doScale()}>Apply</button>
+                </div>
+              </div>
+            </div>
+
+            <div className="ecs-sidebar-section">
+              <h3>Service Detail</h3>
+              <KV items={[
+                ['Service', diagnostics.service.serviceName],
+                ['Status', diagnostics.service.status],
+                ['Task Def', diagnostics.service.taskDefinition.split('/').pop() ?? diagnostics.service.taskDefinition],
+                ['Rollout', diagnostics.service.deployments[0]?.rolloutState ?? '-'],
+                ['Running', `${diagnostics.service.runningCount}/${diagnostics.service.desiredCount}`],
+                ['Pending', String(diagnostics.service.pendingCount)],
+                ['Launch Type', diagnostics.service.launchType],
+                ['Created', fmtTs(diagnostics.service.createdAt)]
+              ]} />
+            </div>
+
+            <div className="ecs-sidebar-section">
+              <h3>Recent Deployments</h3>
+              {diagnostics.recentDeployments.length > 0 ? (
+                <table className="ecs-deploy-table">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>State</th>
+                      <th>Counts</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {diagnostics.recentDeployments.map((deployment) => (
+                      <tr key={deployment.id}>
+                        <td title={deployment.taskDefinition}>{deployment.id.slice(0, 8)}</td>
+                        <td><span className={`ecs-badge ${deployment.rolloutState}`}>{deployment.rolloutState}</span></td>
+                        <td>{deployment.runningCount}/{deployment.desiredCount}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="ecs-empty">No deployment history returned.</div>
+              )}
+            </div>
+
+            <div className="ecs-sidebar-section">
+              <h3>Selected Task</h3>
+              {selectedTask ? (
+                <>
                   <KV items={[
-                    ['Service', detail.serviceName],
-                    ['Status', detail.status],
-                    ['Task Def', detail.taskDefinition.split('/').pop() ?? detail.taskDefinition],
-                    ['Running', `${detail.runningCount}/${detail.desiredCount}`],
-                    ['Pending', String(detail.pendingCount)],
-                    ['Launch Type', detail.launchType],
-                    ['Platform', detail.platformVersion],
-                    ['Network', detail.networkMode],
-                    ['Public IP', detail.assignPublicIp],
-                    ['Created', fmtTs(detail.createdAt)],
+                    ['Task ID', selectedTask.taskId],
+                    ['Status', selectedTask.lastStatus],
+                    ['Desired', selectedTask.desiredStatus],
+                    ['Health', selectedTask.healthStatus],
+                    ['Started', fmtTs(selectedTask.startedAt)],
+                    ['Stopped', fmtTs(selectedTask.stoppedAt)],
+                    ['Stop Reason', selectedTask.stoppedReason || '-']
                   ]} />
-                </div>
-              )}
-
-              {/* Actions */}
-              {detail && (
-                <div className="ecs-sidebar-section">
-                  <h3>Service Actions</h3>
-                  <div className="ecs-actions-grid">
-                    <button className="ecs-action-btn redeploy" type="button" disabled={busy} onClick={() => void doRedeploy()}>Force Redeploy</button>
-                  </div>
-                  <div style={{ marginTop: 12 }}>
-                    <div className="ecs-sidebar-hint">Scale desired count</div>
-                    <div className="ecs-inline-form">
-                      <input value={desiredCount} onChange={e => setDesiredCount(e.target.value)} style={{ width: 60, flex: 'none' }} />
-                      <button className="ecs-action-btn apply" type="button" disabled={busy} onClick={() => void doScale()}>Apply</button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Deployments */}
-              {detail && detail.deployments.length > 0 && (
-                <div className="ecs-sidebar-section">
-                  <h3>Deployments</h3>
-                  <table className="ecs-deploy-table">
-                    <thead><tr><th>ID</th><th>State</th><th>Counts</th></tr></thead>
-                    <tbody>
-                      {detail.deployments.map(d => (
-                        <tr key={d.id}>
-                          <td title={d.taskDefinition}>{d.id.slice(0, 8)}</td>
-                          <td><span className={`ecs-badge ${d.rolloutState}`}>{d.rolloutState}</span></td>
-                          <td>{d.runningCount}/{d.desiredCount}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              {/* Container Logs */}
-              <div className="ecs-sidebar-section">
-                <h3>Container Logs {logContainer ? `(${logContainer})` : ''}</h3>
-                {logs.length > 0 ? (
-                  <div className="ecs-log-viewer">
-                    {logs.map((item, i) => (
-                      <div key={`${item.timestamp}-${i}`} className="ecs-log-line">
-                        <span className="ecs-log-timestamp">{new Date(item.timestamp).toLocaleTimeString()}</span>
-                        {item.message}
+                  <div className="ecs-task-detail-list">
+                    {selectedTask.containers.map((container) => (
+                      <div key={`${selectedTask.taskArn}:${container.name}`} className="ecs-task-detail-card">
+                        <div className="ecs-task-detail-header">
+                          <strong>{container.name}</strong>
+                          <button
+                            type="button"
+                            className={`ecs-container-pill ${selectedLogTargetKey === `${selectedTask.taskArn}:${container.name}` ? 'active' : ''}`}
+                            onClick={() => selectContainerLog(container)}
+                          >
+                            Logs
+                          </button>
+                        </div>
+                        <KV items={[
+                          ['Image', container.image],
+                          ['Exit Code', container.exitCode === null ? '-' : String(container.exitCode)],
+                          ['Reason', container.reason || '-'],
+                          ['Health', container.healthStatus],
+                          ['Log Group', container.logGroup || '-'],
+                          ['Log Stream', container.logStream || '-']
+                        ]} />
                       </div>
                     ))}
                   </div>
-                ) : (
-                  <div className="ecs-empty">Click a container pill in the Tasks table to view logs.</div>
-                )}
-              </div>
+                </>
+              ) : (
+                <div className="ecs-empty">No task selected.</div>
+              )}
+            </div>
 
-              {!detail && (
-                <div className="ecs-sidebar-section">
-                  <div className="ecs-empty">Select a service to view details.</div>
+            <div className="ecs-sidebar-section">
+              <h3>Task Definition and Images</h3>
+              {diagnostics.taskDefinition ? (
+                <>
+                  <KV items={[
+                    ['Family', diagnostics.taskDefinition.family],
+                    ['Revision', String(diagnostics.taskDefinition.revision)],
+                    ['Network', diagnostics.taskDefinition.networkMode],
+                    ['Execution Role', diagnostics.taskDefinition.executionRoleArn || '-'],
+                    ['Task Role', diagnostics.taskDefinition.taskRoleArn || '-']
+                  ]} />
+                  <div className="ecs-image-list">
+                    {diagnostics.taskDefinition.containerImages.map((container) => (
+                      <div key={container.name} className="ecs-image-item">
+                        <div className="ecs-image-title">{container.name}</div>
+                        <div className="ecs-image-ref">{container.image}</div>
+                        <div className="ecs-image-meta">
+                          {container.logGroup ? `logs: ${container.logGroup}` : 'logs: not configured'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="ecs-empty">Task definition details were not returned.</div>
+              )}
+            </div>
+
+            <div className="ecs-sidebar-section">
+              <h3>Focused Logs</h3>
+              {selectedLogTarget && (
+                <div className="ecs-sidebar-hint">
+                  {selectedLogTarget.taskId} / {selectedLogTarget.containerName}
                 </div>
               )}
-            </>
-          )}
-
-          {sideTab === 'events' && (
-            <div className="ecs-sidebar-section">
-              <h3>Service Events</h3>
-              {detail && detail.events.length > 0 ? (
-                <div className="ecs-event-list">
-                  {detail.events.map(ev => (
-                    <div key={ev.id} className="ecs-event-item">
-                      <span className="ecs-event-time">{fmtTs(ev.createdAt)}</span>
-                      {ev.message}
+              {logs.length > 0 ? (
+                <div className="ecs-log-viewer">
+                  {logs.map((item, index) => (
+                    <div key={`${item.timestamp}-${index}`} className="ecs-log-line">
+                      <span className="ecs-log-timestamp">{new Date(item.timestamp).toLocaleTimeString()}</span>
+                      {item.message}
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="ecs-empty">{detail ? 'No recent events.' : 'Select a service to view events.'}</div>
+                <div className="ecs-empty">{logStatus || 'Select a task or container with logs to inspect output.'}</div>
               )}
             </div>
-          )}
+
+            <div className="ecs-sidebar-section">
+              <h3>Recent Service Events</h3>
+              {diagnostics.service.events.length > 0 ? (
+                <div className="ecs-event-list">
+                  {diagnostics.service.events.map((event) => (
+                    <div key={event.id} className="ecs-event-item">
+                      <span className="ecs-event-time">{fmtTs(event.createdAt)}</span>
+                      {event.message}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="ecs-empty">No recent service events.</div>
+              )}
+            </div>
+          </aside>
         </div>
-      </div>
+      )}
     </div>
   )
 }

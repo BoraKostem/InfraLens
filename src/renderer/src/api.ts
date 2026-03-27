@@ -240,6 +240,7 @@ const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
   listEcsClusters: 'ecs',
   listEcsServices: 'ecs',
   describeEcsService: 'ecs',
+  getEcsDiagnostics: 'ecs',
   listEcsTasks: 'ecs',
   getEcsContainerLogs: 'ecs',
   listVpcs: 'vpc',
@@ -788,6 +789,10 @@ export async function listEcsServices(connection: AwsConnection, clusterArn: str
 
 export async function describeEcsService(connection: AwsConnection, clusterArn: string, serviceName: string) {
   return unwrap((await awsBridge().describeEcsService(connection, clusterArn, serviceName)) as Wrapped<import('@shared/types').EcsServiceDetail>)
+}
+
+export async function getEcsDiagnostics(connection: AwsConnection, clusterArn: string, serviceName: string) {
+  return unwrap((await awsBridge().getEcsDiagnostics(connection, clusterArn, serviceName)) as Wrapped<import('@shared/types').EcsServiceDiagnostics>)
 }
 
 export async function listEcsTasks(connection: AwsConnection, clusterArn: string, serviceName?: string) {
