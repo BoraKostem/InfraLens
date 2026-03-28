@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 
 import type {
+  ComparisonRequest,
+  ComparisonResult,
   AccessKeyOwnership,
   AcmCertificateDetail,
   AcmCertificateSummary,
@@ -150,6 +152,7 @@ export type AwsActivityState = {
 type AwsLensBridge = Window['awsLens']
 export type CacheTag =
   | 'shell'
+  | 'compare'
   | 'overview'
   | 'compliance-center'
   | 'ec2'
@@ -200,6 +203,7 @@ const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
   listRegions: 'shell',
   listServices: 'shell',
   getCallerIdentity: 'shell',
+  runComparison: 'compare',
   getOverviewMetrics: 'overview',
   getOverviewStatistics: 'overview',
   getComplianceReport: 'compliance-center',
@@ -659,6 +663,10 @@ export async function listRegions(): Promise<AwsRegionOption[]> {
 
 export async function getSessionHubState(): Promise<SessionHubState> {
   return unwrap((await awsBridge().getSessionHubState()) as Wrapped<SessionHubState>)
+}
+
+export async function runComparison(request: ComparisonRequest): Promise<ComparisonResult> {
+  return unwrap((await awsBridge().runComparison(request)) as Wrapped<ComparisonResult>)
 }
 
 export async function saveAssumeRoleTarget(target: Omit<AwsAssumeRoleTarget, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<AwsAssumeRoleTarget> {

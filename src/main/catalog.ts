@@ -4,6 +4,7 @@ export const SERVICE_CATALOG: ServiceDescriptor[] = [
   { id: 'terraform', label: 'Terraform', category: 'Infrastructure', migrated: false },
   { id: 'overview', label: 'Overview', category: 'Catalog', migrated: true },
   { id: 'session-hub', label: 'Session Hub', category: 'Security', migrated: true },
+  { id: 'compare', label: 'Compare', category: 'Security', migrated: true },
   { id: 'compliance-center', label: 'Compliance Center', category: 'Security', migrated: true },
   { id: 'ec2', label: 'EC2', category: 'Compute', migrated: false },
   { id: 'cloudwatch', label: 'CloudWatch', category: 'Management', migrated: true },

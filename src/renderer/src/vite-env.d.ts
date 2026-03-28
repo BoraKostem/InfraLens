@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 import type {
+  ComparisonRequest,
   AssumeRoleRequest,
   AwsAssumeRoleTarget,
   AwsConnection,
@@ -24,6 +25,7 @@ declare global {
       saveCredentials: (profileName: string, accessKeyId: string, secretAccessKey: string) => Promise<unknown>
       listRegions: () => Promise<unknown>
       getSessionHubState: () => Promise<unknown>
+      runComparison: (request: ComparisonRequest) => Promise<unknown>
       saveAssumeRoleTarget: (target: Omit<AwsAssumeRoleTarget, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => Promise<unknown>
       deleteAssumeRoleTarget: (targetId: string) => Promise<unknown>
       deleteAssumedSession: (sessionId: string) => Promise<unknown>
