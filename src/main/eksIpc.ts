@@ -15,6 +15,7 @@ import {
   listEksUpdates,
   updateEksNodegroupScaling
 } from './aws/eks'
+import { generateEksObservabilityReport } from './aws/observabilityLab'
 
 type HandlerResult<T> = { ok: true; data: T } | { ok: false; error: string }
 
@@ -57,6 +58,9 @@ export function registerEksIpcHandlers(): void {
   )
   ipcMain.handle('eks:prepare-kubectl-session', async (_event, connection: AwsConnection, clusterName: string) =>
     wrap(() => createTempEksKubeconfig(connection, clusterName))
+  )
+  ipcMain.handle('eks:get-observability-report', async (_event, connection: AwsConnection, clusterName: string) =>
+    wrap(() => generateEksObservabilityReport(connection, clusterName))
   )
 
   ipcMain.handle(

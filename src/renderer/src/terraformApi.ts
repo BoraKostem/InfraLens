@@ -1,4 +1,5 @@
 import type {
+  ObservabilityPostureReport,
   TerraformCliInfo,
   TerraformCommandLog,
   TerraformCommandRequest,
@@ -40,6 +41,10 @@ export async function getProject(profileName: string, projectId: string): Promis
 
 export async function getDrift(profileName: string, projectId: string, connection: { profile: string; region: string }): Promise<TerraformDriftReport> {
   return unwrap(await bridge().getDrift(profileName, projectId, connection) as Wrapped<TerraformDriftReport>)
+}
+
+export async function getObservabilityReport(profileName: string, projectId: string, connection: { profile: string; region: string }): Promise<ObservabilityPostureReport> {
+  return unwrap(await bridge().getObservabilityReport(profileName, projectId, connection) as Wrapped<ObservabilityPostureReport>)
 }
 
 export async function chooseProjectDirectory(): Promise<string> {

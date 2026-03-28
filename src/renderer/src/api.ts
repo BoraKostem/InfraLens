@@ -116,6 +116,7 @@ import type {
   CostBreakdown,
   OverviewMetrics,
   OverviewStatistics,
+  ObservabilityPostureReport,
   RelationshipMap,
   TagSearchResult,
   VpcTopology,
@@ -829,6 +830,10 @@ export async function runEksCommand(
   return unwrap((await awsBridge().runEksCommand(connection, clusterName, kubeconfigPath, command)) as Wrapped<string>)
 }
 
+export async function getEksObservabilityReport(connection: AwsConnection, clusterName: string): Promise<ObservabilityPostureReport> {
+  return unwrap((await awsBridge().getEksObservabilityReport(connection, clusterName)) as Wrapped<ObservabilityPostureReport>)
+}
+
 export async function listEcsClusters(connection: AwsConnection) {
   return unwrap((await awsBridge().listEcsClusters(connection)) as Wrapped<import('@shared/types').EcsClusterSummary[]>)
 }
@@ -843,6 +848,10 @@ export async function describeEcsService(connection: AwsConnection, clusterArn: 
 
 export async function getEcsDiagnostics(connection: AwsConnection, clusterArn: string, serviceName: string) {
   return unwrap((await awsBridge().getEcsDiagnostics(connection, clusterArn, serviceName)) as Wrapped<import('@shared/types').EcsServiceDiagnostics>)
+}
+
+export async function getEcsObservabilityReport(connection: AwsConnection, clusterArn: string, serviceName: string): Promise<ObservabilityPostureReport> {
+  return unwrap((await awsBridge().getEcsObservabilityReport(connection, clusterArn, serviceName)) as Wrapped<ObservabilityPostureReport>)
 }
 
 export async function listEcsTasks(connection: AwsConnection, clusterArn: string, serviceName?: string) {

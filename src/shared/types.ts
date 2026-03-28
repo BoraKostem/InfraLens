@@ -1827,6 +1827,147 @@ export type EcsServiceDiagnostics = {
   logTargets: EcsDiagnosticsLogTarget[]
 }
 
+export type PrerequisiteLevel = 'none' | 'optional' | 'required'
+
+export type SetupEffort = 'none' | 'low' | 'medium' | 'high'
+
+export type ObservabilityLabScope =
+  | {
+      kind: 'eks'
+      connection: Pick<AwsConnection, 'kind' | 'label' | 'profile' | 'region' | 'sessionId'>
+      clusterName: string
+    }
+  | {
+      kind: 'ecs'
+      connection: Pick<AwsConnection, 'kind' | 'label' | 'profile' | 'region' | 'sessionId'>
+      clusterArn: string
+      serviceName: string
+    }
+  | {
+      kind: 'terraform'
+      connection: Pick<AwsConnection, 'kind' | 'label' | 'profile' | 'region' | 'sessionId'>
+      projectId: string
+      projectName: string
+      rootPath: string
+    }
+
+export type ObservabilityFindingCategory =
+  | 'logs'
+  | 'metrics'
+  | 'traces'
+  | 'deployment'
+  | 'chaos'
+  | 'rollback'
+
+export type ObservabilityFindingSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info'
+
+export type GeneratedArtifactType =
+  | 'yaml'
+  | 'shell-command'
+  | 'terraform-snippet'
+  | 'json-template'
+  | 'otel-collector-config'
+  | 'kubectl-patch'
+
+export type GeneratedArtifact = {
+  id: string
+  title: string
+  type: GeneratedArtifactType
+  language: 'yaml' | 'bash' | 'hcl' | 'json' | 'text'
+  summary: string
+  content: string
+  copyLabel: string
+  runLabel: string
+  isRunnable: boolean
+  safety: string
+}
+
+export type RollbackNote = {
+  summary: string
+  steps: string[]
+}
+
+export type ObservabilityRecommendationType =
+  | 'command'
+  | 'yaml'
+  | 'terraform'
+  | 'json'
+  | 'manual-check'
+
+export type ObservabilityRecommendation = {
+  id: string
+  title: string
+  type: ObservabilityRecommendationType
+  summary: string
+  rationale: string
+  expectedBenefit: string
+  risk: string
+  rollback: string
+  prerequisiteLevel: PrerequisiteLevel
+  setupEffort: SetupEffort
+  labels: string[]
+  artifact?: GeneratedArtifact
+}
+
+export type ObservabilityFinding = {
+  id: string
+  title: string
+  severity: ObservabilityFindingSeverity
+  category: ObservabilityFindingCategory
+  summary: string
+  detail: string
+  evidence: string[]
+  impact: string
+  inference: boolean
+  recommendedActionIds: string[]
+}
+
+export type ResilienceExperimentSuggestion = {
+  id: string
+  title: string
+  summary: string
+  hypothesis: string
+  blastRadius: string
+  prerequisites: string[]
+  rollback: string
+  setupEffort: SetupEffort
+  prerequisiteLevel: PrerequisiteLevel
+  artifact?: GeneratedArtifact
+}
+
+export type ObservabilityPostureArea = {
+  id: string
+  label: string
+  value: string
+  tone: 'good' | 'mixed' | 'weak'
+  detail: string
+}
+
+export type CorrelatedSignalReference = {
+  id: string
+  title: string
+  detail: string
+  serviceId: ServiceId
+  targetView: 'overview' | 'timeline' | 'logs' | 'drift' | 'tasks' | 'services'
+}
+
+export type ObservabilityPostureReport = {
+  generatedAt: string
+  scope: ObservabilityLabScope
+  summary: ObservabilityPostureArea[]
+  findings: ObservabilityFinding[]
+  recommendations: ObservabilityRecommendation[]
+  experiments: ResilienceExperimentSuggestion[]
+  artifacts: GeneratedArtifact[]
+  safetyNotes: Array<{
+    title: string
+    blastRadius: string
+    prerequisites: string[]
+    rollback: string
+  }>
+  correlatedSignals: CorrelatedSignalReference[]
+}
+
 /* ── IAM ─────────────────────────────────────────────────── */
 
 export type IamUserSummary = {

@@ -3,24 +3,29 @@ import './ecs.css'
 
 import type {
   AwsConnection,
+  CorrelatedSignalReference,
   EcsContainerSummary,
   EcsDiagnosticsIndicator,
   EcsDiagnosticsTaskRow,
   EcsServiceDiagnostics,
-  EcsServiceSummary
+  EcsServiceSummary,
+  GeneratedArtifact,
+  ObservabilityPostureReport
 } from '@shared/types'
 import {
   forceEcsRedeploy,
   getEcsContainerLogs,
   getEcsDiagnostics,
+  getEcsObservabilityReport,
   listEcsClusters,
   listEcsServices,
   stopEcsTask,
   updateEcsDesiredCount
 } from './api'
 import { ConfirmButton } from './ConfirmButton'
+import { ObservabilityResilienceLab } from './ObservabilityResilienceLab'
 
-type MainTab = 'services' | 'tasks'
+type MainTab = 'services' | 'tasks' | 'lab'
 type ServiceColumnKey = 'serviceName' | 'status' | 'running' | 'launchType' | 'taskDefinition' | 'deploymentStatus'
 type TaskColumnKey = 'taskId' | 'lastStatus' | 'health' | 'startedAt' | 'stoppedReason' | 'containers'
 
@@ -118,6 +123,9 @@ export function EcsConsole({
   const [logStatus, setLogStatus] = useState('')
   const [desiredCount, setDesiredCount] = useState('1')
   const [appliedFocusToken, setAppliedFocusToken] = useState(0)
+  const [labReport, setLabReport] = useState<ObservabilityPostureReport | null>(null)
+  const [labLoading, setLabLoading] = useState(false)
+  const [labError, setLabError] = useState('')
 
   const activeServiceCols = SERVICE_COLUMNS.filter((column) => visibleServiceCols.has(column.key))
   const activeTaskCols = TASK_COLUMNS.filter((column) => visibleTaskCols.has(column.key))
@@ -184,6 +192,8 @@ export function EcsConsole({
 
       const nextDiagnostics = await getEcsDiagnostics(connection, resolvedCluster, resolvedService)
       setDiagnostics(nextDiagnostics)
+      setLabReport(null)
+      setLabError('')
       setDesiredCount(String(nextDiagnostics.service.desiredCount))
       const nextSelectedTaskArn = nextDiagnostics.taskRows[0]?.taskArn ?? ''
       setSelectedTaskArn(nextSelectedTaskArn)
@@ -248,6 +258,26 @@ export function EcsConsole({
       cancelled = true
     }
   }, [connection, selectedLogTarget])
+
+  async function loadLab() {
+    if (!selectedClusterArn || !selectedServiceName) return
+    setLabLoading(true)
+    setLabError('')
+    try {
+      const report = await getEcsObservabilityReport(connection, selectedClusterArn, selectedServiceName)
+      setLabReport(report)
+    } catch (e) {
+      setLabError(e instanceof Error ? e.message : 'Failed to load observability lab')
+    } finally {
+      setLabLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (mainTab !== 'lab' || !selectedServiceName) return
+    if (labReport?.scope.kind === 'ecs' && labReport.scope.serviceName === selectedServiceName) return
+    void loadLab()
+  }, [connection, labReport, mainTab, selectedClusterArn, selectedServiceName])
 
   async function selectService(serviceName: string) {
     setSelectedServiceName(serviceName)
@@ -340,6 +370,17 @@ export function EcsConsole({
     })
   }
 
+  function handleLabArtifactRun(artifact: GeneratedArtifact) {
+    onRunTerminalCommand?.(artifact.content)
+    setMsg('Artifact command opened in terminal')
+  }
+
+  function handleLabSignalNavigate(signal: CorrelatedSignalReference) {
+    if (signal.targetView === 'logs' || signal.targetView === 'services') {
+      setMainTab(signal.targetView === 'logs' ? 'tasks' : 'services')
+    }
+  }
+
   if (loading && !diagnostics && services.length === 0) {
     return <div className="ecs-empty">Loading ECS deployment diagnostics...</div>
   }
@@ -349,6 +390,7 @@ export function EcsConsole({
       <div className="ecs-tab-bar">
         <button className={`ecs-tab ${mainTab === 'services' ? 'active' : ''}`} type="button" onClick={() => setMainTab('services')}>Services</button>
         <button className={`ecs-tab ${mainTab === 'tasks' ? 'active' : ''}`} type="button" onClick={() => setMainTab('tasks')}>Tasks ({taskRows.length})</button>
+        <button className={`ecs-tab ${mainTab === 'lab' ? 'active' : ''}`} type="button" onClick={() => setMainTab('lab')}>Resilience Lab</button>
         <button className="ecs-tab" type="button" onClick={() => void load(selectedClusterArn, selectedServiceName)} style={{ marginLeft: 'auto' }}>Refresh</button>
       </div>
 
@@ -367,34 +409,38 @@ export function EcsConsole({
         </select>
       </div>
 
-      <input
-        className="ecs-search-input"
-        placeholder="Filter services, tasks, reasons, and images..."
-        value={search}
-        onChange={(event) => setSearch(event.target.value)}
-      />
+      {mainTab !== 'lab' && (
+        <>
+          <input
+            className="ecs-search-input"
+            placeholder="Filter services, tasks, reasons, and images..."
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
 
-      <div className="ecs-column-chips">
-        {(mainTab === 'services' ? SERVICE_COLUMNS : TASK_COLUMNS).map((column) => {
-          const active = mainTab === 'services'
-            ? visibleServiceCols.has(column.key as ServiceColumnKey)
-            : visibleTaskCols.has(column.key as TaskColumnKey)
+          <div className="ecs-column-chips">
+            {(mainTab === 'services' ? SERVICE_COLUMNS : TASK_COLUMNS).map((column) => {
+              const active = mainTab === 'services'
+                ? visibleServiceCols.has(column.key as ServiceColumnKey)
+                : visibleTaskCols.has(column.key as TaskColumnKey)
 
-          return (
-            <button
-              key={column.key}
-              className={`ecs-chip ${active ? 'active' : ''}`}
-              type="button"
-              style={active ? { background: column.color, borderColor: column.color, color: '#fff' } : undefined}
-              onClick={() => mainTab === 'services'
-                ? toggleServiceCol(column.key as ServiceColumnKey)
-                : toggleTaskCol(column.key as TaskColumnKey)}
-            >
-              {column.label}
-            </button>
-          )
-        })}
-      </div>
+              return (
+                <button
+                  key={column.key}
+                  className={`ecs-chip ${active ? 'active' : ''}`}
+                  type="button"
+                  style={active ? { background: column.color, borderColor: column.color, color: '#fff' } : undefined}
+                  onClick={() => mainTab === 'services'
+                    ? toggleServiceCol(column.key as ServiceColumnKey)
+                    : toggleTaskCol(column.key as TaskColumnKey)}
+                >
+                  {column.label}
+                </button>
+              )
+            })}
+          </div>
+        </>
+      )}
 
       <div className="ecs-summary-grid">
         {(diagnostics?.summaryTiles ?? []).map((tile) => (
@@ -410,7 +456,18 @@ export function EcsConsole({
         <div className="ecs-empty">Select a cluster and service to inspect deployment diagnostics.</div>
       )}
 
-      {diagnostics && (
+      {mainTab === 'lab' && (
+        <ObservabilityResilienceLab
+          report={labReport}
+          loading={labLoading}
+          error={labError}
+          onRefresh={() => void loadLab()}
+          onRunArtifact={handleLabArtifactRun}
+          onNavigateSignal={handleLabSignalNavigate}
+        />
+      )}
+
+      {diagnostics && mainTab !== 'lab' && (
         <div className="ecs-diagnostics-layout">
           <div className="ecs-diagnostics-main">
             <div className="ecs-main-layout">

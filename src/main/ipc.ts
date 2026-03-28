@@ -43,6 +43,7 @@ import {
   putUserInlinePolicy, removeUserFromGroup, simulatePolicy,
   updateAccessKeyStatus, updateRoleTrustPolicy
 } from './aws/iam'
+import { generateTerraformObservabilityReport } from './aws/observabilityLab'
 
 type HandlerResult<T> = { ok: true; data: T } | { ok: false; error: string }
 const execFileAsync = promisify(execFile)
@@ -139,6 +140,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('terraform:projects:reload', async (_event, profileName: string, projectId: string) => wrap(() => getProject(profileName, projectId)))
   ipcMain.handle('terraform:drift:get', async (_event, profileName: string, projectId: string, connection: AwsConnection) =>
     wrap(() => getTerraformDriftReport(profileName, projectId, connection))
+  )
+  ipcMain.handle('terraform:observability-report:get', async (_event, profileName: string, projectId: string, connection: AwsConnection) =>
+    wrap(() => generateTerraformObservabilityReport(profileName, projectId, connection))
   )
   ipcMain.handle('terraform:inputs:update', async (_event, profileName: string, projectId: string, inputs: Record<string, unknown>, varFile?: string) =>
     wrap(() => updateProjectInputs(profileName, projectId, inputs, varFile))
