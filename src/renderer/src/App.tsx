@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import appLogoUrl from '../../../assets/aws-lens-logo.png'
-import type { AppReleaseInfo, ServiceDescriptor, ServiceId } from '@shared/types'
+import type { AppReleaseInfo, ComparisonRequest, ServiceDescriptor, ServiceId } from '@shared/types'
 import { chooseAndImportConfig, closeAwsTerminal, deleteProfile, getAppReleaseInfo, invalidateAllPageCaches, invalidatePageCache, listServices, openExternalUrl, saveCredentials, useAwsActivity, type CacheTag } from './api'
 import { AcmConsole } from './AcmConsole'
 import { AutoScalingConsole } from './AutoScalingConsole'
 import { AwsTerminalPanel } from './AwsTerminalPanel'
 import { CloudFormationConsole } from './CloudFormationConsole'
+import { CompareWorkspace } from './CompareWorkspace'
 import { ComplianceCenter } from './ComplianceCenter'
 import { CloudTrailConsole } from './CloudTrailConsole'
 import { CloudWatchConsole } from './CloudWatchConsole'
@@ -40,6 +41,7 @@ type Screen = 'profiles' | 'direct-access' | ServiceId
 type PendingTerminalCommand = { id: number; command: string } | null
 type RefreshState = { screen: Screen; sawPending: boolean } | null
 type FabMode = 'closed' | 'menu' | 'credentials'
+type CompareSeed = { token: number; request: ComparisonRequest } | null
 const PINNED_SERVICES_STORAGE_KEY = 'aws-lens:pinned-services'
 type Route53Focus = {
   token: number
@@ -89,6 +91,7 @@ const SERVICE_DESCRIPTIONS: Record<ServiceId, string> = {
   terraform: 'Terraform project browser and command execution workspace.',
   overview: 'Regional summary landing page across AWS services.',
   'session-hub': 'Saved assume-role targets, active temporary sessions, activation, expiration, and cross-account comparison.',
+  compare: 'Diff-oriented workspace for comparing two account or region contexts across inventory, posture, tags, and cost signals.',
   'compliance-center': 'Operational and security findings workspace with grouped policy checks and guided remediation.',
   ec2: 'Instances, snapshots, IAM profiles, bastions, and instance actions.',
   cloudwatch: 'Metrics, logs, and recent service telemetry.',
@@ -121,6 +124,7 @@ const IMPLEMENTED_SCREENS = new Set<ServiceId>([
   'terraform',
   'overview',
   'session-hub',
+  'compare',
   'compliance-center',
   'ec2',
   'cloudwatch',
@@ -263,6 +267,7 @@ function PlaceholderScreen({ service }: { service: ServiceDescriptor }) {
 function screenCacheTag(screen: Screen): CacheTag | null {
   switch (screen) {
     case 'overview':
+    case 'compare':
     case 'compliance-center':
     case 'ec2':
     case 'cloudwatch':
@@ -339,6 +344,7 @@ export function App() {
   const [lambdaFocus, setLambdaFocus] = useState<LambdaFocus | null>(null)
   const [ecsFocus, setEcsFocus] = useState<EcsFocus | null>(null)
   const [eksFocus, setEksFocus] = useState<EksFocus | null>(null)
+  const [compareSeed, setCompareSeed] = useState<CompareSeed>(null)
   const connectionState = useAwsPageConnection('us-east-1')
   const awsActivity = useAwsActivity()
 
@@ -451,6 +457,13 @@ export function App() {
         ? current.filter((id) => id !== serviceId)
         : [...current, serviceId]
     )
+  }
+
+  function navigateToService(serviceId: ServiceId, region?: string): void {
+    if (region) {
+      connectionState.setRegion(region)
+    }
+    setScreen(serviceId)
   }
 
   function renderServiceLink(service: ServiceDescriptor, options?: { pinned?: boolean }) {
@@ -709,6 +722,10 @@ export function App() {
       return (
         <SessionHub
           connectionState={connectionState}
+          onOpenCompare={(request) => {
+            setCompareSeed({ token: Date.now(), request })
+            setScreen('compare')
+          }}
           onOpenTerminal={(connection) => {
             setTerminalOpen(true)
             setPendingTerminalCommand(null)
@@ -716,6 +733,16 @@ export function App() {
               connectionState.activateSession(connection.sessionId)
             }
           }}
+        />
+      )
+    }
+
+    if (targetScreen === 'compare') {
+      return (
+        <CompareWorkspace
+          connectionState={connectionState}
+          seed={compareSeed}
+          onNavigate={navigateToService}
         />
       )
     }

@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 import type {
+  ComparisonRequest,
   AssumeRoleRequest,
   AwsAssumeRoleTarget,
   AwsConnection,
@@ -28,6 +29,7 @@ const awsLensApi = {
     ipcRenderer.invoke('profiles:save-credentials', profileName, accessKeyId, secretAccessKey),
   listRegions: () => ipcRenderer.invoke('regions:list'),
   getSessionHubState: () => ipcRenderer.invoke('session-hub:list'),
+  runComparison: (request: ComparisonRequest) => ipcRenderer.invoke('compare:run', request),
   saveAssumeRoleTarget: (target: Omit<AwsAssumeRoleTarget, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) =>
     ipcRenderer.invoke('session-hub:target:save', target),
   deleteAssumeRoleTarget: (targetId: string) => ipcRenderer.invoke('session-hub:target:delete', targetId),

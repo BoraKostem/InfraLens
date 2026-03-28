@@ -81,6 +81,141 @@ export type SessionHubState = {
   sessions: AwsSessionSummary[]
 }
 
+export type ComparisonContextInput =
+  | {
+      kind: 'profile'
+      profile: string
+      region: string
+      label?: string
+    }
+  | {
+      kind: 'assumed-role'
+      sessionId: string
+      region: string
+      label?: string
+    }
+
+export type ComparisonContextDescriptor = {
+  kind: ComparisonContextInput['kind']
+  sessionId: string
+  label: string
+  profile: string
+  sourceProfile: string
+  region: string
+  accountId: string
+  roleArn: string
+  arn: string
+}
+
+export type ComparisonRequest = {
+  left: ComparisonContextInput
+  right: ComparisonContextInput
+}
+
+export type ComparisonLayer = 'summary' | 'inventory' | 'posture' | 'tags' | 'cost'
+
+export type ComparisonDiffStatus = 'left-only' | 'right-only' | 'different' | 'same'
+
+export type ComparisonRiskLevel = 'none' | 'low' | 'medium' | 'high'
+
+export type ComparisonFocusMode =
+  | 'all'
+  | 'security'
+  | 'compute'
+  | 'networking'
+  | 'storage'
+  | 'drift-compliance'
+  | 'cost'
+
+export type ComparisonCoverageStatus = 'full' | 'partial'
+
+export type ComparisonCoverageItem = {
+  id: string
+  label: string
+  layer: ComparisonLayer
+  status: ComparisonCoverageStatus
+  detail: string
+}
+
+export type ComparisonMetricSide = {
+  value: string
+  secondary: string
+}
+
+export type ComparisonDetailField = {
+  key: string
+  label: string
+  status: ComparisonDiffStatus | 'n/a'
+  leftValue: string
+  rightValue: string
+}
+
+export type ComparisonNavigationTarget = {
+  serviceId: ServiceId
+  region: string
+  resourceLabel: string
+}
+
+export type ComparisonDiffRow = {
+  id: string
+  layer: ComparisonLayer
+  section: string
+  title: string
+  subtitle: string
+  status: ComparisonDiffStatus
+  risk: ComparisonRiskLevel
+  serviceId: ServiceId
+  resourceType: string
+  identityKey: string
+  focusModes: ComparisonFocusMode[]
+  rationale: string
+  left: ComparisonMetricSide
+  right: ComparisonMetricSide
+  detailFields: ComparisonDetailField[]
+  navigation?: ComparisonNavigationTarget
+}
+
+export type ComparisonDiffGroup = {
+  id: string
+  label: string
+  layer: ComparisonLayer
+  focusModes: ComparisonFocusMode[]
+  coverage: ComparisonCoverageStatus
+  counts: Record<ComparisonDiffStatus, number>
+  rows: ComparisonDiffRow[]
+}
+
+export type ComparisonKeyDifferenceItem = {
+  id: string
+  title: string
+  layer: ComparisonLayer
+  risk: ComparisonRiskLevel
+  serviceId: ServiceId
+  status: ComparisonDiffStatus
+  summary: string
+}
+
+export type ComparisonSummary = {
+  counts: Record<ComparisonDiffStatus, number>
+  totals: Array<{
+    id: string
+    label: string
+    leftValue: string
+    rightValue: string
+    status: ComparisonDiffStatus
+  }>
+}
+
+export type ComparisonResult = {
+  generatedAt: string
+  leftContext: ComparisonContextDescriptor
+  rightContext: ComparisonContextDescriptor
+  coverage: ComparisonCoverageItem[]
+  summary: ComparisonSummary
+  keyDifferences: ComparisonKeyDifferenceItem[]
+  groups: ComparisonDiffGroup[]
+}
+
 export type AssumeRoleRequest = {
   label: string
   roleArn: string
@@ -614,6 +749,7 @@ export type ServiceId =
   | 'terraform'
   | 'overview'
   | 'session-hub'
+  | 'compare'
   | 'compliance-center'
     | 'ec2'
     | 'cloudwatch'

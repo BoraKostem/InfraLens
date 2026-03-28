@@ -1,14 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import type { AssumeRoleRequest, AwsAssumeRoleTarget, AwsConnection, AwsSessionSummary, CallerIdentity, IamRoleSummary, OverviewMetrics, OverviewStatistics, RegionMetric } from '@shared/types'
+import type { AssumeRoleRequest, AwsAssumeRoleTarget, AwsConnection, AwsSessionSummary, ComparisonRequest, IamRoleSummary } from '@shared/types'
 import {
   assumeRoleSession,
   assumeSavedRoleTarget,
   deleteAssumedSession,
   deleteAssumeRoleTarget,
-  getCallerIdentity,
-  getOverviewMetrics,
-  getOverviewStatistics,
   listIamRoles,
   saveAssumeRoleTarget
 } from './api'
@@ -25,50 +22,6 @@ type ConnectionState = {
   refreshProfiles: () => Promise<void>
   activateSession: (sessionId: string) => void
   clearActiveSession: () => void
-}
-
-type CompareOption = {
-  id: string
-  label: string
-  connection: AwsConnection
-}
-
-type CompareResult = {
-  option: CompareOption
-  identity: CallerIdentity
-  metrics: OverviewMetrics
-  regionalMetrics: RegionMetric | null
-  statistics: OverviewStatistics
-}
-
-const COMPARE_SERVICE_ROWS: Array<{ label: string; key: keyof RegionMetric }> = [
-  { label: 'EC2 Instances', key: 'ec2Count' },
-  { label: 'Lambda Functions', key: 'lambdaCount' },
-  { label: 'EKS Clusters', key: 'eksCount' },
-  { label: 'Auto Scaling Groups', key: 'asgCount' },
-  { label: 'S3 Buckets', key: 's3Count' },
-  { label: 'RDS Databases', key: 'rdsCount' },
-  { label: 'CloudFormation Stacks', key: 'cloudformationCount' },
-  { label: 'ECR Repositories', key: 'ecrCount' },
-  { label: 'ECS Clusters', key: 'ecsCount' },
-  { label: 'VPCs', key: 'vpcCount' },
-  { label: 'Load Balancers', key: 'loadBalancerCount' },
-  { label: 'Route53 Zones', key: 'route53Count' },
-  { label: 'Security Groups', key: 'securityGroupCount' },
-  { label: 'SNS Topics', key: 'snsCount' },
-  { label: 'SQS Queues', key: 'sqsCount' },
-  { label: 'ACM Certificates', key: 'acmCount' },
-  { label: 'KMS Keys', key: 'kmsCount' },
-  { label: 'WAF Web ACLs', key: 'wafCount' },
-  { label: 'Secrets', key: 'secretsManagerCount' },
-  { label: 'Key Pairs', key: 'keyPairCount' },
-  { label: 'CloudWatch Assets', key: 'cloudwatchCount' },
-  { label: 'CloudTrail Trails', key: 'cloudtrailCount' },
-  { label: 'IAM Resources', key: 'iamCount' }
-]
-
-function compareValueClass(left: string | number, right: string | number): string {
-  return String(left) === String(right) ? 'hero-path' : ''
 }
 
 function WritableSuggestionField({
@@ -173,9 +126,11 @@ function buildSessionConnection(session: AwsSessionSummary): AwsConnection {
 
 export function SessionHub({
   connectionState,
+  onOpenCompare,
   onOpenTerminal
 }: {
   connectionState: ConnectionState
+  onOpenCompare: (request: ComparisonRequest) => void
   onOpenTerminal: (connection: AwsConnection) => void
 }) {
   const [draft, setDraft] = useState<Omit<AwsAssumeRoleTarget, 'id' | 'createdAt' | 'updatedAt'>>(
@@ -188,8 +143,6 @@ export function SessionHub({
   const [message, setMessage] = useState('')
   const [compareLeft, setCompareLeft] = useState('base')
   const [compareRight, setCompareRight] = useState('')
-  const [compareBusy, setCompareBusy] = useState(false)
-  const [compareResults, setCompareResults] = useState<CompareResult[] | null>(null)
   const [availableRoles, setAvailableRoles] = useState<IamRoleSummary[]>([])
   const [rolesLoading, setRolesLoading] = useState(false)
   const [roleArnPickerOpen, setRoleArnPickerOpen] = useState(false)
@@ -236,19 +189,23 @@ export function SessionHub({
     setDraft(emptyDraft(scopedProfileName, connectionState.region))
   }, [connectionState.region, editingTargetId, scopedProfileName, visibleTargets])
 
-  const compareOptions = useMemo<CompareOption[]>(() => {
-    const options: CompareOption[] = []
+  const compareOptions = useMemo(() => {
+    const options: Array<{
+      id: string
+      label: string
+      requestBase:
+        | { kind: 'profile'; profile: string; label?: string }
+        | { kind: 'assumed-role'; sessionId: string; label?: string }
+    }> = []
 
-    if (connectionState.profile) {
+    for (const profile of connectionState.profiles) {
       options.push({
-        id: 'base',
-        label: `Base profile: ${connectionState.profile}`,
-        connection: {
+        id: `profile:${profile.name}`,
+        label: `Base profile: ${profile.name}`,
+        requestBase: {
           kind: 'profile',
-          sessionId: `profile:${connectionState.profile}`,
-          label: connectionState.profile,
-          profile: connectionState.profile,
-          region: connectionState.region
+          profile: profile.name,
+          label: profile.name
         }
       })
     }
@@ -257,12 +214,16 @@ export function SessionHub({
       options.push({
         id: `session:${session.id}`,
         label: `${session.label} (${session.accountId || 'unknown account'})`,
-        connection: buildSessionConnection(session)
+        requestBase: {
+          kind: 'assumed-role',
+          sessionId: session.id,
+          label: session.label
+        }
       })
     }
 
     return options
-  }, [connectionState.profile, connectionState.region, connectionState.sessions])
+  }, [connectionState.profiles, connectionState.sessions])
 
   useEffect(() => {
     const sourceProfile = draft.sourceProfile.trim()
@@ -307,10 +268,13 @@ export function SessionHub({
   }, [connectionState.profiles, draft.sourceProfile])
 
   useEffect(() => {
+    if (compareLeft === 'base' && compareOptions[0]) {
+      setCompareLeft(compareOptions[0].id)
+    }
     if (!compareRight && compareOptions[1]) {
       setCompareRight(compareOptions[1].id)
     }
-  }, [compareOptions, compareRight])
+  }, [compareLeft, compareOptions, compareRight])
 
   function updateDraft<K extends keyof typeof draft>(key: K, value: (typeof draft)[K]): void {
     setDraft((current) => ({ ...current, [key]: value }))
@@ -424,42 +388,18 @@ export function SessionHub({
     }
   }
 
-  async function handleCompare(): Promise<void> {
-    const selected = [compareLeft, compareRight]
-      .map((id) => compareOptions.find((entry) => entry.id === id) ?? null)
-      .filter((entry): entry is CompareOption => Boolean(entry))
-
-    if (selected.length < 2) {
+  function handleCompareLaunch(): void {
+    const left = compareOptions.find((entry) => entry.id === compareLeft)
+    const right = compareOptions.find((entry) => entry.id === compareRight)
+    if (!left || !right) {
       setError('Choose two contexts to compare.')
       return
     }
 
-    setCompareBusy(true)
-      setError('')
-
-    try {
-      const results = await Promise.all(selected.map(async (option) => {
-        const [identity, metrics, statistics] = await Promise.all([
-          getCallerIdentity(option.connection),
-          getOverviewMetrics(option.connection, [option.connection.region]),
-          getOverviewStatistics(option.connection)
-        ])
-
-        return {
-          option,
-          identity,
-          metrics,
-          regionalMetrics: metrics.regions[0] ?? null,
-          statistics
-        }
-      }))
-      setCompareResults(results)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-      setCompareResults(null)
-    } finally {
-      setCompareBusy(false)
-    }
+    onOpenCompare({
+      left: { ...left.requestBase, region: connectionState.region },
+      right: { ...right.requestBase, region: connectionState.region }
+    })
   }
 
   function loadTargetIntoForm(target: AwsAssumeRoleTarget): void {
@@ -479,17 +419,6 @@ export function SessionHub({
   const currentContextMeta = connectionState.activeSession
     ? connectionState.activeSession.assumedRoleArn || connectionState.activeSession.roleArn
     : connectionState.selectedProfile?.name || connectionState.profile || 'No profile selected'
-  const comparePairs = compareResults && compareResults.length === 2 ? compareResults : null
-  const compareSummaryRows = comparePairs ? [
-    { label: 'Account', left: comparePairs[0].identity.account || '-', right: comparePairs[1].identity.account || '-' },
-    { label: 'ARN', left: comparePairs[0].identity.arn || '-', right: comparePairs[1].identity.arn || '-' },
-    { label: 'Region', left: comparePairs[0].option.connection.region || '-', right: comparePairs[1].option.connection.region || '-' },
-    { label: 'Monthly Cost', left: comparePairs[0].metrics.globalTotals.totalCost, right: comparePairs[1].metrics.globalTotals.totalCost },
-    { label: 'Total Resources', left: comparePairs[0].metrics.globalTotals.totalResources, right: comparePairs[1].metrics.globalTotals.totalResources },
-    { label: 'Insights', left: comparePairs[0].statistics.insights.length, right: comparePairs[1].statistics.insights.length },
-    { label: 'Signals', left: comparePairs[0].statistics.signals.length, right: comparePairs[1].statistics.signals.length },
-    { label: 'Service Stats', left: comparePairs[0].statistics.stats.length, right: comparePairs[1].statistics.stats.length }
-  ] : []
   void countdownTick
 
   return (
@@ -740,7 +669,7 @@ export function SessionHub({
       <div className="overview-section-title">Account Comparison</div>
       <section className="panel">
         <div className="panel-header">
-          <h3>Compare Contexts</h3>
+          <h3>Launch Diff Mode</h3>
         </div>
         <div className="session-hub-form-grid">
           <label className="field">
@@ -758,67 +687,12 @@ export function SessionHub({
           </label>
         </div>
         <div className="button-row session-hub-toolbar">
-          <button type="button" className="accent" disabled={compareBusy} onClick={() => void handleCompare()}>
-            {compareBusy ? 'Comparing...' : 'Compare'}
+          <button type="button" className="accent" onClick={handleCompareLaunch}>
+            Open Compare Workspace
           </button>
         </div>
+        <div className="empty-state compact">Diff Mode opens a dedicated workspace with inventory, posture, ownership, cost, and risk-focused comparisons.</div>
       </section>
-
-      {comparePairs ? (
-        <section className="workspace-grid session-hub-compare-layout">
-          <div className="column stack">
-            <div className="panel">
-              <div className="panel-header">
-                <h3>Context Summary</h3>
-              </div>
-              <div className="table-grid">
-                <div className="table-row table-head session-hub-compare-table">
-                  <div>Metric</div>
-                  <div>{comparePairs[0].option.label}</div>
-                  <div>{comparePairs[1].option.label}</div>
-                </div>
-                {compareSummaryRows.map((row) => (
-                  <div key={row.label} className="table-row session-hub-compare-table">
-                    <div>{row.label}</div>
-                    <div className={`session-hub-compare-cell ${compareValueClass(row.left, row.right)}`}>{String(row.left)}</div>
-                    <div className={`session-hub-compare-cell ${compareValueClass(row.right, row.left)}`}>{String(row.right)}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="column stack">
-            <div className="panel">
-              <div className="panel-header">
-                <h3>Service Inventory Comparison</h3>
-              </div>
-              <div className="table-grid">
-                <div className="table-row table-head session-hub-compare-table">
-                  <div>Service</div>
-                  <div>{comparePairs[0].option.label}</div>
-                  <div>{comparePairs[1].option.label}</div>
-                </div>
-                {COMPARE_SERVICE_ROWS.map((row) => (
-                  <div key={row.label} className="table-row session-hub-compare-table">
-                    <div>{row.label}</div>
-                    <div className={`session-hub-compare-cell ${compareValueClass(comparePairs[0].regionalMetrics?.[row.key] ?? '-', comparePairs[1].regionalMetrics?.[row.key] ?? '-')}`}>
-                      {String(comparePairs[0].regionalMetrics?.[row.key] ?? '-')}
-                    </div>
-                    <div className={`session-hub-compare-cell ${compareValueClass(comparePairs[1].regionalMetrics?.[row.key] ?? '-', comparePairs[0].regionalMetrics?.[row.key] ?? '-')}`}>
-                      {String(comparePairs[1].regionalMetrics?.[row.key] ?? '-')}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </section>
-      ) : (
-        <section className="panel">
-          <div className="empty-state compact">Select two contexts to compare summary totals and full regional inventory.</div>
-        </section>
-      )}
     </>
   )
 }
