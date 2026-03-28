@@ -30,6 +30,32 @@ import { getConnectionEnv } from '../sessionHub'
 
 const execFileAsync = promisify(execFile)
 
+export type EksNodeResourceUsage = {
+  name: string
+  cpuUsage: string
+  cpuPercent: number | null
+  memoryUsage: string
+  memoryPercent: number | null
+}
+
+export type EksPodResourceUsage = {
+  namespace: string
+  name: string
+  cpuUsage: string
+  memoryUsage: string
+  cpuMilliCores: number | null
+  memoryBytes: number | null
+}
+
+export type EksMetricsSnapshot = {
+  metricsAvailable: boolean
+  metricsMessage: string
+  nodes: EksNodeResourceUsage[]
+  topPods: EksPodResourceUsage[]
+  highCpuNodeCount: number
+  highMemoryNodeCount: number
+}
+
 function createClient(connection: AwsConnection): EKSClient {
   return new EKSClient(awsClientConfig(connection))
 }
@@ -223,6 +249,96 @@ function sanitizeClusterName(clusterName: string): string {
   return clusterName.replace(/[^a-zA-Z0-9._-]/g, '_')
 }
 
+function parseCpuToMilli(cpu: string): number | null {
+  const value = cpu.trim()
+  if (!value) return null
+  if (value.endsWith('m')) {
+    const parsed = Number(value.slice(0, -1))
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed * 1000 : null
+}
+
+function parseMemoryToBytes(memory: string): number | null {
+  const value = memory.trim()
+  const match = /^([0-9]*\.?[0-9]+)([KMGTE]i)?$/i.exec(value)
+  if (!match) return null
+
+  const amount = Number(match[1])
+  if (!Number.isFinite(amount)) return null
+
+  const unit = (match[2] ?? '').toLowerCase()
+  const multiplier =
+    unit === 'ki' ? 1024 :
+    unit === 'mi' ? 1024 ** 2 :
+    unit === 'gi' ? 1024 ** 3 :
+    unit === 'ti' ? 1024 ** 4 :
+    unit === 'ei' ? 1024 ** 6 :
+    1
+
+  return Math.round(amount * multiplier)
+}
+
+async function runKubectlWithKubeconfig(
+  connection: AwsConnection,
+  kubeconfigPath: string,
+  args: string[]
+): Promise<string> {
+  const { stdout, stderr } = await execFileAsync('kubectl', args, {
+    env: {
+      ...process.env,
+      ...getConnectionEnv(connection),
+      KUBECONFIG: kubeconfigPath
+    }
+  })
+
+  return (stdout || stderr).trim()
+}
+
+function parseTopNodes(output: string): EksNodeResourceUsage[] {
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.split(/\s+/)
+      return {
+        name: parts[0] ?? '-',
+        cpuUsage: parts[1] ?? '-',
+        cpuPercent: parts[2]?.endsWith('%') ? Number(parts[2].slice(0, -1)) : null,
+        memoryUsage: parts[3] ?? '-',
+        memoryPercent: parts[4]?.endsWith('%') ? Number(parts[4].slice(0, -1)) : null
+      }
+    })
+}
+
+function parseTopPods(output: string): EksPodResourceUsage[] {
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.split(/\s+/)
+      const cpuUsage = parts[2] ?? '-'
+      const memoryUsage = parts[3] ?? '-'
+      return {
+        namespace: parts[0] ?? '-',
+        name: parts[1] ?? '-',
+        cpuUsage,
+        memoryUsage,
+        cpuMilliCores: parseCpuToMilli(cpuUsage),
+        memoryBytes: parseMemoryToBytes(memoryUsage)
+      }
+    })
+    .sort((left, right) => {
+      const leftScore = Math.max(left.cpuMilliCores ?? 0, (left.memoryBytes ?? 0) / (1024 ** 2))
+      const rightScore = Math.max(right.cpuMilliCores ?? 0, (right.memoryBytes ?? 0) / (1024 ** 2))
+      return rightScore - leftScore
+    })
+}
+
 function resolveKubeconfigPath(kubeconfigPath: string): string {
   const trimmed = kubeconfigPath.trim()
 
@@ -275,6 +391,55 @@ export async function createTempEksKubeconfig(
   return {
     path: kubeconfigPath,
     output: (stdout || stderr).trim()
+  }
+}
+
+export async function getEksMetricsSnapshot(
+  connection: AwsConnection,
+  kubeconfigPath: string
+): Promise<EksMetricsSnapshot> {
+  try {
+    await runKubectlWithKubeconfig(connection, kubeconfigPath, ['get', '--raw', '/apis/metrics.k8s.io/v1beta1/nodes'])
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return {
+      metricsAvailable: false,
+      metricsMessage: message,
+      nodes: [],
+      topPods: [],
+      highCpuNodeCount: 0,
+      highMemoryNodeCount: 0
+    }
+  }
+
+  try {
+    const [nodeOutput, podOutput] = await Promise.all([
+      runKubectlWithKubeconfig(connection, kubeconfigPath, ['top', 'nodes', '--no-headers']),
+      runKubectlWithKubeconfig(connection, kubeconfigPath, ['top', 'pods', '-A', '--no-headers'])
+    ])
+    const nodes = parseTopNodes(nodeOutput)
+    const topPods = parseTopPods(podOutput).slice(0, 5)
+
+    return {
+      metricsAvailable: true,
+      metricsMessage: nodes.length > 0
+        ? `Collected live usage for ${nodes.length} nodes and ${topPods.length} top pods.`
+        : 'metrics.k8s.io is reachable, but no node usage rows were returned.',
+      highCpuNodeCount: nodes.filter((node) => (node.cpuPercent ?? 0) >= 80).length,
+      highMemoryNodeCount: nodes.filter((node) => (node.memoryPercent ?? 0) >= 80).length,
+      nodes,
+      topPods
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return {
+      metricsAvailable: false,
+      metricsMessage: message,
+      nodes: [],
+      topPods: [],
+      highCpuNodeCount: 0,
+      highMemoryNodeCount: 0
+    }
   }
 }
 

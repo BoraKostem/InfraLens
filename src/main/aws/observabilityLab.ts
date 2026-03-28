@@ -14,7 +14,7 @@ import type {
 } from '@shared/types'
 import { getTerraformDriftReport } from '../terraformDrift'
 import { getProject } from '../terraform'
-import { createTempEksKubeconfig, describeEksCluster, listEksNodegroups } from './eks'
+import { createTempEksKubeconfig, describeEksCluster, getEksMetricsSnapshot, listEksNodegroups, type EksMetricsSnapshot } from './eks'
 import { getServiceDiagnostics } from './ecs'
 
 function connectionRef(connection: AwsConnection) {
@@ -249,6 +249,31 @@ function makeTerraformLogRetentionSnippet(name: string): string {
 }`
 }
 
+function summarizeEksMetrics(snapshot: EksMetricsSnapshot): { ok: number; total: number; detail: string } {
+  if (!snapshot.metricsAvailable) {
+    return {
+      ok: 0,
+      total: 1,
+      detail: 'metrics-server or metrics.k8s.io is not reachable from the current operator context.'
+    }
+  }
+
+  const pressureNodes = snapshot.highCpuNodeCount + snapshot.highMemoryNodeCount
+  if (pressureNodes > 0) {
+    return {
+      ok: Math.max(snapshot.nodes.length - pressureNodes, 0),
+      total: Math.max(snapshot.nodes.length, 1),
+      detail: `${snapshot.highCpuNodeCount} high-CPU and ${snapshot.highMemoryNodeCount} high-memory nodes detected from live metrics.`
+    }
+  }
+
+  return {
+    ok: Math.max(snapshot.nodes.length, 1),
+    total: Math.max(snapshot.nodes.length, 1),
+    detail: snapshot.metricsMessage
+  }
+}
+
 export async function generateEksObservabilityReport(
   connection: AwsConnection,
   clusterName: string
@@ -260,15 +285,27 @@ export async function generateEksObservabilityReport(
 
   let kubectlReady = false
   let kubectlMessage = ''
+  let metricsSnapshot: EksMetricsSnapshot = {
+    metricsAvailable: false,
+    metricsMessage: 'Live cluster metrics were not checked.',
+    nodes: [],
+    topPods: [],
+    highCpuNodeCount: 0,
+    highMemoryNodeCount: 0
+  }
   try {
     const session = await createTempEksKubeconfig(connection, clusterName)
     kubectlReady = Boolean(session.path)
     kubectlMessage = session.output || `Prepared kubeconfig at ${session.path}`
+    if (kubectlReady) {
+      metricsSnapshot = await getEksMetricsSnapshot(connection, session.path)
+    }
   } catch (error) {
     kubectlMessage = error instanceof Error ? error.message : String(error)
   }
 
-  const findings = buildEksFindings(cluster, nodegroups, kubectlReady, kubectlMessage)
+  const metricsSummary = summarizeEksMetrics(metricsSnapshot)
+  const findings = buildEksFindings(cluster, nodegroups, kubectlReady, kubectlMessage, metricsSnapshot)
   const recommendations = buildEksRecommendations(connection.region, cluster, findings)
   const experiments = buildEksExperiments(cluster.name)
   const artifacts = pushRecommendationArtifacts(recommendations, experiments)
@@ -292,10 +329,10 @@ export async function generateEksObservabilityReport(
       {
         id: 'metrics',
         label: 'Metrics',
-        ok: cluster.loggingEnabled.includes('api') ? 1 : 0,
-        total: 1,
-        goodDetail: 'API/control-plane visibility is present.',
-        weakDetail: 'Metrics pipeline beyond control plane is not evident from current signals.'
+        ok: metricsSummary.ok,
+        total: metricsSummary.total,
+        goodDetail: metricsSummary.detail,
+        weakDetail: metricsSummary.detail
       },
       {
         id: 'traces',
@@ -363,7 +400,8 @@ function buildEksFindings(
   cluster: EksClusterDetail,
   nodegroups: EksNodegroupSummary[],
   kubectlReady: boolean,
-  kubectlMessage: string
+  kubectlMessage: string,
+  metricsSnapshot: EksMetricsSnapshot
 ): ObservabilityFinding[] {
   const findings: ObservabilityFinding[] = []
 
@@ -429,6 +467,49 @@ function buildEksFindings(
     recommendedActionIds: ['eks-generate-otel']
   })
 
+  if (!metricsSnapshot.metricsAvailable) {
+    findings.push({
+      id: 'eks-metrics-server-unavailable',
+      title: 'Live resource metrics are not available from the cluster',
+      severity: kubectlReady ? 'medium' : 'high',
+      category: 'metrics',
+      summary: 'The analysis could not query metrics.k8s.io, so CPU and memory posture is partially blind.',
+      detail: 'This usually means Metrics Server is missing, unhealthy, or blocked by RBAC/networking. Without live usage data, scale and saturation judgments remain incomplete.',
+      evidence: [metricsSnapshot.metricsMessage || 'metrics.k8s.io query failed'],
+      impact: 'Node and workload saturation can build without clear operator visibility in the current flow.',
+      inference: false,
+      recommendedActionIds: ['eks-enable-metrics-server']
+    })
+  }
+
+  if (metricsSnapshot.metricsAvailable && (metricsSnapshot.highCpuNodeCount > 0 || metricsSnapshot.highMemoryNodeCount > 0)) {
+    const hotNodes = metricsSnapshot.nodes
+      .filter((node) => (node.cpuPercent ?? 0) >= 80 || (node.memoryPercent ?? 0) >= 80)
+      .slice(0, 5)
+      .map((node) => `${node.name}: cpu=${node.cpuUsage}/${node.cpuPercent ?? '?'}%, mem=${node.memoryUsage}/${node.memoryPercent ?? '?'}%`)
+    const topPods = metricsSnapshot.topPods
+      .slice(0, 3)
+      .map((pod) => `${pod.namespace}/${pod.name}: cpu=${pod.cpuUsage}, mem=${pod.memoryUsage}`)
+
+    findings.push({
+      id: 'eks-live-resource-pressure',
+      title: 'Live cluster metrics show elevated CPU or memory pressure',
+      severity: metricsSnapshot.highCpuNodeCount + metricsSnapshot.highMemoryNodeCount >= 2 ? 'high' : 'medium',
+      category: 'metrics',
+      summary: 'At least one node is already running hot based on current `kubectl top` data.',
+      detail: 'This is a live point-in-time signal from Metrics Server, not a long-window trend. It is still useful for spotting immediate headroom issues before resilience changes.',
+      evidence: [
+        `${metricsSnapshot.highCpuNodeCount} nodes at >=80% CPU`,
+        `${metricsSnapshot.highMemoryNodeCount} nodes at >=80% memory`,
+        ...hotNodes,
+        ...topPods
+      ],
+      impact: 'Resilience drills, rollouts, or recovery events may contend with existing saturation and produce misleading results.',
+      inference: false,
+      recommendedActionIds: ['eks-scale-headroom']
+    })
+  }
+
   if (!kubectlReady) {
     findings.push({
       id: 'eks-kubectl-access',
@@ -482,6 +563,16 @@ function buildEksRecommendations(region: string, cluster: EksClusterDetail, find
     'Read-only.'
   )
 
+  const metricsServerCheck = buildArtifact(
+    'eks-metrics-api-check',
+    'Metrics API Check',
+    'shell-command',
+    'bash',
+    'Read-only command to verify metrics.k8s.io and current node usage from kubectl.',
+    'kubectl get --raw /apis/metrics.k8s.io/v1beta1/nodes && kubectl top nodes',
+    'Read-only. Requires kubectl access and a working Metrics Server deployment.'
+  )
+
   const recommendations: ObservabilityRecommendation[] = [
     {
       id: 'eks-enable-logging',
@@ -524,6 +615,20 @@ function buildEksRecommendations(region: string, cluster: EksClusterDetail, find
       setupEffort: 'low',
       labels: ['No extra install'],
       artifact: endpointReview
+    },
+    {
+      id: 'eks-enable-metrics-server',
+      title: 'Restore cluster metrics visibility',
+      type: 'manual-check',
+      summary: 'Verify Metrics Server is installed and that `metrics.k8s.io` is reachable from the current operator path.',
+      rationale: 'The resilience lab can now sample live CPU and memory usage, but only when the cluster exposes Metrics Server data.',
+      expectedBenefit: 'Improves saturation detection before scale, rollout, and rollback changes.',
+      risk: 'Metrics Server rollout or RBAC changes can affect existing cluster add-on posture.',
+      rollback: 'Revert the add-on deployment or restore the previous RBAC/network policy state.',
+      prerequisiteLevel: 'optional',
+      setupEffort: 'low',
+      labels: ['kubectl required', 'Read-only verification first'],
+      artifact: metricsServerCheck
     }
   ]
 

@@ -457,14 +457,16 @@ export function EcsConsole({
       )}
 
       {mainTab === 'lab' && (
-        <ObservabilityResilienceLab
-          report={labReport}
-          loading={labLoading}
-          error={labError}
-          onRefresh={() => void loadLab()}
-          onRunArtifact={handleLabArtifactRun}
-          onNavigateSignal={handleLabSignalNavigate}
-        />
+        <div className="ecs-lab-panel">
+          <ObservabilityResilienceLab
+            report={labReport}
+            loading={labLoading}
+            error={labError}
+            onRefresh={() => void loadLab()}
+            onRunArtifact={handleLabArtifactRun}
+            onNavigateSignal={handleLabSignalNavigate}
+          />
+        </div>
       )}
 
       {diagnostics && mainTab !== 'lab' && (

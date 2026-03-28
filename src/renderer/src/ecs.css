@@ -13,6 +13,12 @@
   gap: 10px;
 }
 
+.ecs-lab-panel {
+  min-width: 0;
+  overflow: auto;
+  padding-bottom: 8px;
+}
+
 .ecs-summary-tile {
   border: 1px solid #3b4350;
   border-radius: 6px;

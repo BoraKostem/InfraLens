@@ -78,10 +78,12 @@ function StatusBadge({ status }: { status: string }) {
 
 export function EksConsole({
   connection,
-  focusClusterName
+  focusClusterName,
+  onRunTerminalCommand
 }: {
   connection: AwsConnection
   focusClusterName?: { token: number; clusterName: string } | null
+  onRunTerminalCommand?: (command: string) => void
 }) {
   /* ── State ──────────────────────────────────────────── */
   const [loading, setLoading] = useState(false)
@@ -344,32 +346,18 @@ useEffect(() => { void reload() }, [connection.sessionId, connection.region])
   /* ── Terminal ───────────────────────────────────────── */
   async function openTerminal() {
     if (!selectedCluster || terminalBusy) return
-    const terminalContextLine = connection.kind === 'profile'
-      ? `AWS_PROFILE=${connection.profile} AWS_DEFAULT_REGION=${connection.region}`
-      : `SESSION=${connection.label} AWS_DEFAULT_REGION=${connection.region}`
-
-    setTerminalOpen(true)
     setTerminalBusy(true)
     setError('')
     setMsg('')
-    setTerminalCmd('')
-    setTerminalKubeconfigPath('')
-    setTerminalOutput(
-      `kubectl terminal for cluster: ${selectedCluster}\n${terminalContextLine}\n\nPreparing kubeconfig for ${selectedCluster}...\n`
-    )
-
     try {
       const result = await prepareEksKubectlSession(connection, selectedCluster)
-      setTerminalKubeconfigPath(result.path)
-      setTerminalOutput(
-        `kubectl terminal for cluster: ${selectedCluster}\n${terminalContextLine}\nKUBECONFIG=${result.path}\n\n${result.output}\n\n`
-      )
+      const command = connection.kind === 'profile'
+        ? `$env:KUBECONFIG = '${result.path.replace(/'/g, "''")}'; Write-Host 'kubectl context ready for cluster: ${selectedCluster.replace(/'/g, "''")}'; Write-Host ''; kubectl cluster-info`
+        : `$env:KUBECONFIG = '${result.path.replace(/'/g, "''")}'; Write-Host 'kubectl context ready for cluster: ${selectedCluster.replace(/'/g, "''")}'; Write-Host ''; kubectl cluster-info`
+      onRunTerminalCommand?.(command)
+      setMsg(`Opened kubectl terminal for ${selectedCluster} in the app terminal`)
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e)
-      setTerminalOutput(
-        `kubectl terminal for cluster: ${selectedCluster}\n${terminalContextLine}\n\nError preparing kubeconfig: ${message}\n`
-      )
-      setError(message)
+      setError(e instanceof Error ? e.message : String(e))
     } finally {
       setTerminalBusy(false)
     }
@@ -662,13 +650,15 @@ useEffect(() => { void reload() }, [connection.sessionId, connection.region])
             )}
 
             {sideTab === 'lab' && (
-              <ObservabilityResilienceLab
-                report={labReport}
-                loading={labLoading}
-                error={labError}
-                onRefresh={() => void loadLab()}
-                onNavigateSignal={handleLabSignalNavigate}
-              />
+              <div className="eks-lab-panel">
+                <ObservabilityResilienceLab
+                  report={labReport}
+                  loading={labLoading}
+                  error={labError}
+                  onRefresh={() => void loadLab()}
+                  onNavigateSignal={handleLabSignalNavigate}
+                />
+              </div>
             )}
 
             {/* ── Change Timeline tab ───────────────── */}
