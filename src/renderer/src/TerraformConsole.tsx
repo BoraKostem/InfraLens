@@ -3,6 +3,9 @@ import './terraform.css'
 
 import type {
   AwsConnection,
+  CorrelatedSignalReference,
+  GeneratedArtifact,
+  ObservabilityPostureReport,
   TerraformActionRow,
   TerraformCliInfo,
   TerraformCommandLog,
@@ -26,6 +29,7 @@ import {
   detectCli,
   detectMissingVars,
   getDrift,
+  getObservabilityReport,
   getProject,
   getMissingRequiredInputs,
   listProjects,
@@ -37,8 +41,9 @@ import {
   unsubscribe,
   updateInputs
 } from './terraformApi'
+import { ObservabilityResilienceLab } from './ObservabilityResilienceLab'
 
-type DetailTab = 'actions' | 'resources' | 'drift'
+type DetailTab = 'actions' | 'resources' | 'drift' | 'lab'
 
 /* ── db_password validation ───────────────────────────────── */
 
@@ -974,6 +979,9 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
   const [driftStatusFilter, setDriftStatusFilter] = useState<'all' | Exclude<TerraformDriftStatus, 'unsupported'>>('all')
   const [driftTypeFilter, setDriftTypeFilter] = useState('all')
   const [selectedDriftKey, setSelectedDriftKey] = useState('')
+  const [labReport, setLabReport] = useState<ObservabilityPostureReport | null>(null)
+  const [labLoading, setLabLoading] = useState(false)
+  const [labError, setLabError] = useState('')
 
   // Dialogs
   const [showInputs, setShowInputs] = useState(false)
@@ -1009,6 +1017,8 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
     setDriftReport(null)
     setDriftError('')
     setSelectedDriftKey('')
+    setLabReport(null)
+    setLabError('')
   }, [contextKey])
 
   // Load projects
@@ -1034,6 +1044,8 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
       setDriftReport(null)
       setDriftError('')
       setSelectedDriftKey('')
+      setLabReport(null)
+      setLabError('')
       void setSelectedProjectId(contextKey, selectedId)
     }).catch(() => setDetail(null))
   }, [contextKey, selectedId])
@@ -1058,6 +1070,26 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
     if (driftReport?.projectId === detail.id && driftReport.region === connection.region) return
     void loadDrift()
   }, [connection.region, detail, detailTab, driftReport, loadDrift])
+
+  const loadLab = useCallback(async () => {
+    if (!detail) return
+    setLabLoading(true)
+    setLabError('')
+    try {
+      const report = await getObservabilityReport(contextKey, detail.id, connection)
+      setLabReport(report)
+    } catch (err) {
+      setLabError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLabLoading(false)
+    }
+  }, [connection, contextKey, detail])
+
+  useEffect(() => {
+    if (detailTab !== 'lab' || !detail) return
+    if (labReport?.scope.kind === 'terraform' && labReport.scope.projectId === detail.id) return
+    void loadLab()
+  }, [detail, detailTab, labReport, loadLab])
 
   // Subscribe to terraform events
   useEffect(() => {
@@ -1298,6 +1330,17 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
     setMsg('Terraform state command opened in terminal')
   }
 
+  function handleLabArtifactRun(artifact: GeneratedArtifact) {
+    onRunTerminalCommand?.(artifact.content)
+    setMsg('Terraform artifact opened in terminal')
+  }
+
+  function handleLabSignalNavigate(signal: CorrelatedSignalReference) {
+    if (signal.targetView === 'drift') {
+      setDetailTab('drift')
+    }
+  }
+
   return (
     <div className="tf-console">
       {/* CLI Banner */}
@@ -1365,6 +1408,7 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
                 <button className={detailTab === 'actions' ? 'active' : ''} onClick={() => setDetailTab('actions')}>Actions</button>
                 <button className={detailTab === 'resources' ? 'active' : ''} onClick={() => setDetailTab('resources')}>Resources</button>
                 <button className={detailTab === 'drift' ? 'active' : ''} onClick={() => setDetailTab('drift')}>Drift</button>
+                <button className={detailTab === 'lab' ? 'active' : ''} onClick={() => setDetailTab('lab')}>Lab</button>
               </div>
 
               {/* Project info */}
@@ -1409,6 +1453,16 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
                   onRefresh={() => void loadDrift()}
                   onOpenConsole={handleOpenDriftConsole}
                   onRunStateShow={handleRunDriftStateShow}
+                />
+              )}
+              {detailTab === 'lab' && (
+                <ObservabilityResilienceLab
+                  report={labReport}
+                  loading={labLoading}
+                  error={labError}
+                  onRefresh={() => void loadLab()}
+                  onRunArtifact={handleLabArtifactRun}
+                  onNavigateSignal={handleLabSignalNavigate}
                 />
               )}
             </>

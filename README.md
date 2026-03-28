@@ -29,6 +29,7 @@ The current implementation is an Electron desktop app with:
 - Service-specific consoles for common AWS workloads
 - An embedded terminal backed by `node-pty` and `xterm`
 - A Terraform workspace with drift inspection against live AWS resources
+- A beta Observability & Resilience Lab for EKS, ECS, and Terraform analysis, recommendations, and artifact generation
 
 ### App Overview
 
@@ -56,6 +57,10 @@ Terraform project workspace with project discovery, command actions, resource de
 ![AWS Lens Terraform Visualization](images/terraform-visualization.png)
 
 Expanded infrastructure visualization for Terraform-managed resources and their relationships.
+
+### Observability & Resilience Lab (Beta)
+
+Observability & Resilience Lab is a beta operator-assistant surface for EKS clusters, ECS services, and Terraform workspaces. It focuses on posture analysis, telemetry gap detection, resilience recommendations, and generated YAML, CLI, Terraform, or JSON artifacts. It may not work as expected, and heuristic findings are labeled accordingly.
 
 
 ## Implemented Areas
@@ -120,6 +125,7 @@ Examples from the current implementation:
 - EC2, CloudWatch, and CloudTrail inspection flows
 - S3 bucket, object, and governance-oriented views
 - ECS and EKS workflows with terminal handoff support
+- Observability & Resilience Lab analysis for EKS, ECS, and Terraform with generator-first outputs
 - Route 53 record workflows
 - IAM, Identity Center, KMS, Secrets Manager, and WAF management surfaces
 - Load balancer, VPC, and security group navigation
@@ -135,6 +141,14 @@ The Compliance Center aggregates findings for the active profile and region and 
 - Tracks long-running apply/destroy operations during app shutdown
 - Includes drift inspection logic in [`src/main/terraformDrift.ts`](/C:/Users/bora_/Desktop/Projects/electron_migration/src/main/terraformDrift.ts)
 - Exposes shortcuts for AWS console navigation and `terraform state show` from supported drift items
+
+### Observability & Resilience Lab
+
+- Available as a beta panel in EKS, ECS, and Terraform views
+- Reuses existing EKS session prep, ECS diagnostics, and Terraform workspace/drift flows
+- Produces analysis, findings, recommended actions, safety notes, and correlated signal references
+- Generates copyable artifacts such as OTel YAML, awslogs snippets, Terraform snippets, and FIS template JSON
+- Favors analysis and generator workflows over one-click infrastructure changes
 
 ### Embedded Terminal
 

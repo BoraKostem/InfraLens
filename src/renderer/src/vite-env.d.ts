@@ -107,10 +107,12 @@ declare global {
       launchKubectlTerminal: (connection: AwsConnection, clusterName: string) => Promise<unknown>
       prepareEksKubectlSession: (connection: AwsConnection, clusterName: string) => Promise<unknown>
       runEksCommand: (connection: AwsConnection, clusterName: string, kubeconfigPath: string, command: string) => Promise<unknown>
+      getEksObservabilityReport: (connection: AwsConnection, clusterName: string) => Promise<unknown>
       listEcsClusters: (connection: AwsConnection) => Promise<unknown>
       listEcsServices: (connection: AwsConnection, clusterArn: string) => Promise<unknown>
       describeEcsService: (connection: AwsConnection, clusterArn: string, serviceName: string) => Promise<unknown>
       getEcsDiagnostics: (connection: AwsConnection, clusterArn: string, serviceName: string) => Promise<unknown>
+      getEcsObservabilityReport: (connection: AwsConnection, clusterArn: string, serviceName: string) => Promise<unknown>
       listEcsTasks: (connection: AwsConnection, clusterArn: string, serviceName?: string) => Promise<unknown>
       updateEcsDesiredCount: (connection: AwsConnection, clusterArn: string, serviceName: string, desiredCount: number) => Promise<unknown>
       forceEcsRedeploy: (connection: AwsConnection, clusterArn: string, serviceName: string) => Promise<unknown>
@@ -341,6 +343,7 @@ declare global {
       listProjects: (profileName: string) => Promise<unknown>
       getProject: (profileName: string, projectId: string) => Promise<unknown>
       getDrift: (profileName: string, projectId: string, connection: AwsConnection) => Promise<unknown>
+      getObservabilityReport: (profileName: string, projectId: string, connection: AwsConnection) => Promise<unknown>
       chooseProjectDirectory: () => Promise<unknown>
       addProject: (profileName: string, rootPath: string) => Promise<unknown>
       renameProject: (profileName: string, projectId: string, name: string) => Promise<unknown>

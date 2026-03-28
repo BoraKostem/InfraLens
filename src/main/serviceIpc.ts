@@ -57,6 +57,7 @@ import {
 } from './aws/s3'
 import { createTopic, deleteTopic, getTopicDetail, listSubscriptions, listTopics, publishMessage, setTopicAttribute, subscribe, tagTopic, unsubscribe, untagTopic } from './aws/sns'
 import { buildQueueTimeline, changeMessageVisibility, createQueue, deleteMessage, deleteQueue, getQueueDetail, listQueues, purgeQueue, receiveMessages, sendMessage, setQueueAttributes, tagQueue, untagQueue } from './aws/sqs'
+import { generateEcsObservabilityReport } from './aws/observabilityLab'
 
 type HandlerResult<T> = { ok: true; data: T } | { ok: false; error: string }
 
@@ -125,6 +126,9 @@ export function registerServiceIpcHandlers(): void {
   )
   ipcMain.handle('ecs:get-diagnostics', async (_event, connection: AwsConnection, clusterArn: string, serviceName: string) =>
     wrap(() => getServiceDiagnostics(connection, clusterArn, serviceName))
+  )
+  ipcMain.handle('ecs:get-observability-report', async (_event, connection: AwsConnection, clusterArn: string, serviceName: string) =>
+    wrap(() => generateEcsObservabilityReport(connection, clusterArn, serviceName))
   )
   ipcMain.handle('ecs:list-tasks', async (_event, connection: AwsConnection, clusterArn: string, serviceName?: string) =>
     wrap(() => listTasks(connection, clusterArn, serviceName))

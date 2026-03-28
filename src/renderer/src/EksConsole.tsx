@@ -4,13 +4,16 @@ import './eks.css'
 import type {
   AwsConnection,
   CloudTrailEventSummary,
+  CorrelatedSignalReference,
   EksClusterDetail,
   EksClusterSummary,
-  EksNodegroupSummary
+  EksNodegroupSummary,
+  ObservabilityPostureReport
 } from '@shared/types'
 import {
   addEksToKubeconfig,
   describeEksCluster,
+  getEksObservabilityReport,
   listEksClusters,
   listEksNodegroups,
   lookupCloudTrailEventsByResource,
@@ -18,6 +21,7 @@ import {
   runEksCommand,
   updateEksNodegroupScaling
 } from './api'
+import { ObservabilityResilienceLab } from './ObservabilityResilienceLab'
 
 /* ── Column definitions ─────────────────────────────────── */
 
@@ -98,7 +102,7 @@ export function EksConsole({
   const [selectedNg, setSelectedNg] = useState('')
 
   // Tabs
-  const [sideTab, setSideTab] = useState<'overview' | 'timeline'>('overview')
+  const [sideTab, setSideTab] = useState<'overview' | 'timeline' | 'lab'>('overview')
 
   // Describe panel
   const [showDescribe, setShowDescribe] = useState(false)
@@ -133,6 +137,9 @@ export function EksConsole({
   const [terminalKubeconfigPath, setTerminalKubeconfigPath] = useState('')
   const terminalOutputRef = useRef<HTMLDivElement>(null)
   const [appliedFocusToken, setAppliedFocusToken] = useState(0)
+  const [labReport, setLabReport] = useState<ObservabilityPostureReport | null>(null)
+  const [labLoading, setLabLoading] = useState(false)
+  const [labError, setLabError] = useState('')
 
   /* ── Derived ────────────────────────────────────────── */
   const activeClusterCols = CLUSTER_COLUMNS.filter(c => visibleClusterCols.has(c.key))
@@ -203,6 +210,8 @@ useEffect(() => { void reload() }, [connection.sessionId, connection.region])
     setKubeconfigContextName(name)
     setKubeconfigLocation('.kube/config')
     setKubeconfigErr('')
+    setLabReport(null)
+    setLabError('')
     try {
       const [d, ngs] = await Promise.all([
         describeEksCluster(connection, name),
@@ -239,6 +248,32 @@ useEffect(() => { void reload() }, [connection.sessionId, connection.region])
   useEffect(() => {
     if (sideTab === 'timeline' && selectedCluster) void loadTimeline()
   }, [sideTab, selectedCluster, timelineStart, timelineEnd])
+
+  async function loadLab() {
+    if (!selectedCluster) return
+    setLabLoading(true)
+    setLabError('')
+    try {
+      const report = await getEksObservabilityReport(connection, selectedCluster)
+      setLabReport(report)
+    } catch (e) {
+      setLabError(e instanceof Error ? e.message : 'Failed to load observability lab')
+    } finally {
+      setLabLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (sideTab !== 'lab' || !selectedCluster) return
+    if (labReport?.scope.kind === 'eks' && labReport.scope.clusterName === selectedCluster) return
+    void loadLab()
+  }, [connection, labReport, selectedCluster, sideTab])
+
+  function handleLabSignalNavigate(signal: CorrelatedSignalReference) {
+    if (signal.targetView === 'timeline') {
+      setSideTab('timeline')
+    }
+  }
 
   /* ── Actions ────────────────────────────────────────── */
   function openKubeconfigForm() {
@@ -531,6 +566,11 @@ useEffect(() => { void reload() }, [connection.sessionId, connection.region])
               className={sideTab === 'timeline' ? 'active' : ''}
               onClick={() => setSideTab('timeline')}
             >Change Timeline</button>
+            <button
+              type="button"
+              className={sideTab === 'lab' ? 'active' : ''}
+              onClick={() => setSideTab('lab')}
+            >Resilience Lab</button>
           </div>
 
           <div className="eks-detail-content">
@@ -619,6 +659,16 @@ useEffect(() => { void reload() }, [connection.sessionId, connection.region])
                   </div>
                 )}
               </div>
+            )}
+
+            {sideTab === 'lab' && (
+              <ObservabilityResilienceLab
+                report={labReport}
+                loading={labLoading}
+                error={labError}
+                onRefresh={() => void loadLab()}
+                onNavigateSignal={handleLabSignalNavigate}
+              />
             )}
 
             {/* ── Change Timeline tab ───────────────── */}

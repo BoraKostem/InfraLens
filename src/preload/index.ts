@@ -167,6 +167,8 @@ const awsLensApi = {
     ipcRenderer.invoke('eks:prepare-kubectl-session', connection, clusterName),
   runEksCommand: (connection: AwsConnection, clusterName: string, kubeconfigPath: string, command: string) =>
     ipcRenderer.invoke('eks:run-command', connection, clusterName, kubeconfigPath, command),
+  getEksObservabilityReport: (connection: AwsConnection, clusterName: string) =>
+    ipcRenderer.invoke('eks:get-observability-report', connection, clusterName),
 
   /* ECS */
   listEcsClusters: (connection: AwsConnection) => ipcRenderer.invoke('ecs:list-clusters', connection),
@@ -176,6 +178,8 @@ const awsLensApi = {
     ipcRenderer.invoke('ecs:describe-service', connection, clusterArn, serviceName),
   getEcsDiagnostics: (connection: AwsConnection, clusterArn: string, serviceName: string) =>
     ipcRenderer.invoke('ecs:get-diagnostics', connection, clusterArn, serviceName),
+  getEcsObservabilityReport: (connection: AwsConnection, clusterArn: string, serviceName: string) =>
+    ipcRenderer.invoke('ecs:get-observability-report', connection, clusterArn, serviceName),
   listEcsTasks: (connection: AwsConnection, clusterArn: string, serviceName?: string) =>
     ipcRenderer.invoke('ecs:list-tasks', connection, clusterArn, serviceName),
   updateEcsDesiredCount: (connection: AwsConnection, clusterArn: string, serviceName: string, desiredCount: number) =>
@@ -583,6 +587,8 @@ const api = {
   getProject: (profileName: string, projectId: string) => ipcRenderer.invoke('terraform:projects:get', profileName, projectId),
   getDrift: (profileName: string, projectId: string, connection: AwsConnection) =>
     ipcRenderer.invoke('terraform:drift:get', profileName, projectId, connection),
+  getObservabilityReport: (profileName: string, projectId: string, connection: AwsConnection) =>
+    ipcRenderer.invoke('terraform:observability-report:get', profileName, projectId, connection),
   chooseProjectDirectory: () => ipcRenderer.invoke('terraform:projects:choose-directory'),
   chooseVarFile: () => ipcRenderer.invoke('terraform:projects:choose-file'),
   addProject: (profileName: string, rootPath: string) => ipcRenderer.invoke('terraform:projects:add', profileName, rootPath),
