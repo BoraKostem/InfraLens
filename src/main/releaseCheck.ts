@@ -5,14 +5,18 @@ import type { AppReleaseInfo } from '@shared/types'
 const RELEASES_URL = 'https://github.com/BoraKostem/AWS-Lens/releases/'
 const LATEST_RELEASE_API_URL = 'https://api.github.com/repos/BoraKostem/AWS-Lens/releases/latest'
 
-let cachedReleaseInfo: AppReleaseInfo = {
-  currentVersion: app.getVersion(),
-  latestVersion: null,
-  updateAvailable: false,
-  releaseUrl: RELEASES_URL,
-  checkedAt: null,
-  error: null
+function makeInitialReleaseInfo(): AppReleaseInfo {
+  return {
+    currentVersion: app.getVersion(),
+    latestVersion: null,
+    updateAvailable: false,
+    releaseUrl: RELEASES_URL,
+    checkedAt: null,
+    error: null
+  }
 }
+
+let cachedReleaseInfo: AppReleaseInfo | null = null
 
 let startupReleaseCheckPromise: Promise<AppReleaseInfo> | null = null
 
@@ -38,6 +42,7 @@ function compareVersions(left: string, right: string): number {
 
 async function fetchLatestReleaseInfo(): Promise<AppReleaseInfo> {
   const currentVersion = app.getVersion()
+  const base = cachedReleaseInfo ?? makeInitialReleaseInfo()
 
   try {
     const response = await fetch(LATEST_RELEASE_API_URL, {
@@ -68,17 +73,20 @@ async function fetchLatestReleaseInfo(): Promise<AppReleaseInfo> {
     }
   } catch (error) {
     cachedReleaseInfo = {
-      ...cachedReleaseInfo,
+      ...base,
       currentVersion,
       checkedAt: new Date().toISOString(),
       error: error instanceof Error ? error.message : String(error)
     }
   }
 
-  return cachedReleaseInfo
+  return cachedReleaseInfo!
 }
 
 export function startReleaseCheck(): void {
+  if (!cachedReleaseInfo) {
+    cachedReleaseInfo = makeInitialReleaseInfo()
+  }
   if (!startupReleaseCheckPromise) {
     startupReleaseCheckPromise = fetchLatestReleaseInfo().finally(() => {
       startupReleaseCheckPromise = null
@@ -91,5 +99,5 @@ export async function getReleaseInfo(): Promise<AppReleaseInfo> {
     return startupReleaseCheckPromise
   }
 
-  return cachedReleaseInfo
+  return cachedReleaseInfo ?? makeInitialReleaseInfo()
 }

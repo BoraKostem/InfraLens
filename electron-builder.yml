@@ -11,8 +11,7 @@ files:
   - node_modules/**/*
   - package.json
 
-asarUnpack:
-  - node_modules/node-pty/**/*
+asar: false
 
 win:
   target:
@@ -33,11 +32,9 @@ mac:
     - dmg
     - zip
   icon: assets/aws-lens-logo.icns
-  hardenedRuntime: true
+  hardenedRuntime: false
   gatekeeperAssess: false
-  entitlements: assets/entitlements.mac.plist
-  entitlementsInherit: assets/entitlements.mac.inherit.plist
-  notarize: true
+  notarize: false
 
 linux:
   category: Development
