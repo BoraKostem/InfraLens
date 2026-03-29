@@ -449,7 +449,7 @@ async function fetchLatestReleaseInfo(): Promise<AppReleaseInfo> {
     })
   }
 
-  return cachedReleaseInfo
+  return cachedReleaseInfo!
 }
 
 export function startReleaseCheck(): void {
@@ -478,7 +478,7 @@ export async function getReleaseInfo(): Promise<AppReleaseInfo> {
     return startupReleaseCheckPromise
   }
 
-  return cachedReleaseInfo
+  return cachedReleaseInfo ?? makeInitialReleaseInfo()
 }
 
 export async function checkForAppUpdates(): Promise<AppReleaseInfo> {

@@ -23,14 +23,10 @@ const releaseChannel = process.env.AWS_LENS_RELEASE_CHANNEL?.trim() || ''
 
 export default defineConfig({
   main: {
+    plugins: [externalizeDepsPlugin()],
     define: {
       __AWS_LENS_BUILD_HASH__: JSON.stringify(buildHash),
       __AWS_LENS_RELEASE_CHANNEL__: JSON.stringify(releaseChannel)
-    },
-    build: {
-      rollupOptions: {
-        external: ['node-pty']
-      }
     },
     resolve: {
       alias: {
