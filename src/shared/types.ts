@@ -2261,6 +2261,7 @@ export type TerraformProjectMetadata = {
   terraformVersionConstraint: string
   backendType: string
   backend: TerraformBackendDetails
+  git: TerraformProjectGitMetadata | null
   providerNames: string[]
   resourceCount: number
   moduleCount: number
@@ -2299,6 +2300,35 @@ export type TerraformGenericBackendDetails = {
   type: string
   label: string
   summary: string
+}
+
+export type TerraformGitStatus = 'ready' | 'not-repo' | 'git-missing' | 'error'
+
+export type TerraformGitChangedFile = {
+  path: string
+  status: string
+}
+
+export type TerraformGitCommitMetadata = {
+  repoRoot: string
+  branch: string
+  commitSha: string
+  shortCommitSha: string
+  isDetached: boolean
+  isDirty: boolean
+}
+
+export type TerraformProjectGitMetadata = TerraformGitCommitMetadata & {
+  status: TerraformGitStatus
+  projectRelativePath: string
+  changedTerraformFiles: TerraformGitChangedFile[]
+  error: string
+}
+
+export type TerraformSavedPlanMetadata = {
+  request: TerraformPlanOptionsSummary
+  generatedAt: string
+  git: TerraformGitCommitMetadata | null
 }
 
 export type TerraformWorkspaceSummary = {
@@ -2590,6 +2620,7 @@ export type TerraformRunRecord = {
   backupPath: string
   backupCreatedAt: string
   stateOperationSummary: string
+  git: TerraformGitCommitMetadata | null
 }
 
 export type TerraformRunHistoryFilter = {
@@ -2766,6 +2797,7 @@ export type TerraformProject = {
   latestStateBackup: TerraformStateBackupSummary | null
   stateLockInfo: TerraformStateLockInfo | null
   hasSavedPlan: boolean
+  savedPlanMetadata: TerraformSavedPlanMetadata | null
 }
 
 export type TerraformCommandRequest = {

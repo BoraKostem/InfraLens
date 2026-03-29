@@ -164,6 +164,28 @@ function formatIsoDate(iso: string): string {
   }
 }
 
+function formatGitHead(branch: string, shortCommitSha: string, isDetached: boolean): string {
+  if (!shortCommitSha) return '-'
+  return isDetached ? `${shortCommitSha} (detached HEAD)` : `${branch || '-'} @ ${shortCommitSha}`
+}
+
+function gitStatusSummary(project: TerraformProject): string {
+  const git = project.metadata.git
+  if (!git) return '-'
+  if (git.status === 'ready') {
+    return `${formatGitHead(git.branch, git.shortCommitSha, git.isDetached)}${git.isDirty ? ' • dirty' : ' • clean'}`
+  }
+  return git.error || 'Git metadata unavailable.'
+}
+
+function planCommitMismatchWarning(project: TerraformProject): string {
+  const currentGit = project.metadata.git
+  const plannedGit = project.savedPlanMetadata?.git
+  if (!currentGit || currentGit.status !== 'ready' || !plannedGit?.commitSha) return ''
+  if (currentGit.commitSha === plannedGit.commitSha) return ''
+  return `Saved plan was generated from ${plannedGit.shortCommitSha} but the current checkout is ${currentGit.shortCommitSha}. Review the diff before applying; Terraform will still use the saved plan artifact from the older commit.`
+}
+
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
   if (bytes < 1024) return `${bytes} B`
@@ -1401,6 +1423,7 @@ function ActionsTab({
     [project.planChanges, actionFilter, moduleFilter, typeFilter]
   )
   const changesByAddress = useMemo(() => new Map(project.planChanges.map((change) => [change.address, change])), [project.planChanges])
+  const applyWarning = planCommitMismatchWarning(project)
   const groupedChanges = useMemo(() => {
     const source = groupBy === 'module'
       ? s.groups.byModule
@@ -1453,6 +1476,9 @@ function ActionsTab({
             <div className="tf-section-hint" style={{ color: '#e74c3c' }}>Apply/Destroy blocked: required governance check(s) failed. Fix issues and re-run Safety Checks.</div>
           )}
         </div>
+        {applyWarning && (
+          <div className="tf-section-hint" style={{ color: '#d35400' }}>{applyWarning}</div>
+        )}
         {showPlanControls && (
           <div className="tf-plan-controls">
             <div className="tf-plan-mode-row">
@@ -2425,6 +2451,13 @@ function HistoryTab({ projectId }: { projectId: string }) {
                   <div className="tf-kv-row"><div className="tf-kv-label">Region</div><div className="tf-kv-value">{selectedRecord.region || '-'}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Connection</div><div className="tf-kv-value">{selectedRecord.connectionLabel || '-'}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Backend</div><div className="tf-kv-value">{selectedRecord.backendType}</div></div>
+                  {selectedRecord.git && (
+                    <>
+                      <div className="tf-kv-row"><div className="tf-kv-label">Git Head</div><div className="tf-kv-value">{formatGitHead(selectedRecord.git.branch, selectedRecord.git.shortCommitSha, selectedRecord.git.isDetached)}</div></div>
+                      <div className="tf-kv-row"><div className="tf-kv-label">Git Tree</div><div className="tf-kv-value">{selectedRecord.git.isDirty ? 'Dirty' : 'Clean'}</div></div>
+                      <div className="tf-kv-row"><div className="tf-kv-label">Repo Root</div><div className="tf-kv-value">{selectedRecord.git.repoRoot}</div></div>
+                    </>
+                  )}
                   <div className="tf-kv-row"><div className="tf-kv-label">State Source</div><div className="tf-kv-value">{selectedRecord.stateSource || '-'}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Started</div><div className="tf-kv-value">{selectedRecord.startedAt}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Finished</div><div className="tf-kv-value">{selectedRecord.finishedAt || '-'}</div></div>
@@ -2899,6 +2932,7 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
       setMsg('Apply is blocked: one or more required governance checks failed. Fix the issues and re-run Safety Checks.')
       return
     }
+    const applyWarning = planCommitMismatchWarning(detail)
     // Has saved plan - go directly to summary with resource list
     setSummaryDialog({
       title: 'Apply Changes — Review',
@@ -2908,7 +2942,7 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
         setSummaryDialog(null)
         setConfirmDialog({
           title: 'Confirm Apply',
-          description: `You are about to apply ${detail.lastPlanSummary.create} create, ${detail.lastPlanSummary.update} update, ${detail.lastPlanSummary.delete} delete, ${detail.lastPlanSummary.replace} replace. This action cannot be easily undone.`,
+          description: `${applyWarning ? `${applyWarning}\n\n` : ''}You are about to apply ${detail.lastPlanSummary.create} create, ${detail.lastPlanSummary.update} update, ${detail.lastPlanSummary.delete} delete, ${detail.lastPlanSummary.replace} replace. This action cannot be easily undone.`,
           confirmWord: 'APPLY',
           onConfirm: () => {
             setConfirmDialog(null)
@@ -3160,6 +3194,16 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
                   <div className="tf-kv-row"><div className="tf-kv-label">Overlay</div><div className="tf-kv-value">{detail.inputView.selectedOverlay || '-'}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Backend</div><div className="tf-kv-value">{detail.metadata.backendType}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Backend Detail</div><div className="tf-kv-value">{detail.metadata.backend.label}</div></div>
+                  <div className="tf-kv-row"><div className="tf-kv-label">Git</div><div className="tf-kv-value">{gitStatusSummary(detail)}</div></div>
+                  {detail.metadata.git?.status === 'ready' && (
+                    <>
+                      <div className="tf-kv-row"><div className="tf-kv-label">Repo Root</div><div className="tf-kv-value">{detail.metadata.git.repoRoot}</div></div>
+                      <div className="tf-kv-row"><div className="tf-kv-label">Repo Path</div><div className="tf-kv-value">{detail.metadata.git.projectRelativePath}</div></div>
+                      {detail.savedPlanMetadata?.git && (
+                        <div className="tf-kv-row"><div className="tf-kv-label">Saved Plan Git</div><div className="tf-kv-value">{formatGitHead(detail.savedPlanMetadata.git.branch, detail.savedPlanMetadata.git.shortCommitSha, detail.savedPlanMetadata.git.isDetached)}{detail.savedPlanMetadata.git.isDirty ? ' • dirty' : ''}</div></div>
+                      )}
+                    </>
+                  )}
                   {'effectiveStateKey' in detail.metadata.backend && (
                     <div className="tf-kv-row"><div className="tf-kv-label">State Key</div><div className="tf-kv-value">{detail.metadata.backend.effectiveStateKey}</div></div>
                   )}
@@ -3179,6 +3223,19 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
                   <div className="tf-kv-row"><div className="tf-kv-label">Latest Backup</div><div className="tf-kv-value">{detail.latestStateBackup ? formatIsoDate(detail.latestStateBackup.createdAt) : 'none yet'}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Backup Folder</div><div className="tf-kv-value">{detail.latestStateBackup?.path || 'created on first destructive state operation'}</div></div>
                 </div>
+                {detail.metadata.git?.status === 'ready' && detail.metadata.git.changedTerraformFiles.length > 0 && (
+                  <div style={{ marginTop: 12 }}>
+                    <div className="tf-section-hint">Changed Terraform files in this project checkout</div>
+                    <div className="tf-kv" style={{ marginTop: 8 }}>
+                      {detail.metadata.git.changedTerraformFiles.map((file) => (
+                        <div key={`${file.status}:${file.path}`} className="tf-kv-row">
+                          <div className="tf-kv-label">{file.status}</div>
+                          <div className="tf-kv-value">{file.path}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <WorkspaceControls

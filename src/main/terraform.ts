@@ -11,6 +11,9 @@ import type {
   TerraformCliInfo,
   TerraformCommandLog,
   TerraformCommandRequest,
+  TerraformGitChangedFile,
+  TerraformGitCommitMetadata,
+  TerraformGitStatus,
   TerraformInputConfiguration,
   TerraformInputValidationResult,
   TerraformPlanAction,
@@ -32,6 +35,7 @@ import type {
   TerraformProjectListItem,
   TerraformProjectMetadata,
   TerraformProjectStatus,
+  TerraformSavedPlanMetadata,
   TerraformResolvedRuntimeInputs,
   TerraformResourceInventoryItem,
   TerraformResourceRow,
@@ -158,6 +162,143 @@ function inferEnvironmentLabel(workspaceName: string): string {
   return workspaceName
 }
 
+function normalizeGitPath(filePath: string): string {
+  return filePath.replace(/\\/g, '/')
+}
+
+function isRelevantTerraformFile(filePath: string): boolean {
+  const normalized = normalizeGitPath(filePath).toLowerCase()
+  return normalized.endsWith('.tf')
+    || normalized.endsWith('.tfvars')
+    || normalized.endsWith('.tfvars.json')
+    || normalized.endsWith('.terraform.lock.hcl')
+}
+
+function toShortCommitSha(commitSha: string): string {
+  return commitSha.slice(0, 8)
+}
+
+function toGitCommitMetadata(git: TerraformProjectMetadata['git']): TerraformGitCommitMetadata | null {
+  if (!git || git.status !== 'ready' || !git.commitSha) return null
+  return {
+    repoRoot: git.repoRoot,
+    branch: git.branch,
+    commitSha: git.commitSha,
+    shortCommitSha: git.shortCommitSha,
+    isDetached: git.isDetached,
+    isDirty: git.isDirty
+  }
+}
+
+function buildUnavailableGitMetadata(status: TerraformGitStatus, error = ''): TerraformProjectMetadata['git'] {
+  return {
+    status,
+    repoRoot: '',
+    projectRelativePath: '.',
+    branch: '',
+    commitSha: '',
+    shortCommitSha: '',
+    isDetached: false,
+    isDirty: false,
+    changedTerraformFiles: [],
+    error: error || (status === 'not-repo'
+      ? 'This project is not inside a Git repository.'
+      : status === 'git-missing'
+        ? 'Git executable was not found.'
+        : 'Git metadata could not be determined.')
+  }
+}
+
+function parseGitStatusLine(line: string): { status: string; path: string } | null {
+  if (!line.trim()) return null
+  const status = line.slice(0, 2)
+  const rawPath = line.slice(3).trim()
+  if (!rawPath) return null
+  const pathPart = rawPath.includes(' -> ') ? rawPath.slice(rawPath.lastIndexOf(' -> ') + 4) : rawPath
+  return {
+    status: status.trim() || '??',
+    path: pathPart.replace(/^"+|"+$/g, '')
+  }
+}
+
+function detectGitMetadata(rootPath: string): TerraformProjectMetadata['git'] {
+  try {
+    const repoRoot = normalizeGitPath(execFileSync('git', ['rev-parse', '--show-toplevel'], {
+      cwd: rootPath,
+      timeout: 10000,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe']
+    }).toString().trim())
+    if (!repoRoot) return buildUnavailableGitMetadata('not-repo')
+
+    const commitSha = execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: rootPath,
+      timeout: 10000,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe']
+    }).toString().trim()
+
+    let branch = ''
+    let isDetached = false
+    try {
+      branch = execFileSync('git', ['symbolic-ref', '--short', '-q', 'HEAD'], {
+        cwd: rootPath,
+        timeout: 10000,
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe']
+      }).toString().trim()
+      isDetached = !branch
+    } catch {
+      isDetached = true
+    }
+    if (isDetached) branch = 'detached HEAD'
+
+    const statusOutput = execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], {
+      cwd: rootPath,
+      timeout: 10000,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe']
+    }).toString()
+    const allChanges = statusOutput
+      .split(/\r?\n/)
+      .map((line) => parseGitStatusLine(line))
+      .filter((item): item is { status: string; path: string } => item !== null)
+
+    const projectRelativePathRaw = normalizeGitPath(path.relative(repoRoot, rootPath))
+    const projectRelativePath = projectRelativePathRaw && projectRelativePathRaw !== '' ? projectRelativePathRaw : '.'
+    const projectPrefix = projectRelativePath === '.' ? '' : `${projectRelativePath}/`
+    const changedTerraformFiles: TerraformGitChangedFile[] = allChanges
+      .filter((item) => isRelevantTerraformFile(item.path))
+      .filter((item) => !projectPrefix || normalizeGitPath(item.path).startsWith(projectPrefix))
+      .map((item) => ({
+        status: item.status,
+        path: projectPrefix ? normalizeGitPath(item.path).slice(projectPrefix.length) : normalizeGitPath(item.path)
+      }))
+
+    return {
+      status: 'ready',
+      repoRoot,
+      projectRelativePath,
+      branch,
+      commitSha,
+      shortCommitSha: toShortCommitSha(commitSha),
+      isDetached,
+      isDirty: allChanges.length > 0,
+      changedTerraformFiles,
+      error: ''
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (/not a git repository/i.test(message)) {
+      return buildUnavailableGitMetadata('not-repo')
+    }
+    if (/ENOENT/i.test(message) || /not recognized as an internal or external command/i.test(message)) {
+      return buildUnavailableGitMetadata('git-missing')
+    }
+    return buildUnavailableGitMetadata('error', message)
+  }
+}
+
 function normalizePlanOptions(options?: TerraformPlanOptions): TerraformPlanOptionsSummary {
   const mode = options?.mode ?? 'standard'
   const targets = uniqueStrings((options?.targets ?? []).map((item) => item.trim()))
@@ -174,12 +315,46 @@ function normalizePlanOptions(options?: TerraformPlanOptions): TerraformPlanOpti
   return { mode: 'standard', targets: [], replaceAddresses: [] }
 }
 
-function readPlanOptions(rootPath: string): TerraformPlanOptionsSummary {
-  return normalizePlanOptions(parseJsonFile<TerraformPlanOptions | null>(planMetadataPath(rootPath), null) ?? undefined)
+function normalizeSavedPlanMetadata(raw: unknown): TerraformSavedPlanMetadata | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const record = raw as Record<string, unknown>
+  const request = normalizePlanOptions((record.request ?? record) as TerraformPlanOptions | undefined)
+  const gitRecord = record.git
+  const git = gitRecord && typeof gitRecord === 'object' && !Array.isArray(gitRecord)
+    ? {
+        repoRoot: typeof (gitRecord as Record<string, unknown>).repoRoot === 'string' ? (gitRecord as Record<string, unknown>).repoRoot as string : '',
+        branch: typeof (gitRecord as Record<string, unknown>).branch === 'string' ? (gitRecord as Record<string, unknown>).branch as string : '',
+        commitSha: typeof (gitRecord as Record<string, unknown>).commitSha === 'string' ? (gitRecord as Record<string, unknown>).commitSha as string : '',
+        shortCommitSha: typeof (gitRecord as Record<string, unknown>).shortCommitSha === 'string' && (gitRecord as Record<string, unknown>).shortCommitSha
+          ? (gitRecord as Record<string, unknown>).shortCommitSha as string
+          : toShortCommitSha(typeof (gitRecord as Record<string, unknown>).commitSha === 'string' ? (gitRecord as Record<string, unknown>).commitSha as string : ''),
+        isDetached: Boolean((gitRecord as Record<string, unknown>).isDetached),
+        isDirty: Boolean((gitRecord as Record<string, unknown>).isDirty)
+      }
+    : null
+
+  return {
+    request,
+    generatedAt: typeof record.generatedAt === 'string' ? record.generatedAt : '',
+    git: git && git.commitSha ? git : null
+  }
 }
 
-function writePlanOptions(rootPath: string, options?: TerraformPlanOptions): void {
-  fs.writeFileSync(planMetadataPath(rootPath), JSON.stringify(normalizePlanOptions(options), null, 2), 'utf-8')
+function readPlanMetadata(rootPath: string): TerraformSavedPlanMetadata | null {
+  return normalizeSavedPlanMetadata(parseJsonFile<unknown>(planMetadataPath(rootPath), null))
+}
+
+function readPlanOptions(rootPath: string): TerraformPlanOptionsSummary {
+  return readPlanMetadata(rootPath)?.request ?? normalizePlanOptions()
+}
+
+function writePlanMetadata(rootPath: string, options: TerraformPlanOptions | undefined, git: TerraformGitCommitMetadata | null): void {
+  const metadata: TerraformSavedPlanMetadata = {
+    request: normalizePlanOptions(options),
+    generatedAt: new Date().toISOString(),
+    git
+  }
+  fs.writeFileSync(planMetadataPath(rootPath), JSON.stringify(metadata, null, 2), 'utf-8')
 }
 
 /* ── CLI Detection ────────────────────────────────────────── */
@@ -588,12 +763,14 @@ function inferMetadata(rootPath: string): {
   })
 
   const s3Backend = parseS3Backend(rootPath)
+  const git = detectGitMetadata(rootPath)
 
   return {
     metadata: {
       terraformVersionConstraint: versionConstraint,
       backendType,
       backend: buildBackendDetails(rootPath, backendType, s3Backend),
+      git,
       providerNames,
       resourceCount,
       moduleCount,
@@ -1993,7 +2170,7 @@ function loadProject(project: StoredProject, profileName = '', connection?: AwsC
         type: 'local',
         label: path.join(project.rootPath, 'terraform.tfstate'),
         stateLocation: path.join(project.rootPath, 'terraform.tfstate')
-      }, providerNames: [],
+      }, git: null, providerNames: [],
       resourceCount: 0, moduleCount: 0, variableCount: 0, outputsCount: 0, tfFileCount: 0,
       lastScannedAt: '', s3Backend: null
     }
@@ -2029,7 +2206,8 @@ function loadProject(project: StoredProject, profileName = '', connection?: AwsC
       stateBackups,
       latestStateBackup: stateBackups[0] ?? null,
       stateLockInfo: null,
-      hasSavedPlan: savedPlanPaths.has(project.id) || hasSavedPlanArtifacts(project.rootPath)
+      hasSavedPlan: savedPlanPaths.has(project.id) || hasSavedPlanArtifacts(project.rootPath),
+      savedPlanMetadata: readPlanMetadata(project.rootPath)
     }
   }
 
@@ -2066,7 +2244,8 @@ function loadProject(project: StoredProject, profileName = '', connection?: AwsC
     stateBackups,
     latestStateBackup: stateBackups[0] ?? null,
     stateLockInfo,
-    hasSavedPlan: savedPlanPaths.has(project.id) || hasSavedPlanArtifacts(project.rootPath)
+    hasSavedPlan: savedPlanPaths.has(project.id) || hasSavedPlanArtifacts(project.rootPath),
+    savedPlanMetadata: readPlanMetadata(project.rootPath)
   }
 }
 
@@ -2504,6 +2683,8 @@ export async function runProjectCommand(
   const cleanupStateVarFile = ['state-list', 'state-pull', 'state-show', 'state-mv', 'state-rm', 'force-unlock'].includes(request.command)
     ? prepareStateCommandVarFile(project, runtimeInputs)
     : null
+  const gitMetadata = detectGitMetadata(project.rootPath)
+  const gitCommitMetadata = toGitCommitMetadata(gitMetadata)
   const destructiveStateOperation = request.command === 'state-mv' || request.command === 'state-rm' || request.command === 'force-unlock'
   const stateOperationSummary =
     request.command === 'import'
@@ -2546,7 +2727,8 @@ export async function runProjectCommand(
     planJsonPath: '',
     backupPath: '',
     backupCreatedAt: '',
-    stateOperationSummary
+    stateOperationSummary,
+    git: gitCommitMetadata
   }
   saveRunRecord(runRecord, '')
 
@@ -2601,7 +2783,7 @@ export async function runProjectCommand(
 
     // Post-command actions
     if (request.command === 'plan' && log.success) {
-      writePlanOptions(project.rootPath, request.planOptions)
+      writePlanMetadata(project.rootPath, request.planOptions, gitCommitMetadata)
       await runTerraformShowJson(project.rootPath, planPath(project.rootPath), env)
       savedPlanPaths.set(project.id, planPath(project.rootPath))
     }
