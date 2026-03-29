@@ -9,6 +9,7 @@ import type {
   TerraformActionRow,
   TerraformCliInfo,
   TerraformCommandLog,
+  TerraformCommandName,
   TerraformDriftItem,
   TerraformDriftReport,
   TerraformDriftStatus,
@@ -19,6 +20,7 @@ import type {
   TerraformProject,
   TerraformProjectListItem,
   TerraformResourceRow,
+  TerraformRunRecord,
   TerraformWorkspaceSummary
 } from '@shared/types'
 import { openExternalUrl } from './api'
@@ -28,6 +30,7 @@ import {
   chooseVarFile,
   clearSavedPlan,
   createWorkspace,
+  deleteRunRecord,
   detectCli,
   detectMissingVars,
   deleteWorkspace,
@@ -35,7 +38,9 @@ import {
   getObservabilityReport,
   getProject,
   getMissingRequiredInputs,
+  getRunOutput,
   listProjects,
+  listRunHistory,
   openProjectInVsCode,
   reloadProject,
   removeProject,
@@ -49,7 +54,7 @@ import {
 } from './terraformApi'
 import { ObservabilityResilienceLab } from './ObservabilityResilienceLab'
 
-type DetailTab = 'actions' | 'resources' | 'drift' | 'lab'
+type DetailTab = 'actions' | 'resources' | 'drift' | 'lab' | 'history'
 
 /* ── db_password validation ───────────────────────────────── */
 
@@ -1140,6 +1145,201 @@ function DriftTab({
   )
 }
 
+/* ── History Tab ──────────────────────────────────────────── */
+
+function HistoryTab({ projectId }: { projectId: string }) {
+  const [records, setRecords] = useState<TerraformRunRecord[]>([])
+  const [loading, setLoading] = useState(false)
+  const [selectedRunId, setSelectedRunId] = useState('')
+  const [runOutput, setRunOutput] = useState('')
+  const [outputLoading, setOutputLoading] = useState(false)
+  const [commandFilter, setCommandFilter] = useState<TerraformCommandName | 'all'>('all')
+  const [successFilter, setSuccessFilter] = useState<'all' | 'success' | 'failure'>('all')
+  const [projectFilter, setProjectFilter] = useState<'current' | 'all'>('current')
+
+  const loadHistory = useCallback(async () => {
+    setLoading(true)
+    try {
+      const filter: Record<string, unknown> = {}
+      if (projectFilter === 'current' && projectId) filter.projectId = projectId
+      if (commandFilter !== 'all') filter.command = commandFilter
+      if (successFilter === 'success') filter.success = true
+      if (successFilter === 'failure') filter.success = false
+      const data = await listRunHistory(filter as Parameters<typeof listRunHistory>[0])
+      setRecords(data)
+    } catch {
+      setRecords([])
+    } finally {
+      setLoading(false)
+    }
+  }, [projectId, commandFilter, successFilter, projectFilter])
+
+  useEffect(() => { void loadHistory() }, [loadHistory])
+
+  useEffect(() => {
+    if (!selectedRunId) { setRunOutput(''); return }
+    setOutputLoading(true)
+    void getRunOutput(selectedRunId).then(setRunOutput).catch(() => setRunOutput('')).finally(() => setOutputLoading(false))
+  }, [selectedRunId])
+
+  const selectedRecord = records.find((r) => r.id === selectedRunId)
+
+  function formatDate(iso: string): string {
+    try {
+      const d = new Date(iso)
+      return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    } catch { return iso }
+  }
+
+  function formatDuration(start: string, end: string | null): string {
+    if (!end) return 'running...'
+    const ms = new Date(end).getTime() - new Date(start).getTime()
+    if (ms < 1000) return `${ms}ms`
+    const sec = Math.floor(ms / 1000)
+    if (sec < 60) return `${sec}s`
+    return `${Math.floor(sec / 60)}m ${sec % 60}s`
+  }
+
+  async function handleDelete(id: string) {
+    await deleteRunRecord(id)
+    if (selectedRunId === id) setSelectedRunId('')
+    void loadHistory()
+  }
+
+  const projectNames = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const r of records) map.set(r.projectId, r.projectName)
+    return map
+  }, [records])
+
+  return (
+    <>
+      <div className="tf-section">
+        <h3>Run History</h3>
+        <div className="tf-history-filters">
+          <div className="tf-history-filter-group">
+            <label>Scope</label>
+            <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value as 'current' | 'all')}>
+              <option value="current">Current Project</option>
+              <option value="all">All Projects</option>
+            </select>
+          </div>
+          <div className="tf-history-filter-group">
+            <label>Command</label>
+            <select value={commandFilter} onChange={(e) => setCommandFilter(e.target.value as TerraformCommandName | 'all')}>
+              <option value="all">All</option>
+              <option value="init">init</option>
+              <option value="plan">plan</option>
+              <option value="apply">apply</option>
+              <option value="destroy">destroy</option>
+            </select>
+          </div>
+          <div className="tf-history-filter-group">
+            <label>Result</label>
+            <select value={successFilter} onChange={(e) => setSuccessFilter(e.target.value as 'all' | 'success' | 'failure')}>
+              <option value="all">All</option>
+              <option value="success">Success</option>
+              <option value="failure">Failure</option>
+            </select>
+          </div>
+          <button className="tf-toolbar-btn" onClick={() => void loadHistory()} style={{ alignSelf: 'flex-end' }}>Refresh</button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="tf-empty">Loading history...</div>
+      ) : records.length === 0 ? (
+        <div className="tf-empty">No run history found.</div>
+      ) : (
+        <div className="tf-history-layout">
+          <div className="tf-history-list">
+            <table className="tf-data-table">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  {projectFilter === 'all' && <th>Project</th>}
+                  <th>Command</th>
+                  <th>Workspace</th>
+                  <th>Result</th>
+                  <th>Duration</th>
+                </tr>
+              </thead>
+              <tbody>
+                {records.map((r) => (
+                  <tr key={r.id} className={r.id === selectedRunId ? 'active' : ''} onClick={() => setSelectedRunId(r.id)}>
+                    <td title={r.startedAt}>{formatDate(r.startedAt)}</td>
+                    {projectFilter === 'all' && <td title={r.projectName}>{r.projectName}</td>}
+                    <td><span className={`tf-history-cmd ${r.command}`}>{r.command}</span></td>
+                    <td>{r.workspace}</td>
+                    <td>
+                      {r.success === null
+                        ? <span className="tf-history-result running">running</span>
+                        : r.success
+                          ? <span className="tf-history-result success">success</span>
+                          : <span className="tf-history-result failure">failed</span>
+                      }
+                    </td>
+                    <td>{formatDuration(r.startedAt, r.finishedAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {selectedRecord && (
+            <div className="tf-history-detail">
+              <div className="tf-section">
+                <div className="tf-section-head">
+                  <h3>Run Detail</h3>
+                  <button className="tf-toolbar-btn danger" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => void handleDelete(selectedRecord.id)}>Delete</button>
+                </div>
+                <div className="tf-kv">
+                  <div className="tf-kv-row"><div className="tf-kv-label">Command</div><div className="tf-kv-value">{selectedRecord.command}</div></div>
+                  <div className="tf-kv-row"><div className="tf-kv-label">Project</div><div className="tf-kv-value">{selectedRecord.projectName}</div></div>
+                  <div className="tf-kv-row"><div className="tf-kv-label">Workspace</div><div className="tf-kv-value"><span className="tf-workspace-badge">{selectedRecord.workspace}</span></div></div>
+                  <div className="tf-kv-row"><div className="tf-kv-label">Region</div><div className="tf-kv-value">{selectedRecord.region || '-'}</div></div>
+                  <div className="tf-kv-row"><div className="tf-kv-label">Connection</div><div className="tf-kv-value">{selectedRecord.connectionLabel || '-'}</div></div>
+                  <div className="tf-kv-row"><div className="tf-kv-label">Backend</div><div className="tf-kv-value">{selectedRecord.backendType}</div></div>
+                  <div className="tf-kv-row"><div className="tf-kv-label">State Source</div><div className="tf-kv-value">{selectedRecord.stateSource || '-'}</div></div>
+                  <div className="tf-kv-row"><div className="tf-kv-label">Started</div><div className="tf-kv-value">{selectedRecord.startedAt}</div></div>
+                  <div className="tf-kv-row"><div className="tf-kv-label">Finished</div><div className="tf-kv-value">{selectedRecord.finishedAt || '-'}</div></div>
+                  <div className="tf-kv-row"><div className="tf-kv-label">Duration</div><div className="tf-kv-value">{formatDuration(selectedRecord.startedAt, selectedRecord.finishedAt)}</div></div>
+                  <div className="tf-kv-row"><div className="tf-kv-label">Exit Code</div><div className="tf-kv-value">{selectedRecord.exitCode ?? '-'}</div></div>
+                  <div className="tf-kv-row">
+                    <div className="tf-kv-label">Result</div>
+                    <div className="tf-kv-value">
+                      {selectedRecord.success === null ? 'Running' : selectedRecord.success ? 'Success' : 'Failed'}
+                    </div>
+                  </div>
+                  {selectedRecord.args.length > 0 && (
+                    <div className="tf-kv-row"><div className="tf-kv-label">Args</div><div className="tf-kv-value" style={{ fontFamily: '"Cascadia Code","Fira Code",monospace', fontSize: 11 }}>{selectedRecord.args.join(' ')}</div></div>
+                  )}
+                </div>
+                {selectedRecord.planSummary && (
+                  <div className="tf-summary" style={{ marginTop: 12 }}>
+                    <span className="tf-summary-item"><span className="tf-summary-count create">{selectedRecord.planSummary.create}</span> create</span>
+                    <span className="tf-summary-item"><span className="tf-summary-count update">{selectedRecord.planSummary.update}</span> update</span>
+                    <span className="tf-summary-item"><span className="tf-summary-count delete">{selectedRecord.planSummary.delete}</span> delete</span>
+                    <span className="tf-summary-item"><span className="tf-summary-count replace">{selectedRecord.planSummary.replace}</span> replace</span>
+                  </div>
+                )}
+              </div>
+              <div className="tf-section">
+                <h3>Output</h3>
+                {outputLoading ? (
+                  <div className="tf-empty">Loading output...</div>
+                ) : (
+                  <div className="tf-output-panel">{runOutput || '(no output)'}</div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  )
+}
+
 export function TerraformConsole({ connection, onRunTerminalCommand }: { connection: AwsConnection; onRunTerminalCommand?: (command: string) => void }) {
   const [cliInfo, setCliInfo] = useState<TerraformCliInfo | null>(null)
   const [projects, setProjectsList] = useState<TerraformProjectListItem[]>([])
@@ -1652,6 +1852,7 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
                 <button className={detailTab === 'resources' ? 'active' : ''} onClick={() => setDetailTab('resources')}>Resources</button>
                 <button className={detailTab === 'drift' ? 'active' : ''} onClick={() => setDetailTab('drift')}>Drift</button>
                 <button className={detailTab === 'lab' ? 'active' : ''} onClick={() => setDetailTab('lab')}>Lab</button>
+                <button className={detailTab === 'history' ? 'active' : ''} onClick={() => setDetailTab('history')}>History</button>
               </div>
 
               {/* Project info */}
@@ -1727,6 +1928,9 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
                   onRunArtifact={handleLabArtifactRun}
                   onNavigateSignal={handleLabSignalNavigate}
                 />
+              )}
+              {detailTab === 'history' && (
+                <HistoryTab projectId={detail.id} />
               )}
             </>
           )}

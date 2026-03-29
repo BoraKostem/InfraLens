@@ -7,7 +7,9 @@ import type {
   TerraformDriftReport,
   TerraformMissingVarsResult,
   TerraformProject,
-  TerraformProjectListItem
+  TerraformProjectListItem,
+  TerraformRunHistoryFilter,
+  TerraformRunRecord
 } from '@shared/types'
 
 type Wrapped<T> = { ok: true; data: T } | { ok: false; error: string }
@@ -122,6 +124,18 @@ export async function clearSavedPlan(projectId: string): Promise<void> {
 
 export async function detectMissingVars(output: string): Promise<TerraformMissingVarsResult> {
   return unwrap(await bridge().detectMissingVars(output) as Wrapped<TerraformMissingVarsResult>)
+}
+
+export async function listRunHistory(filter?: TerraformRunHistoryFilter): Promise<TerraformRunRecord[]> {
+  return unwrap(await bridge().listRunHistory(filter) as Wrapped<TerraformRunRecord[]>)
+}
+
+export async function getRunOutput(runId: string): Promise<string> {
+  return unwrap(await bridge().getRunOutput(runId) as Wrapped<string>)
+}
+
+export async function deleteRunRecord(runId: string): Promise<void> {
+  return unwrap(await bridge().deleteRunRecord(runId) as Wrapped<void>)
 }
 
 export function subscribe(listener: (event: unknown) => void): void {

@@ -30,6 +30,8 @@ import type {
 } from '@shared/types'
 import { getProjects, setProjects } from './store'
 import { getConnectionEnv } from './sessionHub'
+import { saveRunRecord, updateRunRecord, redactArgs } from './terraformHistoryStore'
+import type { TerraformRunRecord } from '@shared/types'
 
 /* ── Stored project shape (persistence) ───────────────────── */
 
@@ -1572,6 +1574,28 @@ export async function runProjectCommand(
   pushLog(request.projectId, log)
   emit(window, { type: 'started', projectId: request.projectId, log })
 
+  // Persist run record to history store
+  const currentWorkspace = readText(path.join(project.rootPath, '.terraform', 'environment')).trim() || 'default'
+  const runRecord: TerraformRunRecord = {
+    id: log.id,
+    projectId: request.projectId,
+    projectName: project.name,
+    command: request.command,
+    args: redactArgs(args),
+    workspace: currentWorkspace,
+    region: request.connection?.region ?? project.environment?.region ?? '',
+    connectionLabel: displayConnectionLabel(request.profileName, request.connection),
+    backendType: project.environment?.backendType ?? 'local',
+    stateSource: '',
+    startedAt: log.startedAt,
+    finishedAt: null,
+    exitCode: null,
+    success: null,
+    planSummary: null,
+    planJsonPath: ''
+  }
+  saveRunRecord(runRecord, '')
+
   if (request.command === 'apply' || request.command === 'destroy') {
     activeDestructiveCommands.set(request.projectId, request.command)
   }
@@ -1632,6 +1656,20 @@ export async function runProjectCommand(
 
     const refreshedProject = getProject(request.profileName, request.projectId, request.connection)
     emit(window, { type: 'completed', projectId: request.projectId, log, project: refreshedProject })
+
+    // Update history record on success
+    const planSummary = refreshedProject?.lastPlanSummary ?? null
+    const hasPlanChanges = planSummary && (planSummary.create > 0 || planSummary.update > 0 || planSummary.delete > 0 || planSummary.replace > 0)
+    updateRunRecord(log.id, {
+      finishedAt: log.finishedAt,
+      exitCode: log.exitCode,
+      success: log.success,
+      stateSource: refreshedProject?.stateSource ?? '',
+      planSummary: hasPlanChanges ? planSummary : null,
+      planJsonPath: (request.command === 'plan' && log.success && fs.existsSync(planJsonPath(project.rootPath)))
+        ? planJsonPath(project.rootPath) : ''
+    }, log.output)
+
     return log
   } catch (error) {
     log.finishedAt = new Date().toISOString()
@@ -1639,6 +1677,14 @@ export async function runProjectCommand(
     log.success = false
     log.output += `\n${error instanceof Error ? error.message : String(error)}`
     emit(window, { type: 'completed', projectId: request.projectId, log, project: getProject(request.profileName, request.projectId, request.connection) })
+
+    // Update history record on error
+    updateRunRecord(log.id, {
+      finishedAt: log.finishedAt,
+      exitCode: log.exitCode,
+      success: log.success
+    }, log.output)
+
     return log
   } finally {
     cleanupStateVarFile?.()

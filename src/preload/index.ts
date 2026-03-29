@@ -13,7 +13,8 @@ import type {
   SsmSendCommandRequest,
   SsmStartSessionRequest,
   SnapshotLaunchConfig,
-  TerraformCommandRequest
+  TerraformCommandRequest,
+  TerraformRunHistoryFilter
 } from '@shared/types'
 
 const terminalListenerMap = new Map<(event: unknown) => void, (...args: unknown[]) => void>()
@@ -613,6 +614,9 @@ const api = {
   hasSavedPlan: (projectId: string) => ipcRenderer.invoke('terraform:plan:has-saved', projectId),
   clearSavedPlan: (projectId: string) => ipcRenderer.invoke('terraform:plan:clear', projectId),
   detectMissingVars: (output: string) => ipcRenderer.invoke('terraform:detect-missing-vars', output),
+  listRunHistory: (filter?: TerraformRunHistoryFilter) => ipcRenderer.invoke('terraform:history:list', filter),
+  getRunOutput: (runId: string) => ipcRenderer.invoke('terraform:history:get-output', runId),
+  deleteRunRecord: (runId: string) => ipcRenderer.invoke('terraform:history:delete', runId),
   subscribe: (listener: (event: unknown) => void) => {
     const wrapped = (_event: unknown, payload: unknown) => listener(payload)
     listenerMap.set(listener, wrapped)

@@ -5,7 +5,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { dialog, ipcMain, shell, app, type BrowserWindow, type OpenDialogOptions } from 'electron'
 
-import type { AwsConnection, TerraformCommandRequest } from '@shared/types'
+import type { AwsConnection, TerraformCommandRequest, TerraformRunHistoryFilter } from '@shared/types'
 import { importAwsConfigFile } from './aws/profiles'
 import { SERVICE_CATALOG } from './catalog'
 import { getReleaseInfo } from './releaseCheck'
@@ -30,6 +30,7 @@ import {
   updateProjectInputs
 } from './terraform'
 import { getTerraformDriftReport } from './terraformDrift'
+import { listRunRecords, getRunOutput, deleteRunRecord } from './terraformHistoryStore'
 import {
   addUserToGroup, attachGroupPolicy, attachRolePolicy, attachUserPolicy,
   createAccessKey, createGroup, createLoginProfile, createPolicy,
@@ -212,6 +213,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('terraform:plan:has-saved', async (_event, projectId: string) => wrap(() => hasSavedPlan(projectId)))
   ipcMain.handle('terraform:plan:clear', async (_event, projectId: string) => wrap(() => clearSavedPlan(projectId)))
   ipcMain.handle('terraform:detect-missing-vars', async (_event, output: string) => wrap(() => detectMissingVars(output)))
+  ipcMain.handle('terraform:history:list', async (_event, filter?: TerraformRunHistoryFilter) => wrap(() => listRunRecords(filter)))
+  ipcMain.handle('terraform:history:get-output', async (_event, runId: string) => wrap(() => getRunOutput(runId)))
+  ipcMain.handle('terraform:history:delete', async (_event, runId: string) => wrap(() => deleteRunRecord(runId)))
   ipcMain.handle('shell:open-external', async (_event, url: string) => wrap(() => shell.openExternal(url)))
   ipcMain.handle('app:release-info', async () => wrap(() => getReleaseInfo()))
 

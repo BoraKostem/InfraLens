@@ -2372,6 +2372,31 @@ export type TerraformCommandLog = {
   output: string
 }
 
+export type TerraformRunRecord = {
+  id: string
+  projectId: string
+  projectName: string
+  command: TerraformCommandName
+  args: string[]
+  workspace: string
+  region: string
+  connectionLabel: string
+  backendType: string
+  stateSource: string
+  startedAt: string
+  finishedAt: string | null
+  exitCode: number | null
+  success: boolean | null
+  planSummary: { create: number; update: number; delete: number; replace: number; noop: number } | null
+  planJsonPath: string
+}
+
+export type TerraformRunHistoryFilter = {
+  projectId?: string
+  command?: TerraformCommandName
+  success?: boolean
+}
+
 export type TerraformProjectStatus = 'Ready' | 'Missing'
 
 export type TerraformDriftStatus =
