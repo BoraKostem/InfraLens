@@ -57,7 +57,7 @@ import {
 } from './terraformApi'
 import { ObservabilityResilienceLab } from './ObservabilityResilienceLab'
 
-type DetailTab = 'actions' | 'resources' | 'drift' | 'lab' | 'history'
+type DetailTab = 'actions' | 'state' | 'resources' | 'drift' | 'lab' | 'history'
 
 /* ── db_password validation ───────────────────────────────── */
 
@@ -87,6 +87,29 @@ function validateVariablesJson(text: string): { parsed: Record<string, unknown> 
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))]
+}
+
+function formatIsoDate(iso: string): string {
+  if (!iso) return '-'
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    })
+  } catch {
+    return iso
+  }
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function terraformContextKey(connection: AwsConnection): string {
@@ -1197,6 +1220,211 @@ function ActionsTab({
   )
 }
 
+function StateTab({
+  project,
+  running,
+  lastLog,
+  onImport,
+  onMove,
+  onRemove,
+  onUnlock,
+  onReload
+}: {
+  project: TerraformProject
+  running: boolean
+  lastLog: TerraformCommandLog | null
+  onImport: (address: string, importId: string) => void
+  onMove: (fromAddress: string, toAddress: string) => void
+  onRemove: (address: string) => void
+  onUnlock: (lockId: string) => void
+  onReload: () => void
+}) {
+  const [importAddress, setImportAddress] = useState('')
+  const [importId, setImportId] = useState('')
+  const [moveFrom, setMoveFrom] = useState('')
+  const [moveTo, setMoveTo] = useState('')
+  const [removeAddress, setRemoveAddress] = useState('')
+  const [unlockId, setUnlockId] = useState(project.stateLockInfo?.lockId ?? '')
+  const stateAddresses = useMemo(() => project.stateAddresses.slice().sort(), [project.stateAddresses])
+  const latestBackup = project.latestStateBackup
+  const lockInfo = project.stateLockInfo
+  const lastStateLog = lastLog && ['import', 'state-mv', 'state-rm', 'force-unlock'].includes(lastLog.command) ? lastLog : null
+
+  useEffect(() => {
+    setUnlockId(project.stateLockInfo?.lockId ?? '')
+  }, [project.stateLockInfo?.lockId])
+
+  return (
+    <>
+      <div className="tf-section tf-state-overview">
+        <div className="tf-section-head">
+          <div>
+            <h3>State Operations Center</h3>
+            <div className="tf-section-hint">
+              Guided state changes run in the main process. Destructive actions require confirmation and write a local backup first.
+            </div>
+          </div>
+          <button className="tf-toolbar-btn" onClick={onReload} disabled={running}>Refresh State</button>
+        </div>
+        <div className="tf-state-meta-grid">
+          <div className="tf-state-meta-card">
+            <div className="tf-state-meta-label">Current state source</div>
+            <div className="tf-state-meta-value">{project.stateSource || 'none'}</div>
+            <div className="tf-state-meta-subtle">{project.metadata.backend.label}</div>
+          </div>
+          <div className="tf-state-meta-card">
+            <div className="tf-state-meta-label">Latest backup</div>
+            <div className="tf-state-meta-value">{latestBackup ? formatIsoDate(latestBackup.createdAt) : 'No backup yet'}</div>
+            <div className="tf-state-meta-subtle">
+              {latestBackup ? `${formatBytes(latestBackup.sizeBytes)} from ${latestBackup.source}` : 'A backup is created before move, remove, and unlock.'}
+            </div>
+          </div>
+          <div className="tf-state-meta-card">
+            <div className="tf-state-meta-label">Backup inventory</div>
+            <div className="tf-state-meta-value">{project.stateBackups.length}</div>
+            <div className="tf-state-meta-subtle">
+              {latestBackup ? latestBackup.path : 'Stored under Electron userData in a project-scoped backup folder.'}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="tf-section">
+        <div className="tf-state-card-grid">
+          <div className="tf-state-card">
+            <h3>Import Resource</h3>
+            <div className="tf-section-hint">
+              Bring an existing remote object under Terraform state without typing raw CLI syntax.
+            </div>
+            <label className="tf-state-field">
+              <span>Terraform address</span>
+              <input value={importAddress} onChange={(e) => setImportAddress(e.target.value)} placeholder="aws_s3_bucket.logs" />
+            </label>
+            <label className="tf-state-field">
+              <span>Provider import ID</span>
+              <input value={importId} onChange={(e) => setImportId(e.target.value)} placeholder="my-existing-bucket" />
+            </label>
+            <button
+              className="tf-toolbar-btn accent"
+              disabled={running || !importAddress.trim() || !importId.trim()}
+              onClick={() => onImport(importAddress.trim(), importId.trim())}
+            >
+              Run Import
+            </button>
+          </div>
+
+          <div className="tf-state-card tf-state-card-warning">
+            <h3>Move State Address</h3>
+            <div className="tf-section-hint">
+              Rename or relocate a state entry during refactors. A state backup is captured immediately before the move.
+            </div>
+            <label className="tf-state-field">
+              <span>From address</span>
+              <input value={moveFrom} onChange={(e) => setMoveFrom(e.target.value)} placeholder="aws_instance.old_name" list="tf-state-addresses" />
+            </label>
+            <label className="tf-state-field">
+              <span>To address</span>
+              <input value={moveTo} onChange={(e) => setMoveTo(e.target.value)} placeholder="module.app.aws_instance.new_name" />
+            </label>
+            <button
+              className="tf-toolbar-btn danger"
+              disabled={running || !moveFrom.trim() || !moveTo.trim()}
+              onClick={() => onMove(moveFrom.trim(), moveTo.trim())}
+            >
+              Confirm Move
+            </button>
+          </div>
+
+          <div className="tf-state-card tf-state-card-danger">
+            <h3>Remove From State</h3>
+            <div className="tf-section-hint">
+              Forget a resource without destroying it in the provider. This is destructive to Terraform state and always creates a backup first.
+            </div>
+            <label className="tf-state-field">
+              <span>State address</span>
+              <input value={removeAddress} onChange={(e) => setRemoveAddress(e.target.value)} placeholder="aws_security_group.legacy" list="tf-state-addresses" />
+            </label>
+            <button
+              className="tf-toolbar-btn danger"
+              disabled={running || !removeAddress.trim()}
+              onClick={() => onRemove(removeAddress.trim())}
+            >
+              Remove Address
+            </button>
+          </div>
+        </div>
+        <datalist id="tf-state-addresses">
+          {stateAddresses.map((address) => <option key={address} value={address} />)}
+        </datalist>
+      </div>
+
+      <div className="tf-section">
+        <div className="tf-state-card-grid">
+          <div className="tf-state-card">
+            <h3>Lock Status</h3>
+            <div className="tf-kv">
+              <div className="tf-kv-row"><div className="tf-kv-label">Backend</div><div className="tf-kv-value">{project.metadata.backendType}</div></div>
+              <div className="tf-kv-row"><div className="tf-kv-label">Inspection</div><div className="tf-kv-value">{lockInfo?.supported ? 'Available' : 'Limited'}</div></div>
+              <div className="tf-kv-row"><div className="tf-kv-label">Lock ID</div><div className="tf-kv-value">{lockInfo?.lockId || '(not detected)'}</div></div>
+              <div className="tf-kv-row"><div className="tf-kv-label">Operation</div><div className="tf-kv-value">{lockInfo?.operation || '-'}</div></div>
+              <div className="tf-kv-row"><div className="tf-kv-label">Who</div><div className="tf-kv-value">{lockInfo?.who || '-'}</div></div>
+              <div className="tf-kv-row"><div className="tf-kv-label">Created</div><div className="tf-kv-value">{lockInfo?.created ? formatIsoDate(lockInfo.created) : '-'}</div></div>
+            </div>
+            {lockInfo?.message && <div className="tf-state-inline-note">{lockInfo.message}</div>}
+            {lockInfo?.infoPath && <div className="tf-state-inline-note">Lock info file: {lockInfo.infoPath}</div>}
+          </div>
+
+          <div className="tf-state-card tf-state-card-danger">
+            <h3>Force Unlock</h3>
+            <div className="tf-section-hint">
+              Only unlock when you are certain no active Terraform operation is still holding the lock. A state backup is taken before unlock.
+            </div>
+            <label className="tf-state-field">
+              <span>Lock ID</span>
+              <input value={unlockId} onChange={(e) => setUnlockId(e.target.value)} placeholder="Paste Terraform lock ID" />
+            </label>
+            <button
+              className="tf-toolbar-btn danger"
+              disabled={running || !unlockId.trim()}
+              onClick={() => onUnlock(unlockId.trim())}
+            >
+              Force Unlock
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="tf-section">
+        <h3>Recent Backups</h3>
+        {project.stateBackups.length === 0 ? (
+          <div className="tf-empty">No state backups captured yet.</div>
+        ) : (
+          <div className="tf-state-backup-list">
+            {project.stateBackups.slice(0, 5).map((backup) => (
+              <div key={backup.path} className="tf-state-backup-row">
+                <div>
+                  <div className="tf-state-backup-title">{formatIsoDate(backup.createdAt)}</div>
+                  <div className="tf-state-backup-path">{backup.path}</div>
+                </div>
+                <div className="tf-state-backup-meta">{backup.source} • {formatBytes(backup.sizeBytes)}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {lastStateLog && (
+        <div className="tf-section">
+          <button className="tf-output-toggle" type="button">
+            Last State Operation Output: {lastStateLog.command}
+          </button>
+          <div className="tf-output-panel">{lastStateLog.output || '(no output)'}</div>
+        </div>
+      )}
+    </>
+  )
+}
+
 function WorkspaceControls({
   project,
   running,
@@ -1496,13 +1724,6 @@ function HistoryTab({ projectId }: { projectId: string }) {
 
   const selectedRecord = records.find((r) => r.id === selectedRunId)
 
-  function formatDate(iso: string): string {
-    try {
-      const d = new Date(iso)
-      return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })
-    } catch { return iso }
-  }
-
   function formatDuration(start: string, end: string | null): string {
     if (!end) return 'running...'
     const ms = new Date(end).getTime() - new Date(start).getTime()
@@ -1544,6 +1765,10 @@ function HistoryTab({ projectId }: { projectId: string }) {
               <option value="plan">plan</option>
               <option value="apply">apply</option>
               <option value="destroy">destroy</option>
+              <option value="import">import</option>
+              <option value="state-mv">state mv</option>
+              <option value="state-rm">state rm</option>
+              <option value="force-unlock">force-unlock</option>
             </select>
           </div>
           <div className="tf-history-filter-group">
@@ -1579,7 +1804,7 @@ function HistoryTab({ projectId }: { projectId: string }) {
               <tbody>
                 {records.map((r) => (
                   <tr key={r.id} className={r.id === selectedRunId ? 'active' : ''} onClick={() => setSelectedRunId(r.id)}>
-                    <td title={r.startedAt}>{formatDate(r.startedAt)}</td>
+                    <td title={r.startedAt}>{formatIsoDate(r.startedAt)}</td>
                     {projectFilter === 'all' && <td title={r.projectName}>{r.projectName}</td>}
                     <td><span className={`tf-history-cmd ${r.command}`}>{r.command}</span></td>
                     <td>{r.workspace}</td>
@@ -1617,6 +1842,15 @@ function HistoryTab({ projectId }: { projectId: string }) {
                   <div className="tf-kv-row"><div className="tf-kv-label">Finished</div><div className="tf-kv-value">{selectedRecord.finishedAt || '-'}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Duration</div><div className="tf-kv-value">{formatDuration(selectedRecord.startedAt, selectedRecord.finishedAt)}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Exit Code</div><div className="tf-kv-value">{selectedRecord.exitCode ?? '-'}</div></div>
+                  {selectedRecord.stateOperationSummary && (
+                    <div className="tf-kv-row"><div className="tf-kv-label">State Op</div><div className="tf-kv-value">{selectedRecord.stateOperationSummary}</div></div>
+                  )}
+                  {selectedRecord.backupPath && (
+                    <div className="tf-kv-row"><div className="tf-kv-label">Backup</div><div className="tf-kv-value">{selectedRecord.backupPath}</div></div>
+                  )}
+                  {selectedRecord.backupCreatedAt && (
+                    <div className="tf-kv-row"><div className="tf-kv-label">Backup Time</div><div className="tf-kv-value">{formatIsoDate(selectedRecord.backupCreatedAt)}</div></div>
+                  )}
                   <div className="tf-kv-row">
                     <div className="tf-kv-label">Result</div>
                     <div className="tf-kv-value">
@@ -1797,6 +2031,9 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
         const log = e.log as TerraformCommandLog
         setLastLog(log)
         if (e.project) setDetail(e.project as TerraformProject)
+        if (log.success && ['import', 'state-mv', 'state-rm', 'force-unlock'].includes(log.command)) {
+          setMsg(`Completed ${log.command}. Project state views were reloaded.`)
+        }
         void reload()
       } else if (e.type === 'started') {
         setRunning(true)
@@ -2108,6 +2345,77 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
     })
   }
 
+  async function execStateCommand(request: {
+    command: 'import' | 'state-mv' | 'state-rm' | 'force-unlock'
+    importAddress?: string
+    importId?: string
+    stateAddress?: string
+    stateFromAddress?: string
+    stateToAddress?: string
+    lockId?: string
+  }) {
+    if (!detail || running) return
+    setMsg('')
+    setDriftReport(null)
+    setDriftError('')
+    setLabReport(null)
+    setLabError('')
+    try {
+      const log = await runCommand({
+        profileName: contextKey,
+        connection,
+        projectId: detail.id,
+        ...request
+      })
+      setLastLog(log)
+      if (!log.success) {
+        setMsg(`State operation failed: ${log.output.split('\n').slice(-1)[0] || 'see output for details'}`)
+      }
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  function handleStateImport(address: string, importId: string) {
+    void execStateCommand({ command: 'import', importAddress: address, importId })
+  }
+
+  function handleStateMove(fromAddress: string, toAddress: string) {
+    setConfirmDialog({
+      title: 'Confirm State Move',
+      description: `Move Terraform state from ${fromAddress} to ${toAddress}. A local backup will be captured first.`,
+      confirmWord: 'MOVE',
+      onConfirm: () => {
+        setConfirmDialog(null)
+        void execStateCommand({ command: 'state-mv', stateFromAddress: fromAddress, stateToAddress: toAddress })
+      }
+    })
+  }
+
+  function handleStateRemove(address: string) {
+    setConfirmDialog({
+      title: 'Confirm State Remove',
+      description: `Remove ${address} from Terraform state without deleting the provider resource. A local backup will be captured first.`,
+      confirmWord: 'REMOVE',
+      onConfirm: () => {
+        setConfirmDialog(null)
+        void execStateCommand({ command: 'state-rm', stateAddress: address })
+      }
+    })
+  }
+
+  function handleForceUnlock(lockId: string) {
+    setConfirmDialog({
+      title: 'Confirm Force Unlock',
+      description: `Force-unlock Terraform state lock ${lockId}. Only continue if no active Terraform operation still owns the lock. A local backup will be captured first.`,
+      confirmWord: 'UNLOCK',
+      onConfirm: () => {
+        setConfirmDialog(null)
+        void execStateCommand({ command: 'force-unlock', lockId })
+      }
+    })
+  }
+
   function handleOpenDriftConsole(item: TerraformDriftItem) {
     if (!item.consoleUrl) return
     void openExternalUrl(item.consoleUrl)
@@ -2197,6 +2505,7 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
               {/* Detail tabs */}
               <div className="tf-detail-tabs">
                 <button className={detailTab === 'actions' ? 'active' : ''} onClick={() => setDetailTab('actions')}>Actions</button>
+                <button className={detailTab === 'state' ? 'active' : ''} onClick={() => setDetailTab('state')}>State</button>
                 <button className={detailTab === 'resources' ? 'active' : ''} onClick={() => setDetailTab('resources')}>Resources</button>
                 <button className={detailTab === 'drift' ? 'active' : ''} onClick={() => setDetailTab('drift')}>Drift</button>
                 <button className={detailTab === 'lab' ? 'active' : ''} onClick={() => setDetailTab('lab')}>Lab</button>
@@ -2227,6 +2536,8 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
                   <div className="tf-kv-row"><div className="tf-kv-label">Variables</div><div className="tf-kv-value">{detail.metadata.variableCount}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">Var File</div><div className="tf-kv-value">{detail.varFile || '-'}</div></div>
                   <div className="tf-kv-row"><div className="tf-kv-label">State Source</div><div className="tf-kv-value">{detail.stateSource || 'none'}</div></div>
+                  <div className="tf-kv-row"><div className="tf-kv-label">Latest Backup</div><div className="tf-kv-value">{detail.latestStateBackup ? formatIsoDate(detail.latestStateBackup.createdAt) : 'none yet'}</div></div>
+                  <div className="tf-kv-row"><div className="tf-kv-label">Backup Folder</div><div className="tf-kv-value">{detail.latestStateBackup?.path || 'created on first destructive state operation'}</div></div>
                 </div>
               </div>
 
@@ -2249,6 +2560,18 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
                 onApply={handleApply}
                 onDestroy={handleDestroy}
               />
+              )}
+              {detailTab === 'state' && (
+                <StateTab
+                  project={detail}
+                  running={running}
+                  lastLog={lastLog}
+                  onImport={handleStateImport}
+                  onMove={handleStateMove}
+                  onRemove={handleStateRemove}
+                  onUnlock={handleForceUnlock}
+                  onReload={() => void handleReload()}
+                />
               )}
               {detailTab === 'resources' && <ResourcesTab project={detail} />}
               {detailTab === 'drift' && (

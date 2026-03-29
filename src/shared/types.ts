@@ -2227,6 +2227,10 @@ export type TerraformCommandName =
   | 'plan'
   | 'apply'
   | 'destroy'
+  | 'import'
+  | 'state-mv'
+  | 'state-rm'
+  | 'force-unlock'
   | 'state-list'
   | 'state-show'
   | 'state-pull'
@@ -2293,6 +2297,27 @@ export type TerraformGenericBackendDetails = {
 export type TerraformWorkspaceSummary = {
   name: string
   isCurrent: boolean
+}
+
+export type TerraformStateBackupSummary = {
+  path: string
+  createdAt: string
+  sizeBytes: number
+  source: string
+}
+
+export type TerraformStateLockInfo = {
+  supported: boolean
+  backendType: string
+  lockId: string
+  operation: string
+  who: string
+  version: string
+  created: string
+  path: string
+  infoPath: string
+  message: string
+  canUnlock: boolean
 }
 
 export type TerraformProjectEnvironmentMetadata = {
@@ -2463,6 +2488,9 @@ export type TerraformRunRecord = {
   success: boolean | null
   planSummary: TerraformPlanSummary | null
   planJsonPath: string
+  backupPath: string
+  backupCreatedAt: string
+  stateOperationSummary: string
 }
 
 export type TerraformRunHistoryFilter = {
@@ -2533,6 +2561,9 @@ export type TerraformProject = {
   stateAddresses: string[]
   rawStateJson: string
   stateSource: string
+  stateBackups: TerraformStateBackupSummary[]
+  latestStateBackup: TerraformStateBackupSummary | null
+  stateLockInfo: TerraformStateLockInfo | null
   hasSavedPlan: boolean
 }
 
@@ -2542,6 +2573,11 @@ export type TerraformCommandRequest = {
   projectId: string
   command: TerraformCommandName
   stateAddress?: string
+  importAddress?: string
+  importId?: string
+  stateFromAddress?: string
+  stateToAddress?: string
+  lockId?: string
   planOptions?: TerraformPlanOptions
 }
 

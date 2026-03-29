@@ -831,6 +831,115 @@
   word-break: break-all;
 }
 
+.tf-state-overview {
+  background: linear-gradient(180deg, rgba(74, 143, 231, 0.08), transparent);
+}
+
+.tf-state-meta-grid,
+.tf-state-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.tf-state-meta-card,
+.tf-state-card {
+  border: 1px solid #3b4350;
+  border-radius: 8px;
+  background: #20252d;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tf-state-card-warning {
+  border-color: rgba(243, 156, 18, 0.55);
+  background: linear-gradient(180deg, rgba(243, 156, 18, 0.12), rgba(32, 37, 45, 1));
+}
+
+.tf-state-card-danger {
+  border-color: rgba(231, 76, 60, 0.65);
+  background: linear-gradient(180deg, rgba(231, 76, 60, 0.15), rgba(32, 37, 45, 1));
+}
+
+.tf-state-meta-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #9ca7b7;
+}
+
+.tf-state-meta-value {
+  color: #edf1f6;
+  font-size: 16px;
+  font-weight: 700;
+  word-break: break-word;
+}
+
+.tf-state-meta-subtle,
+.tf-state-inline-note {
+  color: #9ca7b7;
+  font-size: 11px;
+  word-break: break-word;
+}
+
+.tf-state-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #9ca7b7;
+  font-weight: 600;
+}
+
+.tf-state-field input {
+  padding: 8px 10px;
+  border: 1px solid #3b4350;
+  border-radius: 4px;
+  background: #111820;
+  color: #edf1f6;
+  font-size: 12px;
+  font-family: "Cascadia Code", "Fira Code", monospace;
+}
+
+.tf-state-backup-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tf-state-backup-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #3b4350;
+  border-radius: 6px;
+  background: #20252d;
+}
+
+.tf-state-backup-title {
+  color: #edf1f6;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tf-state-backup-path {
+  color: #9ec7ff;
+  font-size: 11px;
+  font-family: "Cascadia Code", "Fira Code", monospace;
+  word-break: break-all;
+}
+
+.tf-state-backup-meta {
+  color: #9ca7b7;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 /* ── KV rows ─────────────────────────────────────────────── */
 
 .tf-kv {
@@ -1344,6 +1453,10 @@
 .tf-history-cmd.plan { background: rgba(41, 128, 185, 0.3); color: #7ec4f0; }
 .tf-history-cmd.apply { background: rgba(39, 174, 96, 0.3); color: #7ee2a5; }
 .tf-history-cmd.destroy { background: rgba(192, 57, 43, 0.3); color: #ff9e92; }
+.tf-history-cmd.import { background: rgba(39, 174, 96, 0.22); color: #b8f1ca; }
+.tf-history-cmd.state-mv { background: rgba(243, 156, 18, 0.24); color: #ffd78d; }
+.tf-history-cmd.state-rm { background: rgba(192, 57, 43, 0.26); color: #ffb0a6; }
+.tf-history-cmd.force-unlock { background: rgba(142, 68, 173, 0.28); color: #e0b9f5; }
 
 .tf-history-result {
   font-size: 11px;
@@ -1387,6 +1500,10 @@
 
   .tf-plan-summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .tf-state-backup-row {
+    flex-direction: column;
   }
 
   .tf-plan-change-head,

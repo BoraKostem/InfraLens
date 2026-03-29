@@ -4,7 +4,7 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { spawn, execFile, execFileSync } from 'node:child_process'
 
-import type { BrowserWindow } from 'electron'
+import { app, type BrowserWindow } from 'electron'
 
 import type {
   TerraformActionRow,
@@ -30,6 +30,8 @@ import type {
   TerraformProjectStatus,
   TerraformResourceInventoryItem,
   TerraformResourceRow,
+  TerraformStateBackupSummary,
+  TerraformStateLockInfo,
   TerraformS3BackendConfig,
   TerraformWorkspaceSummary,
   TerraformVariableDefinition,
@@ -61,6 +63,7 @@ const INPUTS_FILE = 'terraform-workspace.auto.tfvars.json'
 const PLAN_FILE = '.terraform-workspace.tfplan'
 const PLAN_METADATA_FILE = '.terraform-workspace.tfplan.meta.json'
 const STATE_CACHE_FILE = '.terraform-workspace.state.json'
+const STATE_BACKUP_LIMIT = 20
 
 const commandLogs = new Map<string, TerraformCommandLog[]>()
 const savedPlanPaths = new Map<string, string>()
@@ -109,6 +112,10 @@ function planJsonPath(rootPath: string): string {
 
 function planMetadataPath(rootPath: string): string {
   return path.join(rootPath, PLAN_METADATA_FILE)
+}
+
+function stateBackupDir(projectId: string): string {
+  return path.join(app.getPath('userData'), 'terraform-state-backups', projectId)
 }
 
 function hasSavedPlanArtifacts(rootPath: string): boolean {
@@ -1016,6 +1023,142 @@ function emptyPlanSummary(request: TerraformPlanOptionsSummary): TerraformPlanSu
   }
 }
 
+function listStateBackups(projectId: string): TerraformStateBackupSummary[] {
+  const dir = stateBackupDir(projectId)
+  if (!fs.existsSync(dir)) return []
+
+  return fs.readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.tfstate.backup.json'))
+    .map((entry) => {
+      const filePath = path.join(dir, entry.name)
+      const stat = fs.statSync(filePath)
+      const sourceMatch = entry.name.match(/^[^.]+\.(.+)\.tfstate\.backup\.json$/)
+      return {
+        path: filePath,
+        createdAt: stat.mtime.toISOString(),
+        sizeBytes: stat.size,
+        source: sourceMatch?.[1] ?? 'state'
+      }
+    })
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+}
+
+function trimStateBackupHistory(projectId: string): void {
+  const backups = listStateBackups(projectId)
+  for (const backup of backups.slice(STATE_BACKUP_LIMIT)) {
+    try {
+      fs.unlinkSync(backup.path)
+    } catch {
+      /* ok */
+    }
+  }
+}
+
+function sanitizeBackupSource(source: string): string {
+  return source.replace(/[^a-z0-9-]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'state'
+}
+
+async function createStateBackup(
+  project: StoredProject,
+  env: Record<string, string>
+): Promise<TerraformStateBackupSummary> {
+  const dir = stateBackupDir(project.id)
+  fs.mkdirSync(dir, { recursive: true })
+
+  let rawStateJson = ''
+  let source = 'state'
+  try {
+    const pulled = await runChildProcess(project.rootPath, terraformCommand(), ['state', 'pull'], env)
+    if (pulled.exitCode === 0 && pulled.output.trim()) {
+      rawStateJson = pulled.output
+      source = 'remote-pull'
+      fs.writeFileSync(stateCachePath(project.rootPath), pulled.output, 'utf-8')
+    }
+  } catch {
+    /* fall back to existing state snapshot */
+  }
+
+  if (!rawStateJson.trim()) {
+    const snapshot = readStateSnapshot(project.rootPath)
+    rawStateJson = snapshot.rawStateJson
+    source = snapshot.stateSource || 'state'
+  }
+
+  if (!rawStateJson.trim()) {
+    throw new Error('No Terraform state snapshot was available to back up before this operation.')
+  }
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const backupPath = path.join(dir, `${timestamp}.${sanitizeBackupSource(source)}.tfstate.backup.json`)
+  fs.writeFileSync(backupPath, rawStateJson, 'utf-8')
+  trimStateBackupHistory(project.id)
+
+  const stat = fs.statSync(backupPath)
+  return {
+    path: backupPath,
+    createdAt: stat.mtime.toISOString(),
+    sizeBytes: stat.size,
+    source
+  }
+}
+
+function readStateLockInfo(rootPath: string, backendType: string): TerraformStateLockInfo | null {
+  const candidates = [
+    path.join(rootPath, '.terraform.tfstate.lock.info'),
+    path.join(rootPath, '.terraform', 'terraform.tfstate.lock.info')
+  ]
+
+  for (const infoPath of candidates) {
+    if (!fs.existsSync(infoPath)) continue
+    try {
+      const raw = JSON.parse(fs.readFileSync(infoPath, 'utf-8')) as Record<string, unknown>
+      return {
+        supported: true,
+        backendType,
+        lockId: typeof raw.ID === 'string' ? raw.ID : '',
+        operation: typeof raw.Operation === 'string' ? raw.Operation : '',
+        who: typeof raw.Who === 'string' ? raw.Who : '',
+        version: typeof raw.Version === 'string' ? raw.Version : '',
+        created: typeof raw.Created === 'string' ? raw.Created : '',
+        path: typeof raw.Path === 'string' ? raw.Path : '',
+        infoPath,
+        message: '',
+        canUnlock: typeof raw.ID === 'string' && raw.ID.trim().length > 0
+      }
+    } catch {
+      return {
+        supported: true,
+        backendType,
+        lockId: '',
+        operation: '',
+        who: '',
+        version: '',
+        created: '',
+        path: '',
+        infoPath,
+        message: 'Lock metadata exists but could not be parsed.',
+        canUnlock: false
+      }
+    }
+  }
+
+  return {
+    supported: backendType === 'local',
+    backendType,
+    lockId: '',
+    operation: '',
+    who: '',
+    version: '',
+    created: '',
+    path: '',
+    infoPath: '',
+    message: backendType === 'local'
+      ? 'No local lock file is present.'
+      : 'Lock inspection is only available when Terraform leaves a local lock info file. Remote backend lock inspection is not available here.',
+    canUnlock: false
+  }
+}
+
 function readPlanSnapshot(rootPath: string): {
   planChanges: TerraformPlanChange[]
   lastPlanSummary: TerraformPlanSummary
@@ -1462,6 +1605,7 @@ function projectStatus(rootPath: string): TerraformProjectStatus {
 function loadProject(project: StoredProject, profileName = '', connection?: AwsConnection): TerraformProject {
   const status = projectStatus(project.rootPath)
   if (status === 'Missing') {
+    const stateBackups = listStateBackups(project.id)
     const emptyMeta: TerraformProjectMetadata = {
       terraformVersionConstraint: '', backendType: 'local', backend: {
         type: 'local',
@@ -1485,6 +1629,9 @@ function loadProject(project: StoredProject, profileName = '', connection?: AwsC
       lastPlanSummary: emptyPlanSummary(readPlanOptions(project.rootPath)),
       lastCommandAt: commandLogs.get(project.id)?.[0]?.startedAt ?? '',
       stateAddresses: [], rawStateJson: '', stateSource: 'none',
+      stateBackups,
+      latestStateBackup: stateBackups[0] ?? null,
+      stateLockInfo: null,
       hasSavedPlan: savedPlanPaths.has(project.id) || hasSavedPlanArtifacts(project.rootPath)
     }
   }
@@ -1498,6 +1645,8 @@ function loadProject(project: StoredProject, profileName = '', connection?: AwsC
   const resourceRows = buildResourceRows(inventory)
   const diagram = buildDiagram(inventory, planChanges, project.rootPath)
   const environment = buildEnvironmentMetadata(project, profileName, connection, metadata, currentWorkspace)
+  const stateBackups = listStateBackups(project.id)
+  const stateLockInfo = readStateLockInfo(project.rootPath, metadata.backendType)
 
   return {
     id: project.id, name: project.name, rootPath: project.rootPath,
@@ -1510,6 +1659,9 @@ function loadProject(project: StoredProject, profileName = '', connection?: AwsC
     inventory, planChanges, actionRows, resourceRows, diagram,
     lastPlanSummary, lastCommandAt: commandLogs.get(project.id)?.[0]?.startedAt ?? '',
     stateAddresses, rawStateJson, stateSource,
+    stateBackups,
+    latestStateBackup: stateBackups[0] ?? null,
+    stateLockInfo,
     hasSavedPlan: savedPlanPaths.has(project.id) || hasSavedPlanArtifacts(project.rootPath)
   }
 }
@@ -1844,6 +1996,20 @@ function buildArgs(request: TerraformCommandRequest, project: StoredProject): st
     }
     case 'destroy':
       return ['destroy', '-input=false', '-no-color', '-auto-approve', ...varFileArgs]
+    case 'import':
+      if (!request.importAddress?.trim()) throw new Error('Resource address is required for import.')
+      if (!request.importId?.trim()) throw new Error('Import ID is required.')
+      return ['import', '-input=false', '-no-color', ...varFileArgs, request.importAddress.trim(), request.importId.trim()]
+    case 'state-mv':
+      if (!request.stateFromAddress?.trim()) throw new Error('Source address is required for state move.')
+      if (!request.stateToAddress?.trim()) throw new Error('Destination address is required for state move.')
+      return ['state', 'mv', '-lock=true', request.stateFromAddress.trim(), request.stateToAddress.trim()]
+    case 'state-rm':
+      if (!request.stateAddress?.trim()) throw new Error('State address is required for state remove.')
+      return ['state', 'rm', '-lock=true', request.stateAddress.trim()]
+    case 'force-unlock':
+      if (!request.lockId?.trim()) throw new Error('Lock ID is required for force unlock.')
+      return ['force-unlock', '-force', request.lockId.trim()]
     case 'state-list':
       return ['state', 'list']
     case 'state-pull':
@@ -1872,7 +2038,7 @@ export async function runProjectCommand(
   if (!project) throw new Error('Project not found.')
 
   // Ensure auto.tfvars is written before commands that need it
-  if (['init', 'plan', 'apply', 'destroy', 'state-list', 'state-pull', 'state-show'].includes(request.command)) {
+  if (['init', 'plan', 'apply', 'destroy', 'import', 'state-list', 'state-pull', 'state-show'].includes(request.command)) {
     writeAutoTfvars(project)
   }
   if (request.command === 'plan') {
@@ -1882,9 +2048,21 @@ export async function runProjectCommand(
 
   const args = buildArgs(request, project)
   const env = buildEnvWithVars(project, request.connection)
-  const cleanupStateVarFile = ['state-list', 'state-pull', 'state-show'].includes(request.command)
+  const cleanupStateVarFile = ['state-list', 'state-pull', 'state-show', 'state-mv', 'state-rm', 'force-unlock'].includes(request.command)
     ? prepareStateCommandVarFile(project)
     : null
+  const destructiveStateOperation = request.command === 'state-mv' || request.command === 'state-rm' || request.command === 'force-unlock'
+  const stateOperationSummary =
+    request.command === 'import'
+      ? `${request.importAddress?.trim() ?? ''} <= ${request.importId?.trim() ?? ''}`
+      : request.command === 'state-mv'
+        ? `${request.stateFromAddress?.trim() ?? ''} -> ${request.stateToAddress?.trim() ?? ''}`
+        : request.command === 'state-rm'
+          ? request.stateAddress?.trim() ?? ''
+          : request.command === 'force-unlock'
+            ? request.lockId?.trim() ?? ''
+            : ''
+  let backupSummary: TerraformStateBackupSummary | null = null
   const log: TerraformCommandLog = {
     id: randomUUID(), projectId: request.projectId, command: request.command,
     args, startedAt: new Date().toISOString(), finishedAt: null, exitCode: null,
@@ -1912,7 +2090,10 @@ export async function runProjectCommand(
     exitCode: null,
     success: null,
     planSummary: null,
-    planJsonPath: ''
+    planJsonPath: '',
+    backupPath: '',
+    backupCreatedAt: '',
+    stateOperationSummary
   }
   saveRunRecord(runRecord, '')
 
@@ -1923,6 +2104,16 @@ export async function runProjectCommand(
   let lastProgressTime = 0
 
   try {
+    if (destructiveStateOperation) {
+      backupSummary = await createStateBackup(project, env)
+      log.output += `[backup] Saved Terraform state backup to ${backupSummary.path}\n`
+      emit(window, { type: 'output', projectId: request.projectId, logId: log.id, chunk: `[backup] Saved Terraform state backup to ${backupSummary.path}\n` })
+      updateRunRecord(log.id, {
+        backupPath: backupSummary.path,
+        backupCreatedAt: backupSummary.createdAt
+      }, log.output)
+    }
+
     const result = await runChildProcess(project.rootPath, terraformCommand(), args, env, (chunk) => {
       log.output += chunk
       emit(window, { type: 'output', projectId: request.projectId, logId: log.id, chunk })
@@ -1971,6 +2162,16 @@ export async function runProjectCommand(
         }
       }
     }
+    if (['import', 'state-mv', 'state-rm', 'force-unlock'].includes(request.command) && result.exitCode === 0) {
+      const refreshed = await refreshRemoteStateCache(project.rootPath, env)
+      if (!refreshed && request.command === 'state-rm') {
+        clearStateCache(project.rootPath)
+      }
+      if (request.command === 'import' || request.command === 'state-mv' || request.command === 'state-rm') {
+        clearSavedPlanArtifacts(project.rootPath)
+        savedPlanPaths.delete(project.id)
+      }
+    }
     if (request.command === 'state-pull' && result.exitCode === 0 && log.output.trim()) {
       fs.writeFileSync(stateCachePath(project.rootPath), log.output, 'utf-8')
     }
@@ -1987,6 +2188,8 @@ export async function runProjectCommand(
       success: log.success,
       stateSource: refreshedProject?.stateSource ?? '',
       planSummary: hasPlanChanges ? planSummary : null,
+      backupPath: backupSummary?.path ?? '',
+      backupCreatedAt: backupSummary?.createdAt ?? '',
       planJsonPath: (request.command === 'plan' && log.success && fs.existsSync(planJsonPath(project.rootPath)))
         ? planJsonPath(project.rootPath) : ''
     }, log.output)
@@ -2003,7 +2206,9 @@ export async function runProjectCommand(
     updateRunRecord(log.id, {
       finishedAt: log.finishedAt,
       exitCode: log.exitCode,
-      success: log.success
+      success: log.success,
+      backupPath: backupSummary?.path ?? '',
+      backupCreatedAt: backupSummary?.createdAt ?? ''
     }, log.output)
 
     return log
