@@ -92,8 +92,13 @@ function collectProfiles(): ProfileSpec[] {
   for (const [key, value] of Object.entries(process.env)) {
     if (!key.startsWith('AWS_LENS_PROFILE_') || !value) continue
 
-    const name = key.slice('AWS_LENS_PROFILE_'.length).toLowerCase().replace(/_/g, '-')
-    if (!name) continue
+    const rawName = key.slice('AWS_LENS_PROFILE_'.length).toLowerCase().replace(/_/g, '-')
+    // Validate: only alphanumeric and hyphens allowed — prevents INI injection
+    if (!rawName || !/^[a-z0-9-]+$/.test(rawName)) {
+      console.warn(`[bootstrap] ${key}: invalid profile name "${rawName}" — skipped`)
+      continue
+    }
+    const name = rawName
 
     try {
       const parsed = JSON.parse(value) as Record<string, string>
