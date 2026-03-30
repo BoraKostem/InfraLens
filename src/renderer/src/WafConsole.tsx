@@ -60,7 +60,10 @@ type MainTab = 'acls' | 'create'
    WAF Console
    ══════════════════════════════════════════════════════════════ */
 
-export function WafConsole({ connection }: { connection: AwsConnection }) {
+export function WafConsole({ connection, focusWebAcl }: {
+  connection: AwsConnection
+  focusWebAcl?: { token: number; webAclName: string } | null
+}) {
   const [mainTab, setMainTab] = useState<MainTab>('acls')
   const [loading, setLoading] = useState(false)
   const [scope, setScope] = useState<WafScope>('REGIONAL')
@@ -117,6 +120,18 @@ export function WafConsole({ connection }: { connection: AwsConnection }) {
   }
 
   useEffect(() => { void refresh(null) }, [connection.sessionId, connection.region, scope])
+
+  /* ── Focus drilldown ─────────────────────────────────────── */
+  const [appliedFocusToken, setAppliedFocusToken] = useState(0)
+  useEffect(() => {
+    if (!focusWebAcl || focusWebAcl.token === appliedFocusToken) return
+    setAppliedFocusToken(focusWebAcl.token)
+    const match = webAcls.find(a => a.name === focusWebAcl.webAclName)
+    if (match) {
+      setMainTab('acls')
+      void refresh({ id: match.id, name: match.name })
+    }
+  }, [appliedFocusToken, focusWebAcl, webAcls])
 
   /* ── Action handlers ────────────────────────────────────── */
 

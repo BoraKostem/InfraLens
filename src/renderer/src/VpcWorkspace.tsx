@@ -504,7 +504,11 @@ function VpcArchitectureDiagram({
   )
 }
 
-export function VpcWorkspace({ connection, onNavigate }: { connection: AwsConnection; onNavigate: (service: string, resourceId?: string) => void }) {
+export function VpcWorkspace({ connection, focusVpcId, onNavigate }: {
+  connection: AwsConnection
+  focusVpcId?: { token: number; vpcId: string } | null
+  onNavigate: (service: string, resourceId?: string) => void
+}) {
   const [tab, setTab] = useState<VpcTab>('topology')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -579,6 +583,15 @@ export function VpcWorkspace({ connection, onNavigate }: { connection: AwsConnec
   }
   useEffect(() => { void loadVpcs() }, [])
   useEffect(() => { if (selectedVpcId) void loadVpcData(selectedVpcId) }, [selectedVpcId])
+
+  /* ── Focus drilldown ─────────────────────────────────────── */
+  const [appliedFocusToken, setAppliedFocusToken] = useState(0)
+  useEffect(() => {
+    if (!focusVpcId || focusVpcId.token === appliedFocusToken) return
+    setAppliedFocusToken(focusVpcId.token)
+    const match = vpcs.find(v => v.vpcId === focusVpcId.vpcId)
+    if (match && match.vpcId !== selectedVpcId) setSelectedVpcId(match.vpcId)
+  }, [appliedFocusToken, focusVpcId, vpcs, selectedVpcId])
 
   async function handleSubnetTogglePublicIp(subnetId: string, current: boolean) {
     try { await updateSubnetPublicIp(connection, subnetId, !current); setSubnets(p => p.map(s => s.subnetId === subnetId ? { ...s, mapPublicIpOnLaunch: !current } : s)); setMsg(`Public IP ${current ? 'disabled' : 'enabled'}`) } catch (e) { setError(String(e)) }

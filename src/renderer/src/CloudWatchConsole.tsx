@@ -376,10 +376,10 @@ function LogGroupViewer({
 
 export function CloudWatchConsole({
   connection,
-  ec2InstanceId
+  focusEc2Instance
 }: {
   connection: AwsConnection
-  ec2InstanceId?: string
+  focusEc2Instance?: { token: number; ec2InstanceId: string } | null
 }) {
   const [timeRange, setTimeRange] = useState<TimeRange>(24)
   const [namespaceFilter, setNamespaceFilter] = useState('all')
@@ -397,6 +397,15 @@ export function CloudWatchConsole({
   const [tabs, setTabs] = useState<OpenTab[]>([{ type: 'overview' }])
   const [activeTabIndex, setActiveTabIndex] = useState(0)
   const [expandedChart, setExpandedChart] = useState<ExpandedChart | null>(null)
+
+  // Focus drilldown
+  const [appliedFocusToken, setAppliedFocusToken] = useState(0)
+  const [ec2InstanceId, setEc2InstanceId] = useState<string | undefined>(focusEc2Instance?.ec2InstanceId)
+  useEffect(() => {
+    if (!focusEc2Instance || focusEc2Instance.token === appliedFocusToken) return
+    setAppliedFocusToken(focusEc2Instance.token)
+    setEc2InstanceId(focusEc2Instance.ec2InstanceId)
+  }, [appliedFocusToken, focusEc2Instance])
 
   const isEc2Mode = !!ec2InstanceId
 

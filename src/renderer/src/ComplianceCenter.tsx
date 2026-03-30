@@ -44,7 +44,7 @@ export function ComplianceCenter({
 }: {
   connection: AwsConnection
   refreshNonce?: number
-  onNavigate: (serviceId: ServiceId) => void
+  onNavigate: (serviceId: ServiceId, resourceId?: string) => void
   onRunTerminalCommand: (command: string) => void
 }) {
   const [report, setReport] = useState<ComplianceReport | null>(null)
@@ -151,7 +151,7 @@ export function ComplianceCenter({
         <button
           type="button"
           className="compliance-action-button"
-          onClick={() => onNavigate(remediation.serviceId)}
+          onClick={() => onNavigate(remediation.serviceId, remediation.resourceId ?? finding.resourceId)}
         >
           {remediation.label}
         </button>

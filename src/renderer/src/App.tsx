@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import appLogoUrl from '../../../assets/aws-lens-logo.png'
-import type { AppReleaseInfo, ComparisonRequest, ServiceDescriptor, ServiceId } from '@shared/types'
+import type { AppReleaseInfo, ComparisonRequest, NavigationFocus, ServiceDescriptor, ServiceId, TokenizedFocus } from '@shared/types'
 import { chooseAndImportConfig, closeAwsTerminal, deleteProfile, getAppReleaseInfo, invalidateAllPageCaches, invalidatePageCache, listServices, openExternalUrl, saveCredentials, useAwsActivity, type CacheTag } from './api'
 import { AcmConsole } from './AcmConsole'
 import { AutoScalingConsole } from './AutoScalingConsole'
@@ -43,37 +43,7 @@ type RefreshState = { screen: Screen; sawPending: boolean } | null
 type FabMode = 'closed' | 'menu' | 'credentials'
 type CompareSeed = { token: number; request: ComparisonRequest } | null
 const PINNED_SERVICES_STORAGE_KEY = 'aws-lens:pinned-services'
-type Route53Focus = {
-  token: number
-  record: {
-    name: string
-    type: string
-    ttl: number | null
-    values: string[]
-    isAlias: boolean
-    aliasDnsName: string
-    aliasHostedZoneId: string
-    evaluateTargetHealth: boolean
-    setIdentifier: string
-  }
-}
-type LoadBalancerFocus = {
-  token: number
-  loadBalancerArn: string
-}
-type LambdaFocus = {
-  token: number
-  functionName: string
-}
-type EcsFocus = {
-  token: number
-  clusterArn: string
-  serviceName: string
-}
-type EksFocus = {
-  token: number
-  clusterName: string
-}
+type FocusMap = Partial<Record<NavigationFocus['service'], TokenizedFocus>>
 
 const SERVICE_CATEGORY_ORDER = [
   'Infrastructure',
@@ -326,7 +296,6 @@ export function App() {
   const [pinnedServiceIds, setPinnedServiceIds] = useState<ServiceId[]>([])
   const [catalogError, setCatalogError] = useState('')
   const [profileSearch, setProfileSearch] = useState('')
-  const [cloudwatchEc2Id, setCloudwatchEc2Id] = useState<string | undefined>(undefined)
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [pendingTerminalCommand, setPendingTerminalCommand] = useState<PendingTerminalCommand>(null)
   const [pageRefreshNonceByScreen, setPageRefreshNonceByScreen] = useState<Record<string, number>>({})
@@ -339,11 +308,7 @@ export function App() {
   const [credSaving, setCredSaving] = useState(false)
   const [credError, setCredError] = useState('')
   const [profileActionMsg, setProfileActionMsg] = useState('')
-  const [route53Focus, setRoute53Focus] = useState<Route53Focus | null>(null)
-  const [loadBalancerFocus, setLoadBalancerFocus] = useState<LoadBalancerFocus | null>(null)
-  const [lambdaFocus, setLambdaFocus] = useState<LambdaFocus | null>(null)
-  const [ecsFocus, setEcsFocus] = useState<EcsFocus | null>(null)
-  const [eksFocus, setEksFocus] = useState<EksFocus | null>(null)
+  const [focusMap, setFocusMap] = useState<FocusMap>({})
   const [compareSeed, setCompareSeed] = useState<CompareSeed>(null)
   const connectionState = useAwsPageConnection('us-east-1')
   const awsActivity = useAwsActivity()
@@ -466,6 +431,43 @@ export function App() {
     setScreen(serviceId)
   }
 
+  function navigateWithFocus(focus: NavigationFocus, region?: string): void {
+    if (region) connectionState.setRegion(region)
+    setFocusMap(prev => ({ ...prev, [focus.service]: { ...focus, token: Date.now() } }))
+    setScreen(focus.service)
+  }
+
+  function getFocus<S extends NavigationFocus['service']>(service: S): TokenizedFocus<S> | null {
+    const f = focusMap[service]
+    if (!f || f.service !== service) return null
+    return f as TokenizedFocus<S>
+  }
+
+  function buildFocusFromResourceId(serviceId: ServiceId, resourceId: string): NavigationFocus | null {
+    switch (serviceId) {
+      case 'ec2': return { service: 'ec2', instanceId: resourceId }
+      case 'lambda': return { service: 'lambda', functionName: resourceId }
+      case 'vpc': return { service: 'vpc', vpcId: resourceId }
+      case 'security-groups': return { service: 'security-groups', securityGroupId: resourceId }
+      case 'load-balancers': return { service: 'load-balancers', loadBalancerArn: resourceId }
+      case 'eks': return { service: 'eks', clusterName: resourceId }
+      case 'waf': return { service: 'waf', webAclName: resourceId }
+      case 'cloudwatch': return { service: 'cloudwatch', ec2InstanceId: resourceId }
+      default: return null
+    }
+  }
+
+  function navigateToServiceWithResourceId(serviceId: ServiceId, resourceId?: string, region?: string): void {
+    if (resourceId) {
+      const focus = buildFocusFromResourceId(serviceId, resourceId)
+      if (focus) {
+        navigateWithFocus(focus, region)
+        return
+      }
+    }
+    navigateToService(serviceId, region)
+  }
+
   function renderServiceLink(service: ServiceDescriptor, options?: { pinned?: boolean }) {
     const isPinned = pinnedServiceIds.includes(service.id)
     return (
@@ -474,10 +476,7 @@ export function App() {
           type="button"
           className={`service-link ${screen === service.id ? 'active' : ''}`}
           disabled={!connectionState.connected}
-          onClick={() => {
-            if (service.id === 'cloudwatch') setCloudwatchEc2Id(undefined)
-            setScreen(service.id)
-          }}
+          onClick={() => setScreen(service.id)}
         >
           <span>{service.label}</span>
           {options?.pinned && <span className="service-link-badge">Pinned</span>}
@@ -687,7 +686,7 @@ export function App() {
     if (targetScreen === 'terraform' && targetService?.id === 'terraform') {
       return (
         <ConnectedServiceScreen service={targetService} state={connectionState}>
-          {(connection) => <TerraformConsole connection={connection} onRunTerminalCommand={handleOpenTerminalCommand} />}
+          {(connection) => <TerraformConsole connection={connection} onRunTerminalCommand={handleOpenTerminalCommand} onNavigateService={navigateToServiceWithResourceId} />}
         </ConnectedServiceScreen>
       )
     }
@@ -698,13 +697,10 @@ export function App() {
           {(connection) => (
             <Ec2Console
               connection={connection}
-              onNavigateCloudWatch={(instanceId) => {
-                setCloudwatchEc2Id(instanceId)
-                setScreen('cloudwatch')
-              }}
-              onNavigateVpc={() => {
-                setScreen('vpc')
-              }}
+              focusInstance={getFocus('ec2')}
+              onNavigateCloudWatch={(instanceId) => navigateWithFocus({ service: 'cloudwatch', ec2InstanceId: instanceId })}
+              onNavigateVpc={(vpcId) => navigateWithFocus({ service: 'vpc', vpcId })}
+              onNavigateSecurityGroup={(sgId) => navigateWithFocus({ service: 'security-groups', securityGroupId: sgId })}
               onRunTerminalCommand={handleOpenTerminalCommand}
             />
           )}
@@ -742,7 +738,7 @@ export function App() {
         <CompareWorkspace
           connectionState={connectionState}
           seed={compareSeed}
-          onNavigate={navigateToService}
+          onNavigate={navigateToServiceWithResourceId}
         />
       )
     }
@@ -779,8 +775,8 @@ export function App() {
             <ComplianceCenter
               connection={connection}
               refreshNonce={pageRefreshNonceByScreen['compliance-center'] ?? 0}
-              onNavigate={(target) => {
-                if (IMPLEMENTED_SCREENS.has(target)) setScreen(target as Screen)
+              onNavigate={(target, resourceId) => {
+                if (IMPLEMENTED_SCREENS.has(target)) navigateToServiceWithResourceId(target, resourceId)
               }}
               onRunTerminalCommand={handleOpenTerminalCommand}
             />
@@ -795,8 +791,10 @@ export function App() {
           {(connection) => (
             <VpcWorkspace
               connection={connection}
-              onNavigate={(target) => {
-                if (IMPLEMENTED_SCREENS.has(target as ServiceId)) setScreen(target as Screen)
+              focusVpcId={getFocus('vpc')}
+              onNavigate={(target, resourceId) => {
+                if (!IMPLEMENTED_SCREENS.has(target as ServiceId)) return
+                navigateToServiceWithResourceId(target as ServiceId, resourceId)
               }}
             />
           )}
@@ -804,50 +802,31 @@ export function App() {
       )
     }
 
-    if (targetScreen === 'security-groups' && targetService?.id === 'security-groups') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <SecurityGroupsConsole connection={connection} />}</ConnectedServiceScreen>
-    if (targetScreen === 'cloudwatch' && targetService?.id === 'cloudwatch') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <CloudWatchConsole connection={connection} ec2InstanceId={cloudwatchEc2Id} />}</ConnectedServiceScreen>
+    if (targetScreen === 'security-groups' && targetService?.id === 'security-groups') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <SecurityGroupsConsole connection={connection} focusSecurityGroupId={getFocus('security-groups')} />}</ConnectedServiceScreen>
+    if (targetScreen === 'cloudwatch' && targetService?.id === 'cloudwatch') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <CloudWatchConsole connection={connection} focusEc2Instance={getFocus('cloudwatch')} />}</ConnectedServiceScreen>
     if (targetScreen === 'cloudtrail' && targetService?.id === 'cloudtrail') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <CloudTrailConsole connection={connection} />}</ConnectedServiceScreen>
     if (targetScreen === 'cloudformation' && targetService?.id === 'cloudformation') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <CloudFormationConsole connection={connection} />}</ConnectedServiceScreen>
-    if (targetScreen === 'route53' && targetService?.id === 'route53') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <Route53Console connection={connection} focusRecord={route53Focus} />}</ConnectedServiceScreen>
+    if (targetScreen === 'route53' && targetService?.id === 'route53') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <Route53Console connection={connection} focusRecord={getFocus('route53')} />}</ConnectedServiceScreen>
     if (targetScreen === 's3' && targetService?.id === 's3') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <S3Console connection={connection} />}</ConnectedServiceScreen>
     if (targetScreen === 'rds' && targetService?.id === 'rds') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <RdsConsole connection={connection} />}</ConnectedServiceScreen>
-    if (targetScreen === 'lambda' && targetService?.id === 'lambda') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <LambdaConsole connection={connection} focusFunctionName={lambdaFocus} />}</ConnectedServiceScreen>
+    if (targetScreen === 'lambda' && targetService?.id === 'lambda') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <LambdaConsole connection={connection} focusFunctionName={getFocus('lambda')} />}</ConnectedServiceScreen>
     if (targetScreen === 'auto-scaling' && targetService?.id === 'auto-scaling') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <AutoScalingConsole connection={connection} />}</ConnectedServiceScreen>
-    if (targetScreen === 'ecs' && targetService?.id === 'ecs') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <EcsConsole connection={connection} focusService={ecsFocus} onRunTerminalCommand={handleOpenTerminalCommand} />}</ConnectedServiceScreen>
-    if (targetScreen === 'acm' && targetService?.id === 'acm') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <AcmConsole connection={connection} onOpenRoute53={(record) => {
-      setRoute53Focus({ token: Date.now(), record })
-      setScreen('route53')
-    }} onOpenLoadBalancer={(loadBalancerArn) => {
-      setLoadBalancerFocus({ token: Date.now(), loadBalancerArn })
-      setScreen('load-balancers')
-    }} />}</ConnectedServiceScreen>
+    if (targetScreen === 'ecs' && targetService?.id === 'ecs') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <EcsConsole connection={connection} focusService={getFocus('ecs')} onRunTerminalCommand={handleOpenTerminalCommand} />}</ConnectedServiceScreen>
+    if (targetScreen === 'acm' && targetService?.id === 'acm') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <AcmConsole connection={connection} onOpenRoute53={(record) => navigateWithFocus({ service: 'route53', record })} onOpenLoadBalancer={(loadBalancerArn) => navigateWithFocus({ service: 'load-balancers', loadBalancerArn })} onOpenWaf={(webAclName) => navigateWithFocus({ service: 'waf', webAclName })} />}</ConnectedServiceScreen>
     if (targetScreen === 'ecr' && targetService?.id === 'ecr') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <EcrConsole connection={connection} />}</ConnectedServiceScreen>
-    if (targetScreen === 'eks' && targetService?.id === 'eks') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <EksConsole connection={connection} focusClusterName={eksFocus} onRunTerminalCommand={handleOpenTerminalCommand} />}</ConnectedServiceScreen>
+    if (targetScreen === 'eks' && targetService?.id === 'eks') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <EksConsole connection={connection} focusClusterName={getFocus('eks')} onRunTerminalCommand={handleOpenTerminalCommand} />}</ConnectedServiceScreen>
     if (targetScreen === 'iam' && targetService?.id === 'iam') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <IamConsole connection={connection} />}</ConnectedServiceScreen>
     if (targetScreen === 'identity-center' && targetService?.id === 'identity-center') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <IdentityCenterConsole connection={connection} />}</ConnectedServiceScreen>
     if (targetScreen === 'secrets-manager' && targetService?.id === 'secrets-manager') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <SecretsManagerConsole connection={connection} onNavigate={(target) => {
-      if (target.service === 'lambda') {
-        setLambdaFocus({ token: Date.now(), functionName: target.functionName })
-        setScreen('lambda')
-        return
-      }
-
-      if (target.service === 'ecs') {
-        setEcsFocus({ token: Date.now(), clusterArn: target.clusterArn, serviceName: target.serviceName })
-        setScreen('ecs')
-        return
-      }
-
-      if (target.service === 'eks') {
-        setEksFocus({ token: Date.now(), clusterName: target.clusterName })
-        setScreen('eks')
-      }
+      if (target.service === 'lambda') { navigateWithFocus({ service: 'lambda', functionName: target.functionName }); return }
+      if (target.service === 'ecs') { navigateWithFocus({ service: 'ecs', clusterArn: target.clusterArn, serviceName: target.serviceName }); return }
+      if (target.service === 'eks') { navigateWithFocus({ service: 'eks', clusterName: target.clusterName }) }
     }} />}</ConnectedServiceScreen>
     if (targetScreen === 'key-pairs' && targetService?.id === 'key-pairs') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <KeyPairsConsole connection={connection} />}</ConnectedServiceScreen>
     if (targetScreen === 'sts' && targetService?.id === 'sts') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <StsConsole connection={connection} />}</ConnectedServiceScreen>
     if (targetScreen === 'kms' && targetService?.id === 'kms') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <KmsConsole connection={connection} />}</ConnectedServiceScreen>
-    if (targetScreen === 'waf' && targetService?.id === 'waf') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <WafConsole connection={connection} />}</ConnectedServiceScreen>
-    if (targetScreen === 'load-balancers' && targetService?.id === 'load-balancers') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <WorkspaceApp connection={connection} focusLoadBalancer={loadBalancerFocus} />}</ConnectedServiceScreen>
+    if (targetScreen === 'waf' && targetService?.id === 'waf') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <WafConsole connection={connection} focusWebAcl={getFocus('waf')} />}</ConnectedServiceScreen>
+    if (targetScreen === 'load-balancers' && targetService?.id === 'load-balancers') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <WorkspaceApp connection={connection} focusLoadBalancer={getFocus('load-balancers')} />}</ConnectedServiceScreen>
     if (targetScreen === 'sns' && targetService?.id === 'sns') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <SnsConsole connection={connection} />}</ConnectedServiceScreen>
     if (targetScreen === 'sqs' && targetService?.id === 'sqs') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <SqsConsole connection={connection} />}</ConnectedServiceScreen>
 
@@ -1059,10 +1038,10 @@ export function App() {
             {(connection) => (
               <Ec2Console
                 connection={connection}
-                onNavigateCloudWatch={(instanceId) => {
-                  setCloudwatchEc2Id(instanceId)
-                  setScreen('cloudwatch')
-                }}
+                focusInstance={getFocus('ec2')}
+                onNavigateCloudWatch={(instanceId) => navigateWithFocus({ service: 'cloudwatch', ec2InstanceId: instanceId })}
+                onNavigateVpc={(vpcId) => navigateWithFocus({ service: 'vpc', vpcId })}
+                onNavigateSecurityGroup={(sgId) => navigateWithFocus({ service: 'security-groups', securityGroupId: sgId })}
                 onRunTerminalCommand={handleOpenTerminalCommand}
               />
             )}
@@ -1096,7 +1075,7 @@ export function App() {
 
         {screen === 'cloudwatch' && selectedService?.id === 'cloudwatch' && (
           <ConnectedServiceScreen service={selectedService!} state={connectionState}>
-            {(connection) => <CloudWatchConsole connection={connection} ec2InstanceId={cloudwatchEc2Id} />}
+            {(connection) => <CloudWatchConsole connection={connection} focusEc2Instance={getFocus('cloudwatch')} />}
           </ConnectedServiceScreen>
         )}
 

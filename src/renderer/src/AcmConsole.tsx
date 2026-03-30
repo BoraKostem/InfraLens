@@ -110,11 +110,13 @@ function sortValue(cert: AcmCertificateSummary, key: SortKey): string | number {
 export function AcmConsole({
   connection,
   onOpenRoute53 = () => undefined,
-  onOpenLoadBalancer = () => undefined
+  onOpenLoadBalancer = () => undefined,
+  onOpenWaf = () => undefined
 }: {
   connection: AwsConnection
   onOpenRoute53?: (record: Route53RecordChange) => void
   onOpenLoadBalancer?: (loadBalancerArn: string) => void
+  onOpenWaf?: (webAclName: string) => void
 }) {
   const [certs, setCerts] = useState<AcmCertificateSummary[]>([])
   const [loading, setLoading] = useState(false)
@@ -550,7 +552,18 @@ export function AcmConsole({
                     </div>
                   )}
                   {detail.inUseAssociations.length > 0 && (
-                    <div className="svc-code">{detail.inUseAssociations.map((association) => association.label).join('\n')}</div>
+                    <div className="svc-list" style={{ marginBottom: 10 }}>
+                      {detail.inUseAssociations.map((association) => {
+                        const isWaf = association.service === 'wafv2' || association.service === 'waf' || association.resourceType?.toLowerCase().includes('webacl')
+                        const wafName = isWaf ? association.label.split('/').pop() || association.label : ''
+                        return (
+                          <button key={association.arn} type="button" className="svc-list-item" disabled={!isWaf} onClick={() => { if (isWaf && wafName) onOpenWaf(wafName) }}>
+                            <div className="svc-list-title">{association.label}</div>
+                            <div className="svc-list-meta">{association.service} · {association.resourceType}</div>
+                          </button>
+                        )
+                      })}
+                    </div>
                   )}
                   {detail.loadBalancerAssociations.length === 0 && detail.inUseAssociations.length === 0 && (
                     <div className="svc-empty">This certificate is currently unused.</div>

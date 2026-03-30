@@ -31,7 +31,8 @@ import type {
   TerraformSecretReference,
   TerraformVariableLayer,
   TerraformVariableSet,
-  TerraformWorkspaceSummary
+  TerraformWorkspaceSummary,
+  ServiceId
 } from '@shared/types'
 import { openExternalUrl } from './api'
 import {
@@ -2132,6 +2133,31 @@ const DRIFT_ASSESSMENT_LABELS = {
   unsupported: 'Unsupported'
 } as const
 
+function driftResourceTypeToService(resourceType: string): ServiceId | null {
+  if (resourceType.startsWith('aws_instance') || resourceType === 'aws_eip') return 'ec2'
+  if (resourceType.startsWith('aws_vpc') || resourceType.startsWith('aws_subnet') || resourceType.startsWith('aws_route')) return 'vpc'
+  if (resourceType.startsWith('aws_security_group')) return 'security-groups'
+  if (resourceType.startsWith('aws_lb') || resourceType.startsWith('aws_alb') || resourceType.startsWith('aws_elb')) return 'load-balancers'
+  if (resourceType.startsWith('aws_lambda')) return 'lambda'
+  if (resourceType.startsWith('aws_ecs')) return 'ecs'
+  if (resourceType.startsWith('aws_eks')) return 'eks'
+  if (resourceType.startsWith('aws_s3')) return 's3'
+  if (resourceType.startsWith('aws_route53')) return 'route53'
+  if (resourceType.startsWith('aws_iam')) return 'iam'
+  if (resourceType.startsWith('aws_acm')) return 'acm'
+  if (resourceType.startsWith('aws_secretsmanager')) return 'secrets-manager'
+  if (resourceType.startsWith('aws_waf')) return 'waf'
+  if (resourceType.startsWith('aws_rds') || resourceType.startsWith('aws_db')) return 'rds'
+  if (resourceType.startsWith('aws_cloudwatch')) return 'cloudwatch'
+  if (resourceType.startsWith('aws_kms')) return 'kms'
+  if (resourceType.startsWith('aws_sns')) return 'sns'
+  if (resourceType.startsWith('aws_sqs')) return 'sqs'
+  if (resourceType.startsWith('aws_autoscaling')) return 'auto-scaling'
+  if (resourceType.startsWith('aws_cloudformation')) return 'cloudformation'
+  if (resourceType.startsWith('aws_ecr')) return 'ecr'
+  return null
+}
+
 function driftItemKey(item: TerraformDriftItem): string {
   return `${item.terraformAddress}|${item.resourceType}|${item.cloudIdentifier}|${item.logicalName}|${item.status}`
 }
@@ -2148,7 +2174,8 @@ function DriftTab({
   onSelectItem,
   onRefresh,
   onOpenConsole,
-  onRunStateShow
+  onRunStateShow,
+  onNavigateService
 }: {
   report: TerraformDriftReport | null
   loading: boolean
@@ -2162,6 +2189,7 @@ function DriftTab({
   onRefresh: () => void
   onOpenConsole: (item: TerraformDriftItem) => void
   onRunStateShow: (item: TerraformDriftItem) => void
+  onNavigateService?: (serviceId: ServiceId, resourceId?: string) => void
 }) {
   const items = report?.items ?? []
   const resourceTypes = useMemo(
@@ -2278,6 +2306,12 @@ function DriftTab({
                 <h3>Selected Drift Item</h3>
                 <div className="tf-drift-actions">
                   <button type="button" className="tf-toolbar-btn" onClick={() => onOpenConsole(selectedItem)} disabled={!selectedItem.consoleUrl}>Open In AWS Console</button>
+                  {onNavigateService && driftResourceTypeToService(selectedItem.resourceType) && (
+                    <button type="button" className="tf-toolbar-btn" onClick={() => {
+                      const svc = driftResourceTypeToService(selectedItem.resourceType)
+                      if (svc) onNavigateService(svc, selectedItem.cloudIdentifier || undefined)
+                    }}>Open in App</button>
+                  )}
                   <button type="button" className="tf-toolbar-btn" onClick={() => onRunStateShow(selectedItem)} disabled={!selectedItem.terminalCommand}>terraform state show</button>
                 </div>
               </div>
@@ -2589,7 +2623,11 @@ function HistoryTab({ projectId }: { projectId: string }) {
   )
 }
 
-export function TerraformConsole({ connection, onRunTerminalCommand }: { connection: AwsConnection; onRunTerminalCommand?: (command: string) => void }) {
+export function TerraformConsole({ connection, onRunTerminalCommand, onNavigateService }: {
+  connection: AwsConnection
+  onRunTerminalCommand?: (command: string) => void
+  onNavigateService?: (serviceId: ServiceId, resourceId?: string) => void
+}) {
   const [cliInfo, setCliInfo] = useState<TerraformCliInfo | null>(null)
   const [projects, setProjectsList] = useState<TerraformProjectListItem[]>([])
   const [selectedId, setSelectedId] = useState('')
@@ -3401,6 +3439,7 @@ export function TerraformConsole({ connection, onRunTerminalCommand }: { connect
                   onRefresh={() => void loadDrift({ forceRefresh: true })}
                   onOpenConsole={handleOpenDriftConsole}
                   onRunStateShow={handleRunDriftStateShow}
+                  onNavigateService={onNavigateService}
                 />
               )}
               {detailTab === 'lab' && (

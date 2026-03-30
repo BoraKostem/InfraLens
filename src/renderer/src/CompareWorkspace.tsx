@@ -63,7 +63,7 @@ export function CompareWorkspace({
 }: {
   connectionState: ReturnType<typeof useAwsPageConnection>
   seed: CompareSeed | null
-  onNavigate: (serviceId: ServiceId, region?: string) => void
+  onNavigate: (serviceId: ServiceId, resourceId?: string, region?: string) => void
 }) {
   const options = useMemo<SelectorOption[]>(() => {
     const profileOptions = connectionState.profiles.map((profile) => ({
@@ -297,7 +297,7 @@ export function CompareWorkspace({
                     {selectedRow.navigation && (
                       <button
                         type="button"
-                        onClick={() => onNavigate(selectedRow.navigation!.serviceId, selectedRow.navigation!.region)}
+                        onClick={() => onNavigate(selectedRow.navigation!.serviceId, selectedRow.navigation!.resourceLabel, selectedRow.navigation!.region)}
                       >
                         Open {selectedRow.navigation.serviceId}
                       </button>

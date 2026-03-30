@@ -324,13 +324,17 @@ async function waitForBastionRemoval(
 
 export function Ec2Console({
   connection,
+  focusInstance,
   onNavigateCloudWatch,
   onNavigateVpc,
+  onNavigateSecurityGroup,
   onRunTerminalCommand
 }: {
   connection: AwsConnection
+  focusInstance?: { token: number; instanceId?: string; volumeId?: string; tab?: 'instances' | 'volumes' | 'snapshots' } | null
   onNavigateCloudWatch?: (instanceId: string) => void
   onNavigateVpc?: (vpcId: string) => void
+  onNavigateSecurityGroup?: (securityGroupId: string) => void
   onRunTerminalCommand?: (command: string) => void
 }) {
   const [mainTab, setMainTab] = useState<MainTab>('instances')
@@ -505,6 +509,25 @@ export function Ec2Console({
   }
 
 useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessionId, connection.region])
+
+  /* ── Focus drilldown ─────────────────────────────────────── */
+  const [appliedFocusToken, setAppliedFocusToken] = useState(0)
+  useEffect(() => {
+    if (!focusInstance || focusInstance.token === appliedFocusToken) return
+    setAppliedFocusToken(focusInstance.token)
+    if (focusInstance.tab) setMainTab(focusInstance.tab)
+    if (focusInstance.instanceId) {
+      const match = instances.find(i => i.instanceId === focusInstance.instanceId)
+      if (match) {
+        setMainTab(focusInstance.tab ?? 'instances')
+        void selectInstance(match.instanceId)
+      }
+    }
+    if (focusInstance.volumeId) {
+      setMainTab('volumes')
+      setSelectedVolumeId(focusInstance.volumeId)
+    }
+  }, [appliedFocusToken, focusInstance, instances])
 
   useEffect(() => subscribeToTempVolumeProgress((progress) => {
     setVolumeWorkflowStatus((current) => ({
@@ -1270,6 +1293,11 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
                       <button className="ec2-action-btn" type="button" onClick={() => {
                         if (selectedId && onNavigateCloudWatch) onNavigateCloudWatch(selectedId)
                       }}>Go to CloudWatch</button>
+                      {detail?.securityGroups?.[0]?.id && (
+                        <button className="ec2-action-btn" type="button" onClick={() => {
+                          if (detail?.securityGroups?.[0]?.id && onNavigateSecurityGroup) onNavigateSecurityGroup(detail.securityGroups[0].id)
+                        }}>Go to Security Group</button>
+                      )}
                     </div>
                   </div>
 
