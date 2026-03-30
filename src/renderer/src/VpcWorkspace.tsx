@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { SvcState } from './SvcState'
 
 import {
   createReachabilityPath,
@@ -127,7 +128,7 @@ function VpcArchitectureDiagram({
     return map
   }, [enis])
 
-  if (!vpc) return <div className="svc-empty">Select a VPC to view the architecture diagram.</div>
+  if (!vpc) return <SvcState variant="no-selection" resourceName="VPC" message="Select a VPC to view the architecture diagram." />
 
   // Layout constants
   const MAX_SHOW = 4
@@ -504,7 +505,11 @@ function VpcArchitectureDiagram({
   )
 }
 
-export function VpcWorkspace({ connection, onNavigate }: { connection: AwsConnection; onNavigate: (service: string, resourceId?: string) => void }) {
+export function VpcWorkspace({ connection, focusVpcId, onNavigate }: {
+  connection: AwsConnection
+  focusVpcId?: { token: number; vpcId: string } | null
+  onNavigate: (service: string, resourceId?: string) => void
+}) {
   const [tab, setTab] = useState<VpcTab>('topology')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -580,6 +585,15 @@ export function VpcWorkspace({ connection, onNavigate }: { connection: AwsConnec
   useEffect(() => { void loadVpcs() }, [])
   useEffect(() => { if (selectedVpcId) void loadVpcData(selectedVpcId) }, [selectedVpcId])
 
+  /* ── Focus drilldown ─────────────────────────────────────── */
+  const [appliedFocusToken, setAppliedFocusToken] = useState(0)
+  useEffect(() => {
+    if (!focusVpcId || focusVpcId.token === appliedFocusToken) return
+    setAppliedFocusToken(focusVpcId.token)
+    const match = vpcs.find(v => v.vpcId === focusVpcId.vpcId)
+    if (match && match.vpcId !== selectedVpcId) setSelectedVpcId(match.vpcId)
+  }, [appliedFocusToken, focusVpcId, vpcs, selectedVpcId])
+
   async function handleSubnetTogglePublicIp(subnetId: string, current: boolean) {
     try { await updateSubnetPublicIp(connection, subnetId, !current); setSubnets(p => p.map(s => s.subnetId === subnetId ? { ...s, mapPublicIpOnLaunch: !current } : s)); setMsg(`Public IP ${current ? 'disabled' : 'enabled'}`) } catch (e) { setError(String(e)) }
   }
@@ -598,7 +612,7 @@ export function VpcWorkspace({ connection, onNavigate }: { connection: AwsConnec
         <button className="svc-tab right" type="button" onClick={() => selectedVpcId && void loadVpcData(selectedVpcId)} disabled={loading}>{loading ? 'Loading...' : 'Refresh'}</button>
       </div>
       {msg && <div className="svc-msg">{msg}</div>}
-      {error && <div className="svc-error">{error}</div>}
+      {error && <SvcState variant="error" error={error} />}
       <div className="svc-filter-bar">
         <span className="svc-filter-label">VPC</span>
         <select className="svc-select" value={selectedVpcId} onChange={e => setSelectedVpcId(e.target.value)} disabled={loading && !selectedVpcId}>
@@ -666,18 +680,18 @@ export function VpcWorkspace({ connection, onNavigate }: { connection: AwsConnec
       </>)}
 
       {tab === 'gateways' && (<>
-        <div className="svc-panel"><h3>Internet Gateways ({igws.length})</h3><table className="svc-table"><thead><tr><th>Name</th><th>IGW ID</th><th>State</th><th>VPC</th></tr></thead><tbody>{igws.map(g => <tr key={g.igwId} style={{ cursor: 'pointer' }} onClick={() => onNavigate('vpc', g.attachedVpcId)}><td>{g.name}</td><td style={{ fontFamily: 'monospace' }}>{g.igwId}</td><td><span className={`svc-badge ${g.state === 'attached' ? 'ok' : 'muted'}`}>{g.state}</span></td><td style={{ fontFamily: 'monospace' }}>{g.attachedVpcId}</td></tr>)}</tbody></table>{!igws.length && <div className="svc-empty">None found.</div>}</div>
-        <div className="svc-panel"><h3>NAT Gateways ({nats.length})</h3><table className="svc-table"><thead><tr><th>Name</th><th>NAT ID</th><th>State</th><th>Subnet</th><th>Public IP</th><th>Type</th></tr></thead><tbody>{nats.map(n => <tr key={n.natGatewayId}><td>{n.name}</td><td style={{ fontFamily: 'monospace' }}>{n.natGatewayId}</td><td><span className={`svc-badge ${n.state === 'available' ? 'ok' : n.state === 'pending' ? 'warn' : 'muted'}`}>{n.state}</span></td><td style={{ fontFamily: 'monospace' }}>{n.subnetId}</td><td>{n.publicIp}</td><td>{n.connectivityType}</td></tr>)}</tbody></table>{!nats.length && <div className="svc-empty">None found.</div>}</div>
-        <div className="svc-panel"><h3>Transit Gateways ({tgws.length})</h3><table className="svc-table"><thead><tr><th>Name</th><th>TGW ID</th><th>State</th><th>Owner</th><th>ASN</th><th>Desc</th></tr></thead><tbody>{tgws.map(t => <tr key={t.tgwId}><td>{t.name}</td><td style={{ fontFamily: 'monospace' }}>{t.tgwId}</td><td><span className={`svc-badge ${t.state === 'available' ? 'ok' : 'warn'}`}>{t.state}</span></td><td>{t.ownerId}</td><td>{t.amazonSideAsn}</td><td>{t.description}</td></tr>)}</tbody></table>{!tgws.length && <div className="svc-empty">None found.</div>}</div>
+        <div className="svc-panel"><h3>Internet Gateways ({igws.length})</h3><table className="svc-table"><thead><tr><th>Name</th><th>IGW ID</th><th>State</th><th>VPC</th></tr></thead><tbody>{igws.map(g => <tr key={g.igwId} style={{ cursor: 'pointer' }} onClick={() => onNavigate('vpc', g.attachedVpcId)}><td>{g.name}</td><td style={{ fontFamily: 'monospace' }}>{g.igwId}</td><td><span className={`svc-badge ${g.state === 'attached' ? 'ok' : 'muted'}`}>{g.state}</span></td><td style={{ fontFamily: 'monospace' }}>{g.attachedVpcId}</td></tr>)}</tbody></table>{!igws.length && <SvcState variant="empty" resourceName="internet gateways" compact />}</div>
+        <div className="svc-panel"><h3>NAT Gateways ({nats.length})</h3><table className="svc-table"><thead><tr><th>Name</th><th>NAT ID</th><th>State</th><th>Subnet</th><th>Public IP</th><th>Type</th></tr></thead><tbody>{nats.map(n => <tr key={n.natGatewayId}><td>{n.name}</td><td style={{ fontFamily: 'monospace' }}>{n.natGatewayId}</td><td><span className={`svc-badge ${n.state === 'available' ? 'ok' : n.state === 'pending' ? 'warn' : 'muted'}`}>{n.state}</span></td><td style={{ fontFamily: 'monospace' }}>{n.subnetId}</td><td>{n.publicIp}</td><td>{n.connectivityType}</td></tr>)}</tbody></table>{!nats.length && <SvcState variant="empty" resourceName="NAT gateways" compact />}</div>
+        <div className="svc-panel"><h3>Transit Gateways ({tgws.length})</h3><table className="svc-table"><thead><tr><th>Name</th><th>TGW ID</th><th>State</th><th>Owner</th><th>ASN</th><th>Desc</th></tr></thead><tbody>{tgws.map(t => <tr key={t.tgwId}><td>{t.name}</td><td style={{ fontFamily: 'monospace' }}>{t.tgwId}</td><td><span className={`svc-badge ${t.state === 'available' ? 'ok' : 'warn'}`}>{t.state}</span></td><td>{t.ownerId}</td><td>{t.amazonSideAsn}</td><td>{t.description}</td></tr>)}</tbody></table>{!tgws.length && <SvcState variant="empty" resourceName="transit gateways" compact />}</div>
       </>)}
 
       {tab === 'interfaces' && <div className="svc-panel"><h3>Network Interfaces ({enis.length})</h3>
         <table className="svc-table"><thead><tr><th>ENI ID</th><th>Type</th><th>Status</th><th>Subnet</th><th>Private IP</th><th>Public IP</th><th>Instance</th><th>SGs</th></tr></thead>
           <tbody>{enis.map(e => <tr key={e.networkInterfaceId}><td style={{ fontFamily: 'monospace' }}>{e.networkInterfaceId}</td><td>{e.interfaceType}</td><td><span className={`svc-badge ${e.status === 'in-use' ? 'ok' : e.status === 'available' ? 'warn' : 'muted'}`}>{e.status}</span></td><td style={{ fontFamily: 'monospace', cursor: 'pointer', color: '#60a5fa' }} onClick={() => onNavigate('vpc', e.subnetId)}>{e.subnetId}</td><td>{e.privateIp}</td><td>{e.publicIp}</td><td style={{ fontFamily: 'monospace', cursor: e.attachedInstanceId !== '-' ? 'pointer' : 'default', color: e.attachedInstanceId !== '-' ? '#60a5fa' : undefined }} onClick={() => e.attachedInstanceId !== '-' && onNavigate('ec2', e.attachedInstanceId)}>{e.attachedInstanceId}</td><td style={{ fontSize: 11 }}>{e.securityGroups.map(sg => sg.name).join(', ') || '-'}</td></tr>)}</tbody></table>
-        {!enis.length && <div className="svc-empty">No ENIs found.</div>}
+        {!enis.length && <SvcState variant="empty" resourceName="ENIs" compact />}
       </div>}
 
-      {loading && !topology && <div className="svc-empty">{isSwitchingVpc ? 'Switching VPC...' : 'Loading VPC data...'}</div>}
+      {loading && !topology && <SvcState variant="loading" message={isSwitchingVpc ? 'Switching VPC…' : undefined} resourceName="VPC data" />}
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './eks.css'
+import { SvcState } from './SvcState'
 
 import type {
   AwsConnection,
@@ -414,11 +415,11 @@ useEffect(() => { void reload() }, [connection.sessionId, connection.region])
     })
   }
 
-  if (loading && !clusters.length) return <div className="eks-empty">Loading EKS clusters...</div>
+  if (loading && !clusters.length) return <SvcState variant="loading" resourceName="EKS clusters" />
 
   return (
     <div className="eks-console">
-      {error && <div className="error-banner" style={{ margin: '8px' }}>{error}</div>}
+      {error && <SvcState variant="error" error={error} />}
       {msg && <div className="eks-msg">{msg}</div>}
 
       <div className="eks-main-layout">
@@ -674,13 +675,13 @@ useEffect(() => { void reload() }, [connection.sessionId, connection.region])
                     <input type="date" value={timelineEnd} onChange={e => setTimelineEnd(e.target.value)} />
                   </label>
                 </div>
-                {!selectedCluster && <div className="eks-empty">Select a cluster to view events.</div>}
-                {selectedCluster && timelineLoading && <div className="eks-empty">Loading events...</div>}
+                {!selectedCluster && <SvcState variant="no-selection" resourceName="cluster" message="Select a cluster to view events." compact />}
+                {selectedCluster && timelineLoading && <SvcState variant="loading" resourceName="events" compact />}
                 {selectedCluster && !timelineLoading && timelineError && (
-                  <div className="eks-empty" style={{ color: '#f87171' }}>{timelineError}</div>
+                  <SvcState variant="error" error={timelineError} compact />
                 )}
                 {selectedCluster && !timelineLoading && !timelineError && timelineEvents.length === 0 && (
-                  <div className="eks-empty">No CloudTrail events found.</div>
+                  <SvcState variant="empty" resourceName="CloudTrail events" compact />
                 )}
                 {selectedCluster && !timelineLoading && timelineEvents.length > 0 && (
                   <div className="eks-timeline-table-wrap">

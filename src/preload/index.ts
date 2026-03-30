@@ -7,6 +7,9 @@ import type {
   AwsConnection,
   BastionLaunchConfig,
   Ec2InstanceAction,
+  EbsVolumeAttachRequest,
+  EbsVolumeDetachRequest,
+  EbsVolumeModifyRequest,
   EbsTempInspectionProgress,
   EcsFargateServiceConfig,
   LambdaCreateConfig,
@@ -48,6 +51,18 @@ const awsLensApi = {
     ipcRenderer.invoke('ec2:describe', connection, instanceId),
   describeEbsVolume: (connection: AwsConnection, volumeId: string) =>
     ipcRenderer.invoke('ec2:describe-volume', connection, volumeId),
+  tagEbsVolume: (connection: AwsConnection, volumeId: string, tags: Record<string, string>) =>
+    ipcRenderer.invoke('ec2:tag-volume', connection, volumeId, tags),
+  untagEbsVolume: (connection: AwsConnection, volumeId: string, tagKeys: string[]) =>
+    ipcRenderer.invoke('ec2:untag-volume', connection, volumeId, tagKeys),
+  attachEbsVolume: (connection: AwsConnection, volumeId: string, request: EbsVolumeAttachRequest) =>
+    ipcRenderer.invoke('ec2:attach-volume', connection, volumeId, request),
+  detachEbsVolume: (connection: AwsConnection, volumeId: string, request?: EbsVolumeDetachRequest) =>
+    ipcRenderer.invoke('ec2:detach-volume', connection, volumeId, request),
+  deleteEbsVolume: (connection: AwsConnection, volumeId: string) =>
+    ipcRenderer.invoke('ec2:delete-volume', connection, volumeId),
+  modifyEbsVolume: (connection: AwsConnection, volumeId: string, request: EbsVolumeModifyRequest) =>
+    ipcRenderer.invoke('ec2:modify-volume', connection, volumeId, request),
   runEc2InstanceAction: (connection: AwsConnection, instanceId: string, action: Ec2InstanceAction) =>
     ipcRenderer.invoke('ec2:action', connection, instanceId, action),
   terminateEc2Instance: (connection: AwsConnection, instanceId: string) =>

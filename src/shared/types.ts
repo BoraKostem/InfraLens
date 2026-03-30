@@ -417,6 +417,24 @@ export type EbsVolumeAttachment = {
   deleteOnTermination: boolean
 }
 
+export type EbsVolumeAttachRequest = {
+  instanceId: string
+  device: string
+}
+
+export type EbsVolumeDetachRequest = {
+  instanceId?: string
+  device?: string
+  force?: boolean
+}
+
+export type EbsVolumeModifyRequest = {
+  sizeGiB?: number
+  type?: string
+  iops?: number
+  throughput?: number
+}
+
 export type EbsTempInspectionEnvironment = {
   tempUuid: string
   purpose: string
@@ -786,6 +804,23 @@ export type ServiceDescriptor = {
   category: string
   migrated: boolean
 }
+
+/* ── Navigation Focus ────────────────────────────────────── */
+
+export type NavigationFocus =
+  | { service: 'route53'; record: Route53RecordChange }
+  | { service: 'load-balancers'; loadBalancerArn: string }
+  | { service: 'lambda'; functionName: string }
+  | { service: 'ecs'; clusterArn: string; serviceName: string }
+  | { service: 'eks'; clusterName: string }
+  | { service: 'ec2'; instanceId?: string; volumeId?: string; tab?: 'instances' | 'volumes' | 'snapshots' }
+  | { service: 'cloudwatch'; ec2InstanceId: string }
+  | { service: 'vpc'; vpcId: string }
+  | { service: 'security-groups'; securityGroupId: string }
+  | { service: 'waf'; webAclName: string }
+
+export type TokenizedFocus<S extends NavigationFocus['service'] = NavigationFocus['service']> =
+  Extract<NavigationFocus, { service: S }> & { token: number }
 
 /* ── VPC ─────────────────────────────────────────────────── */
 

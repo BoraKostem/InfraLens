@@ -13,7 +13,10 @@ import type {
   Ec2VpcDetail,
   EbsTempInspectionEnvironment,
   EbsTempInspectionProgress,
+  EbsVolumeAttachRequest,
   EbsVolumeDetail,
+  EbsVolumeDetachRequest,
+  EbsVolumeModifyRequest,
   EbsVolumeSummary,
   SsmCommandExecutionResult,
   SsmConnectionTarget,
@@ -55,6 +58,30 @@ export async function describeEc2Instance(c: AwsConnection, id: string): Promise
 
 export async function describeEbsVolume(c: AwsConnection, id: string): Promise<EbsVolumeDetail | null> {
   return unwrap((await bridge().describeEbsVolume(c, id)) as Wrapped<EbsVolumeDetail | null>)
+}
+
+export async function tagEbsVolume(c: AwsConnection, id: string, tags: Record<string, string>): Promise<void> {
+  return unwrap((await bridge().tagEbsVolume(c, id, tags)) as Wrapped<void>)
+}
+
+export async function untagEbsVolume(c: AwsConnection, id: string, tagKeys: string[]): Promise<void> {
+  return unwrap((await bridge().untagEbsVolume(c, id, tagKeys)) as Wrapped<void>)
+}
+
+export async function attachEbsVolume(c: AwsConnection, id: string, request: EbsVolumeAttachRequest): Promise<void> {
+  return unwrap((await bridge().attachEbsVolume(c, id, request)) as Wrapped<void>)
+}
+
+export async function detachEbsVolume(c: AwsConnection, id: string, request?: EbsVolumeDetachRequest): Promise<void> {
+  return unwrap((await bridge().detachEbsVolume(c, id, request)) as Wrapped<void>)
+}
+
+export async function deleteEbsVolume(c: AwsConnection, id: string): Promise<void> {
+  return unwrap((await bridge().deleteEbsVolume(c, id)) as Wrapped<void>)
+}
+
+export async function modifyEbsVolume(c: AwsConnection, id: string, request: EbsVolumeModifyRequest): Promise<void> {
+  return unwrap((await bridge().modifyEbsVolume(c, id, request)) as Wrapped<void>)
 }
 
 export async function runEc2InstanceAction(c: AwsConnection, id: string, action: Ec2InstanceAction): Promise<void> {

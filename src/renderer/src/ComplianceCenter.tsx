@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { SvcState } from './SvcState'
 
 import type {
   AwsConnection,
@@ -44,7 +45,7 @@ export function ComplianceCenter({
 }: {
   connection: AwsConnection
   refreshNonce?: number
-  onNavigate: (serviceId: ServiceId) => void
+  onNavigate: (serviceId: ServiceId, resourceId?: string) => void
   onRunTerminalCommand: (command: string) => void
 }) {
   const [report, setReport] = useState<ComplianceReport | null>(null)
@@ -151,7 +152,7 @@ export function ComplianceCenter({
         <button
           type="button"
           className="compliance-action-button"
-          onClick={() => onNavigate(remediation.serviceId)}
+          onClick={() => onNavigate(remediation.serviceId, remediation.resourceId ?? finding.resourceId)}
         >
           {remediation.label}
         </button>
@@ -183,9 +184,10 @@ export function ComplianceCenter({
 
   return (
     <div className="stack">
-      {(error || message) && (
-        <div className={error ? 'error-banner' : 'svc-msg'}>
-          {error || message}
+      {error && <SvcState variant="error" error={error} />}
+      {!error && message && (
+        <div className="svc-msg">
+          {message}
         </div>
       )}
 
@@ -295,10 +297,10 @@ export function ComplianceCenter({
         </div>
       </section>
 
-      {loading && !report ? <div className="empty-state compact">Loading compliance findings...</div> : null}
+      {loading && !report ? <SvcState variant="loading" resourceName="compliance findings" /> : null}
 
       {!loading && filteredFindings.length === 0 ? (
-        <div className="empty-state compact">No findings match the current filters.</div>
+        <SvcState variant="no-filter-matches" resourceName="findings" />
       ) : null}
 
       {SEVERITY_ORDER.map((severity) => {

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import './ec2.css'
+import { SvcState } from './SvcState'
+import { FreshnessIndicator, useFreshnessState } from './freshness'
 
 import type {
   AwsConnection,
@@ -29,15 +31,18 @@ import type {
 } from '@shared/types'
 import { listKeyPairs, listSecurityGroupsForVpc, listSubnets, lookupCloudTrailEventsByResource } from './api'
 import {
+  attachEbsVolume,
   attachIamProfile,
   chooseEc2SshKey,
   createEc2Snapshot,
   createTempVolumeCheck,
+  deleteEbsVolume,
   deleteBastion,
   deleteEc2Snapshot,
   deleteTempVolumeCheck,
   describeEbsVolume,
   describeEc2Instance,
+  detachEbsVolume,
   describeVpc,
   findBastionConnectionsForInstance,
   getEc2Recommendations,
@@ -53,6 +58,7 @@ import {
   listPopularBastionAmis,
   listSsmManagedInstances,
   listSsmSessions,
+  modifyEbsVolume,
   removeIamProfile,
   replaceIamProfile,
   resizeEc2Instance,
@@ -61,7 +67,9 @@ import {
   sendSshPublicKey,
   startSsmSession,
   subscribeToTempVolumeProgress,
+  tagEbsVolume,
   tagEc2Snapshot,
+  untagEbsVolume,
   terminateEc2Instance
 } from './ec2Api'
 import { ConfirmButton } from './ConfirmButton'
@@ -182,6 +190,21 @@ function ssmStatusLabel(status: Ec2InstanceSummary['ssmStatus'] | Ec2InstanceDet
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function formatTimestamp(value: string): string {
+  return value && value !== '-' ? new Date(value).toLocaleString() : '-'
+}
+
+function formatVolumeSettings(volume: EbsVolumeSummary | EbsVolumeDetail): string {
+  const parts = [`${volume.sizeGiB} GiB`, volume.type]
+  if (volume.iops) {
+    parts.push(`${volume.iops} IOPS`)
+  }
+  if (volume.throughput) {
+    parts.push(`${volume.throughput} MiB/s`)
+  }
+  return parts.join(' | ')
 }
 
 function KV({ items }: { items: Array<[string, string]> }) {
@@ -324,13 +347,19 @@ async function waitForBastionRemoval(
 
 export function Ec2Console({
   connection,
+  refreshNonce = 0,
+  focusInstance,
   onNavigateCloudWatch,
   onNavigateVpc,
+  onNavigateSecurityGroup,
   onRunTerminalCommand
 }: {
   connection: AwsConnection
+  refreshNonce?: number
+  focusInstance?: { token: number; instanceId?: string; volumeId?: string; tab?: 'instances' | 'volumes' | 'snapshots' } | null
   onNavigateCloudWatch?: (instanceId: string) => void
   onNavigateVpc?: (vpcId: string) => void
+  onNavigateSecurityGroup?: (securityGroupId: string) => void
   onRunTerminalCommand?: (command: string) => void
 }) {
   const [mainTab, setMainTab] = useState<MainTab>('instances')
@@ -390,6 +419,15 @@ export function Ec2Console({
   const [volumeDetail, setVolumeDetail] = useState<EbsVolumeDetail | null>(null)
   const [volumeFilter, setVolumeFilter] = useState('')
   const [volumeWorkflowStatus, setVolumeWorkflowStatus] = useState<VolumeWorkflowStatus | null>(null)
+  const [volumeTempSsmTarget, setVolumeTempSsmTarget] = useState<SsmConnectionTarget | null>(null)
+  const [volumeTagKey, setVolumeTagKey] = useState('')
+  const [volumeTagValue, setVolumeTagValue] = useState('')
+  const [volumeAttachInstanceId, setVolumeAttachInstanceId] = useState('')
+  const [volumeAttachDevice, setVolumeAttachDevice] = useState('/dev/sdf')
+  const [volumeModifySize, setVolumeModifySize] = useState('')
+  const [volumeModifyType, setVolumeModifyType] = useState('')
+  const [volumeModifyIops, setVolumeModifyIops] = useState('')
+  const [volumeModifyThroughput, setVolumeModifyThroughput] = useState('')
 
   /* ── Bastion state ───────────────────────────────────────── */
   const [bastions, setBastions] = useState<Ec2InstanceSummary[]>([])
@@ -445,6 +483,18 @@ export function Ec2Console({
   /* ── Recommendations state ──────────────────────────────── */
   const [recommendations, setRecommendations] = useState<Ec2Recommendation[]>([])
   const [recsLoading, setRecsLoading] = useState(false)
+  const {
+    freshness: inventoryFreshness,
+    beginRefresh: beginInventoryRefresh,
+    completeRefresh: completeInventoryRefresh,
+    failRefresh: failInventoryRefresh
+  } = useFreshnessState({ staleAfterMs: 5 * 60 * 1000 })
+  const {
+    freshness: sessionFreshness,
+    beginRefresh: beginSessionRefresh,
+    completeRefresh: completeSessionRefresh,
+    failRefresh: failSessionRefresh
+  } = useFreshnessState({ staleAfterMs: 2 * 60 * 1000 })
 
   const recommendationMap = new Map<string, Ec2Recommendation>()
   for (const rec of recommendations) {
@@ -463,7 +513,8 @@ export function Ec2Console({
   }
 
   /* ── Data loading ────────────────────────────────────────── */
-  async function reload() {
+  async function reload(reason: 'initial' | 'manual' | 'background' = 'manual') {
+    beginInventoryRefresh(reason)
     setLoading(true)
     setMsg('')
     try {
@@ -479,32 +530,71 @@ export function Ec2Console({
       setSnapshots(snaps)
       setBastions(bast)
       setSsmManagedInstances(managed)
-      if (!selectedId || !inst.some((i) => i.instanceId === selectedId)) {
-        const first = inst[0]?.instanceId ?? ''
-        setSelectedId(first)
-        if (first) await selectInstance(first)
-        else { setDetail(null); setIamAssoc(null); setVpcDetail(null); setSsmTarget(null); setSsmSessions([]) }
+      const resolvedInstanceId = selectedId && inst.some((i) => i.instanceId === selectedId)
+        ? selectedId
+        : (inst[0]?.instanceId ?? '')
+      setSelectedId(resolvedInstanceId)
+      if (resolvedInstanceId) {
+        await selectInstance(resolvedInstanceId, { preserveExisting: true, reason: 'background' })
+      } else {
+        setDetail(null)
+        setIamAssoc(null)
+        setVpcDetail(null)
+        setSsmTarget(null)
+        setSsmSessions([])
       }
-      if (!selectedSnapId || !snaps.some((s) => s.snapshotId === selectedSnapId)) {
-        setSelectedSnapId(snaps[0]?.snapshotId ?? '')
+
+      const resolvedSnapshotId = selectedSnapId && snaps.some((s) => s.snapshotId === selectedSnapId)
+        ? selectedSnapId
+        : (snaps[0]?.snapshotId ?? '')
+      setSelectedSnapId(resolvedSnapshotId)
+
+      const resolvedVolumeId = selectedVolumeId && vols.some((v) => v.volumeId === selectedVolumeId)
+        ? selectedVolumeId
+        : (vols[0]?.volumeId ?? '')
+      setSelectedVolumeId(resolvedVolumeId)
+      if (resolvedVolumeId) {
+        await selectVolume(resolvedVolumeId, { preserveExisting: true })
+      } else {
+        setVolumeDetail(null)
       }
-      if (!selectedVolumeId || !vols.some((v) => v.volumeId === selectedVolumeId)) {
-        const firstVolumeId = vols[0]?.volumeId ?? ''
-        setSelectedVolumeId(firstVolumeId)
-        if (firstVolumeId) {
-          await selectVolume(firstVolumeId)
-        } else {
-          setVolumeDetail(null)
-        }
-      }
+      completeInventoryRefresh()
     } catch (e) {
+      failInventoryRefresh()
       setMsg(e instanceof Error ? e.message : String(e))
     } finally {
       setLoading(false)
     }
   }
 
-useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessionId, connection.region])
+  useEffect(() => { void reload('initial'); void loadRecommendations() }, [connection.sessionId, connection.region])
+
+  useEffect(() => {
+    if (refreshNonce === 0) {
+      return
+    }
+
+    void reload('manual')
+  }, [refreshNonce])
+
+  /* ── Focus drilldown ─────────────────────────────────────── */
+  const [appliedFocusToken, setAppliedFocusToken] = useState(0)
+  useEffect(() => {
+    if (!focusInstance || focusInstance.token === appliedFocusToken) return
+    setAppliedFocusToken(focusInstance.token)
+    if (focusInstance.tab) setMainTab(focusInstance.tab)
+    if (focusInstance.instanceId) {
+      const match = instances.find(i => i.instanceId === focusInstance.instanceId)
+      if (match) {
+        setMainTab(focusInstance.tab ?? 'instances')
+        void selectInstance(match.instanceId)
+      }
+    }
+    if (focusInstance.volumeId) {
+      setMainTab('volumes')
+      setSelectedVolumeId(focusInstance.volumeId)
+    }
+  }, [appliedFocusToken, focusInstance, instances])
 
   useEffect(() => subscribeToTempVolumeProgress((progress) => {
     setVolumeWorkflowStatus((current) => ({
@@ -519,12 +609,13 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
     }))
   }), [volumeDetail?.name])
 
-  async function loadSsmForInstance(instanceId: string): Promise<void> {
+  async function loadSsmForInstance(instanceId: string, reason: 'selection' | 'background' | 'manual' = 'selection'): Promise<void> {
     if (!instanceId) {
       setSsmTarget(null)
       setSsmSessions([])
       return
     }
+    beginSessionRefresh(reason)
     setSsmLoading(true)
     try {
       const [target, sessions] = await Promise.all([
@@ -534,7 +625,9 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
       setSsmTarget(target)
       setSsmSessions(sessions)
       setSsmCommandDocument(isWindowsPlatform(target.managedInstance?.platformName ?? detail?.platform ?? '') ? 'AWS-RunPowerShellScript' : 'AWS-RunShellScript')
+      completeSessionRefresh()
     } catch (error) {
+      failSessionRefresh()
       setSsmTarget(null)
       setSsmSessions([])
       setMsg(error instanceof Error ? error.message : String(error))
@@ -543,12 +636,14 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
     }
   }
 
-  async function selectInstance(id: string) {
+  async function selectInstance(id: string, options?: { preserveExisting?: boolean; reason?: 'selection' | 'background' | 'manual' }) {
     setSelectedId(id)
     setMsg('')
-    setDetail(null)
-    setIamAssoc(null)
-    setVpcDetail(null)
+    if (!options?.preserveExisting) {
+      setDetail(null)
+      setIamAssoc(null)
+      setVpcDetail(null)
+    }
     setLinkedBastions([])
     setSsmTarget(null)
     setSsmSessions([])
@@ -561,7 +656,7 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
         try { setVpcDetail(await describeVpc(connection, d.vpcId)) } catch { setVpcDetail(null) }
       }
       try { setLinkedBastions(await findBastionConnectionsForInstance(connection, id)) } catch { setLinkedBastions([]) }
-      await loadSsmForInstance(id)
+      await loadSsmForInstance(id, options?.reason ?? 'selection')
     } else {
       setLinkedBastions([])
       setSsmTarget(null)
@@ -569,12 +664,30 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
     }
   }
 
-  async function selectVolume(id: string) {
+  async function selectVolume(id: string, options?: { preserveExisting?: boolean }) {
     setSelectedVolumeId(id)
-    setVolumeDetail(null)
+    if (!options?.preserveExisting) {
+      setVolumeDetail(null)
+    }
+    setVolumeTempSsmTarget(null)
     setMsg('')
     const detail = await describeEbsVolume(connection, id)
     setVolumeDetail(detail)
+    if (detail) {
+      setVolumeModifySize(String(detail.sizeGiB))
+      setVolumeModifyType(detail.type)
+      setVolumeModifyIops(detail.iops ? String(detail.iops) : '')
+      setVolumeModifyThroughput(detail.throughput ? String(detail.throughput) : '')
+      setVolumeAttachInstanceId(detail.attachedInstanceIds[0] ?? '')
+      setVolumeAttachDevice(detail.attachedDevices[0] ?? '/dev/sdf')
+      if (detail.tempEnvironment?.instanceId) {
+        try {
+          setVolumeTempSsmTarget(await getSsmConnectionTarget(connection, detail.tempEnvironment.instanceId))
+        } catch {
+          setVolumeTempSsmTarget(null)
+        }
+      }
+    }
   }
 
   /* ── Action handlers ─────────────────────────────────────── */
@@ -654,6 +767,108 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
     await tagEc2Snapshot(connection, selectedSnapId, { [tagKey]: tagValue })
     setMsg(`Tag applied`)
     setSnapshots(await listEc2Snapshots(connection))
+  }
+
+  async function refreshSelectedVolume(): Promise<void> {
+    if (!selectedVolumeId) {
+      return
+    }
+    await selectVolume(selectedVolumeId, { preserveExisting: true })
+    setVolumes(await listEbsVolumes(connection))
+    setSnapshots(await listEc2Snapshots(connection))
+  }
+
+  async function doTagVolume() {
+    if (!volumeDetail || !volumeTagKey.trim()) {
+      return
+    }
+    await tagEbsVolume(connection, volumeDetail.volumeId, { [volumeTagKey.trim()]: volumeTagValue })
+    setVolumeTagKey('')
+    setVolumeTagValue('')
+    setMsg(`Tag ${volumeTagKey.trim()} applied to ${volumeDetail.volumeId}`)
+    await refreshSelectedVolume()
+  }
+
+  async function doUntagVolume(tagKeyToRemove: string) {
+    if (!volumeDetail || !tagKeyToRemove) {
+      return
+    }
+    await untagEbsVolume(connection, volumeDetail.volumeId, [tagKeyToRemove])
+    setMsg(`Tag ${tagKeyToRemove} removed from ${volumeDetail.volumeId}`)
+    await refreshSelectedVolume()
+  }
+
+  async function doAttachVolume() {
+    if (!volumeDetail || !volumeAttachInstanceId.trim() || !volumeAttachDevice.trim()) {
+      setMsg('Enter an instance ID and device name.')
+      return
+    }
+    await attachEbsVolume(connection, volumeDetail.volumeId, {
+      instanceId: volumeAttachInstanceId.trim(),
+      device: volumeAttachDevice.trim()
+    })
+    setMsg(`Attach requested for ${volumeDetail.volumeId}`)
+    await refreshSelectedVolume()
+  }
+
+  async function doDetachVolume(attachment?: EbsVolumeDetail['attachments'][number]) {
+    if (!volumeDetail) {
+      return
+    }
+    await detachEbsVolume(connection, volumeDetail.volumeId, attachment
+      ? { instanceId: attachment.instanceId, device: attachment.device }
+      : undefined)
+    setMsg(`Detach requested for ${volumeDetail.volumeId}`)
+    await refreshSelectedVolume()
+  }
+
+  async function doDeleteVolume() {
+    if (!volumeDetail) {
+      return
+    }
+    await deleteEbsVolume(connection, volumeDetail.volumeId)
+    setMsg(`Volume ${volumeDetail.volumeId} deleted`)
+    await reload()
+  }
+
+  async function doModifyVolume() {
+    if (!volumeDetail) {
+      return
+    }
+
+    const sizeGiB = Number(volumeModifySize)
+    const iops = volumeModifyIops.trim() ? Number(volumeModifyIops) : undefined
+    const throughput = volumeModifyThroughput.trim() ? Number(volumeModifyThroughput) : undefined
+
+    if (!Number.isFinite(sizeGiB) || sizeGiB <= 0) {
+      setMsg('Enter a valid volume size in GiB.')
+      return
+    }
+    if (iops !== undefined && (!Number.isFinite(iops) || iops <= 0)) {
+      setMsg('Enter a valid IOPS value.')
+      return
+    }
+    if (throughput !== undefined && (!Number.isFinite(throughput) || throughput <= 0)) {
+      setMsg('Enter a valid throughput value.')
+      return
+    }
+
+    await modifyEbsVolume(connection, volumeDetail.volumeId, {
+      sizeGiB,
+      type: volumeModifyType.trim() || undefined,
+      iops,
+      throughput
+    })
+    setMsg(`Modify requested for ${volumeDetail.volumeId}`)
+    await refreshSelectedVolume()
+  }
+
+  function openVolumeFromSnapshot(volumeId: string) {
+    if (!volumeId || volumeId === '-') {
+      return
+    }
+    setMainTab('volumes')
+    void selectVolume(volumeId)
   }
 
   async function doLaunchBastion() {
@@ -1056,6 +1271,15 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
   const isTerminatedInstance = selectedInstance?.state === 'terminated'
   const selectedVolume = volumes.find((volume) => volume.volumeId === selectedVolumeId) ?? null
   const selectedSnap = snapshots.find((s) => s.snapshotId === selectedSnapId) ?? null
+  const selectedVolumeSnapshot = volumeDetail?.snapshotId && volumeDetail.snapshotId !== '-'
+    ? snapshots.find((snapshot) => snapshot.snapshotId === volumeDetail.snapshotId) ?? null
+    : null
+  const selectedVolumePrimaryAttachment = volumeDetail?.attachments[0] ?? null
+  const selectedVolumeAttachedInstance = selectedVolumePrimaryAttachment
+    ? instances.find((instance) => instance.instanceId === selectedVolumePrimaryAttachment.instanceId) ?? null
+    : null
+  const selectedVolumeTempSsmStatus = volumeTempSsmTarget?.status
+    ?? (volumeDetail?.tempEnvironment?.ssmReady ? 'managed-online' : 'not-managed')
   const hasManagedBastionTag = Object.keys(detail?.tags ?? {}).some((key) => key.startsWith('aws-lens-bastion/') || key.startsWith('aws-lens-bastion#'))
   const isSelectedBastion = bastions.some((instance) => instance.instanceId === selectedId)
   const isSelectedTempInspectionInstance = detail?.tags?.['aws-lens:purpose'] === 'ebs-inspection'
@@ -1076,10 +1300,15 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
     ? `ssh -i ${quoteSshArg(sshKey || `~/.ssh/${detail.keyName}.pem`)} ${sshUser}@${detail.publicIp !== '-' ? detail.publicIp : detail.privateIp}`
     : ''
 
-  if (loading) return <div className="ec2-empty">Loading EC2 data...</div>
+  if (loading) return <SvcState variant="loading" resourceName="EC2" />
 
   return (
     <div className="ec2-console">
+      <FreshnessIndicator freshness={inventoryFreshness} label="Inventory last updated" />
+      {(mainTab === 'instances' || volumeWorkflowBusy || bastionLaunchBusy) && (
+        <FreshnessIndicator freshness={sessionFreshness} label="Session-sensitive detail last updated" staleLabel="Refresh detail" />
+      )}
+
       {/* ── Main tabs ─────────────────────────────────── */}
       <div className="ec2-tab-bar">
         <button
@@ -1097,7 +1326,7 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
           type="button"
           onClick={() => setMainTab('snapshots')}
         >Snapshots</button>
-        <button className="ec2-tab" type="button" onClick={() => void reload()} style={{ marginLeft: 'auto' }}>Refresh</button>
+        <button className="ec2-tab" type="button" onClick={() => void reload('manual')} style={{ marginLeft: 'auto' }}>Refresh</button>
       </div>
 
       {msg && <div className="ec2-msg">{msg}</div>}
@@ -1194,7 +1423,7 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
                 </tbody>
               </table>
               {!filteredInstances.length && (
-                <div className="ec2-empty">No instances match filters.</div>
+                <SvcState variant="no-filter-matches" resourceName="instances" compact />
               )}
             </div>
 
@@ -1231,6 +1460,15 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
                       <div>Avg CPU: <strong>{rec.avgCpu}%</strong> · Max CPU: <strong>{rec.maxCpu}%</strong></div>
                       <div>Current: <strong>{rec.currentType}</strong> → Suggested: <strong>{rec.suggestedType}</strong></div>
                       <div className="ec2-rec-banner-reason">{rec.reason}</div>
+                      <div className="ec2-btn-row" style={{ marginTop: 10 }}>
+                        <button className="ec2-action-btn resize" type="button" onClick={() => {
+                          setResizeType(rec.suggestedType)
+                          setShowResize(true)
+                          setSideTab('overview')
+                        }}>
+                          Review Resize
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )
@@ -1270,6 +1508,11 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
                       <button className="ec2-action-btn" type="button" onClick={() => {
                         if (selectedId && onNavigateCloudWatch) onNavigateCloudWatch(selectedId)
                       }}>Go to CloudWatch</button>
+                      {detail?.securityGroups?.[0]?.id && (
+                        <button className="ec2-action-btn" type="button" onClick={() => {
+                          if (detail?.securityGroups?.[0]?.id && onNavigateSecurityGroup) onNavigateSecurityGroup(detail.securityGroups[0].id)
+                        }}>Go to Security Group</button>
+                      )}
                     </div>
                   </div>
 
@@ -1576,7 +1819,7 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
                               <strong>{session.documentName}</strong>
                               <span>{session.status} · {session.startedAt !== '-' ? new Date(session.startedAt).toLocaleString() : '-'}</span>
                             </div>
-                          )) : <div className="ec2-empty">No recent SSM sessions.</div>}
+                          )) : <SvcState variant="empty" resourceName="recent SSM sessions" compact />}
                           <h4>Command History</h4>
                           {ssmHistory.length ? ssmHistory.map((item) => (
                             <div key={item.commandId} className="ec2-ssm-history-item">
@@ -1586,11 +1829,11 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
                                 <pre className="ec2-ssm-output">{(item.standardOutput || item.standardError).slice(0, 1200)}</pre>
                               )}
                             </div>
-                          )) : <div className="ec2-empty">No commands run in this view yet.</div>}
+                          )) : <SvcState variant="empty" message="No commands run in this view yet." compact />}
                         </div>
                       </>
                     ) : (
-                      <div className="ec2-empty">Select an instance to inspect Session Manager state.</div>
+                      <SvcState variant="no-selection" resourceName="instance" message="Select an instance to inspect Session Manager state." compact />
                     )}
                   </div>
 
@@ -1613,7 +1856,7 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
                           {instance.source === 'temp-inspection' && <div className="ec2-list-meta">Temp inspection for {instance.sourceVolumeId}</div>}
                         </button>
                       ))}
-                      {!ssmManagedInstances.length && <div className="ec2-empty">No managed instances in this region.</div>}
+                      {!ssmManagedInstances.length && <SvcState variant="empty" resourceName="managed instances" message="No managed instances in this region." compact />}
                     </div>
                   </div>
                 </>
@@ -1631,13 +1874,13 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
                       <input type="date" value={timelineEnd} onChange={e => setTimelineEnd(e.target.value)} />
                     </label>
                   </div>
-                  {!selectedId && <div className="ec2-empty">Select an instance to view events.</div>}
-                  {selectedId && timelineLoading && <div className="ec2-empty">Loading events…</div>}
+                  {!selectedId && <SvcState variant="no-selection" resourceName="instance" message="Select an instance to view events." compact />}
+                  {selectedId && timelineLoading && <SvcState variant="loading" resourceName="events" compact />}
                   {selectedId && !timelineLoading && timelineError && (
-                    <div className="ec2-empty" style={{ color: '#f87171' }}>{timelineError}</div>
+                    <SvcState variant="error" error={timelineError} compact />
                   )}
                   {selectedId && !timelineLoading && !timelineError && timelineEvents.length === 0 && (
-                    <div className="ec2-empty">No CloudTrail events found.</div>
+                    <SvcState variant="empty" resourceName="CloudTrail events" compact />
                   )}
                   {selectedId && !timelineLoading && timelineEvents.length > 0 && (
                     <div className="ec2-timeline-table-wrap">
@@ -1699,7 +1942,7 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
                   </button>
                 )
               })}
-              {!filteredVolumes.length && <div className="ec2-empty">No volumes match the current filter.</div>}
+              {!filteredVolumes.length && <SvcState variant="no-filter-matches" resourceName="volumes" compact />}
             </div>
           </div>
 
@@ -1708,20 +1951,44 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
               <h3>Volume Details</h3>
               {volumeDetail ? (
                 <>
+                  <div className="ec2-relationship-strip">
+                    <div className="ec2-relationship-card">
+                      <span className="ec2-relationship-label">Volume</span>
+                      <strong>{volumeDetail.name !== '-' ? volumeDetail.name : volumeDetail.volumeId}</strong>
+                      <span>{volumeDetail.volumeId}</span>
+                    </div>
+                    <div className="ec2-relationship-arrow">→</div>
+                    <div className="ec2-relationship-card">
+                      <span className="ec2-relationship-label">Source Snapshot</span>
+                      <strong>{selectedVolumeSnapshot?.tags.Name || volumeDetail.snapshotId}</strong>
+                      <span>{selectedVolumeSnapshot ? formatTimestamp(selectedVolumeSnapshot.startTime) : 'No source snapshot recorded'}</span>
+                    </div>
+                    <div className="ec2-relationship-arrow">→</div>
+                    <div className="ec2-relationship-card">
+                      <span className="ec2-relationship-label">Attached Instance</span>
+                      <strong>{selectedVolumeAttachedInstance?.name || selectedVolumePrimaryAttachment?.instanceId || 'Not attached'}</strong>
+                      <span>{selectedVolumePrimaryAttachment ? `${selectedVolumePrimaryAttachment.device} | ${selectedVolumePrimaryAttachment.state}` : 'Volume is currently unattached'}</span>
+                    </div>
+                    <div className="ec2-relationship-arrow">→</div>
+                    <div className="ec2-relationship-card">
+                      <span className="ec2-relationship-label">Inspection Environment</span>
+                      <strong>{volumeDetail.tempEnvironment?.instanceId || 'Not created'}</strong>
+                      <span>{volumeDetail.tempEnvironment ? ssmStatusLabel(selectedVolumeTempSsmStatus) : 'Create a temporary SSM-managed host when needed'}</span>
+                    </div>
+                  </div>
+
                   <KV items={[
                     ['Volume ID', volumeDetail.volumeId],
                     ['Name', volumeDetail.name],
                     ['State', volumeDetail.state],
                     ['Normalized Status', volumeDetail.status],
-                    ['Size', `${volumeDetail.sizeGiB} GiB`],
-                    ['Type', volumeDetail.type],
-                    ['IOPS', String(volumeDetail.iops || '-')],
-                    ['Throughput', volumeDetail.throughput ? `${volumeDetail.throughput} MiB/s` : '-'],
+                    ['Settings', formatVolumeSettings(volumeDetail)],
                     ['Encrypted', volumeDetail.encrypted ? 'Yes' : 'No'],
                     ['AZ', volumeDetail.availabilityZone],
-                    ['Created', volumeDetail.createTime !== '-' ? new Date(volumeDetail.createTime).toLocaleString() : '-'],
+                    ['Created', formatTimestamp(volumeDetail.createTime)],
                     ['Snapshot', volumeDetail.snapshotId],
-                    ['Attachments', volumeDetail.attachments.length ? volumeDetail.attachments.map((attachment) => `${attachment.instanceId} ${attachment.device}`).join(', ') : 'None']
+                    ['Attachments', volumeDetail.attachments.length ? volumeDetail.attachments.map((attachment) => `${attachment.instanceId} ${attachment.device}`).join(', ') : 'None'],
+                    ['Temp SSM', volumeDetail.tempEnvironment ? ssmStatusLabel(selectedVolumeTempSsmStatus) : 'No temp environment']
                   ]} />
 
                   <div className="ec2-btn-row" style={{ marginTop: 10, flexWrap: 'wrap' }}>
@@ -1734,7 +2001,7 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
                       <button
                         className="ec2-action-btn ssm"
                         type="button"
-                        disabled={!volumeDetail.tempEnvironment.ssmReady || !onRunTerminalCommand}
+                        disabled={!onRunTerminalCommand || !(volumeTempSsmTarget?.canStartSession ?? volumeDetail.tempEnvironment.ssmReady)}
                         onClick={() => void doOpenSsmShell(volumeDetail.tempEnvironment?.instanceId)}
                       >
                         Open SSM Session
@@ -1749,16 +2016,82 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
                       setSnapVolume(volumeDetail.volumeId)
                       setMainTab('snapshots')
                     }}>Create Snapshot</button>
+                    {selectedVolumeSnapshot && (
+                      <button className="ec2-action-btn" type="button" onClick={() => {
+                        setMainTab('snapshots')
+                        setSelectedSnapId(selectedVolumeSnapshot.snapshotId)
+                      }}>
+                        Open Source Snapshot
+                      </button>
+                    )}
                     {volumeDetail.attachedInstanceIds[0] && (
                       <button className="ec2-action-btn" type="button" onClick={() => {
                         setMainTab('instances')
                         void selectInstance(volumeDetail.attachedInstanceIds[0])
                       }}>Open Related Instance</button>
                     )}
+                    {volumeDetail.tempEnvironment?.instanceId && (
+                      <button className="ec2-action-btn" type="button" onClick={() => {
+                        setMainTab('instances')
+                        void selectInstance(volumeDetail.tempEnvironment?.instanceId ?? '')
+                      }}>
+                        Open Temp Instance
+                      </button>
+                    )}
                   </div>
                 </>
-              ) : <div className="ec2-empty">Select a volume.</div>}
+              ) : <SvcState variant="no-selection" resourceName="volume" compact />}
             </div>
+
+            {volumeDetail && (
+              <div className="ec2-panel">
+                <h3>Operational Actions</h3>
+                <div className="ec2-volume-ops-grid">
+                  <div className="ec2-volume-op-card">
+                    <h4>Attach</h4>
+                    <div className="ec2-form">
+                      <label>Instance ID<input value={volumeAttachInstanceId} onChange={(e) => setVolumeAttachInstanceId(e.target.value)} placeholder="i-..." /></label>
+                      <label>Device<input value={volumeAttachDevice} onChange={(e) => setVolumeAttachDevice(e.target.value)} placeholder="/dev/sdf" /></label>
+                    </div>
+                    <button className="ec2-action-btn apply" type="button" disabled={volumeDetail.status === 'multi-attach'} onClick={() => void doAttachVolume()}>
+                      Attach Volume
+                    </button>
+                  </div>
+                  <div className="ec2-volume-op-card">
+                    <h4>Modify</h4>
+                    <div className="ec2-form">
+                      <label>Size (GiB)<input value={volumeModifySize} onChange={(e) => setVolumeModifySize(e.target.value)} inputMode="numeric" /></label>
+                      <label>Type<input value={volumeModifyType} onChange={(e) => setVolumeModifyType(e.target.value)} placeholder="gp3" /></label>
+                      <label>IOPS<input value={volumeModifyIops} onChange={(e) => setVolumeModifyIops(e.target.value)} inputMode="numeric" placeholder="Optional" /></label>
+                      <label>Throughput<input value={volumeModifyThroughput} onChange={(e) => setVolumeModifyThroughput(e.target.value)} inputMode="numeric" placeholder="Optional" /></label>
+                    </div>
+                    <div className="ec2-btn-row">
+                      <button className="ec2-action-btn apply" type="button" onClick={() => void doModifyVolume()}>
+                        Apply Changes
+                      </button>
+                      {volumeDetail.type === 'gp2' && (
+                        <button className="ec2-action-btn" type="button" onClick={() => {
+                          setVolumeModifyType('gp3')
+                          if (!volumeModifyIops) setVolumeModifyIops('3000')
+                          if (!volumeModifyThroughput) setVolumeModifyThroughput('125')
+                        }}>
+                          Prefill gp3
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="ec2-volume-op-card">
+                    <h4>Delete</h4>
+                    <div className="ec2-sidebar-hint">
+                      Deletion is destructive. AWS must see the volume detached before delete can succeed.
+                    </div>
+                    <ConfirmButton className="ec2-action-btn remove" type="button" onConfirm={() => void doDeleteVolume()}>
+                      Delete Volume
+                    </ConfirmButton>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {volumeDetail && (
               <div className="ec2-panel">
@@ -1768,15 +2101,27 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
                     <div className="ec2-thead"><div>Instance</div><div>Device</div><div>State</div><div>Attached</div></div>
                     {volumeDetail.attachments.map((attachment) => (
                       <div key={`${attachment.instanceId}-${attachment.device}`} className="ec2-trow">
-                        <div>{attachment.instanceId}</div>
+                        <div>
+                          <button className="ec2-link-btn" type="button" onClick={() => {
+                            setMainTab('instances')
+                            void selectInstance(attachment.instanceId)
+                          }}>
+                            {attachment.instanceId}
+                          </button>
+                        </div>
                         <div>{attachment.device}</div>
                         <div>{attachment.state}</div>
-                        <div>{attachment.attachTime !== '-' ? new Date(attachment.attachTime).toLocaleString() : '-'}</div>
+                        <div>
+                          <div>{formatTimestamp(attachment.attachTime)}</div>
+                          <ConfirmButton className="ec2-action-btn remove" type="button" onConfirm={() => void doDetachVolume(attachment)}>
+                            Detach
+                          </ConfirmButton>
+                        </div>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div className="ec2-empty">No active attachments.</div>
+                  <SvcState variant="empty" resourceName="active attachments" compact />
                 )}
               </div>
             )}
@@ -1785,11 +2130,34 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
               <div className="ec2-panel">
                 <h3>Recommendations</h3>
                 {volumeWarnings.length ? volumeWarnings.map((warning) => (
-                  <div key={warning} className="ec2-volume-warning">{warning}</div>
-                )) : <div className="ec2-empty">No immediate recommendations.</div>}
-                <div className="ec2-volume-actions-note">
-                  Additional actions: delete volume, tag/untag, attach/detach, and modify size/type/IOPS/throughput should follow the same EC2 detail workflow next.
-                </div>
+                  <div key={warning} className="ec2-volume-warning">
+                    <div>{warning}</div>
+                    <div className="ec2-btn-row" style={{ marginTop: 8 }}>
+                      {warning.includes('gp2') && (
+                        <button className="ec2-action-btn" type="button" onClick={() => {
+                          setVolumeModifyType('gp3')
+                          if (!volumeModifyIops) setVolumeModifyIops('3000')
+                          if (!volumeModifyThroughput) setVolumeModifyThroughput('125')
+                        }}>
+                          Prefill gp3 Modify
+                        </button>
+                      )}
+                      {warning.includes('orphan') && (
+                        <button className="ec2-action-btn ssm" type="button" onClick={() => void doCheckVolume()}>
+                          Inspect Orphan
+                        </button>
+                      )}
+                      {warning.includes('governance tags') && (
+                        <button className="ec2-action-btn" type="button" onClick={() => {
+                          setVolumeTagKey('Owner')
+                          setVolumeTagValue('')
+                        }}>
+                          Add Tags
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )) : <SvcState variant="empty" resourceName="immediate recommendations" compact />}
               </div>
             )}
 
@@ -1800,12 +2168,30 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
                   <div className="ec2-table">
                     <div className="ec2-thead"><div>Key</div><div>Value</div><div /><div /></div>
                     {Object.entries(volumeDetail.tags).map(([key, value]) => (
-                      <div key={key} className="ec2-trow"><div>{key}</div><div>{value}</div><div /><div /></div>
+                      <div key={key} className="ec2-trow">
+                        <div>{key}</div>
+                        <div>{value}</div>
+                        <div />
+                        <div>
+                          {!key.startsWith('aws-lens:') && (
+                            <ConfirmButton className="ec2-action-btn remove" type="button" onConfirm={() => void doUntagVolume(key)}>
+                              Remove
+                            </ConfirmButton>
+                          )}
+                        </div>
+                      </div>
                     ))}
                   </div>
                 ) : (
-                  <div className="ec2-empty">No tags.</div>
+                  <SvcState variant="empty" resourceName="tags" compact />
                 )}
+                <div className="ec2-inline" style={{ marginTop: 10 }}>
+                  <input placeholder="Tag key" value={volumeTagKey} onChange={(e) => setVolumeTagKey(e.target.value)} style={{ width: 140 }} />
+                  <input placeholder="Tag value" value={volumeTagValue} onChange={(e) => setVolumeTagValue(e.target.value)} style={{ width: 220 }} />
+                  <button className="ec2-action-btn apply" type="button" onClick={() => void doTagVolume()}>
+                    Tag Volume
+                  </button>
+                </div>
               </div>
             )}
 
@@ -1816,17 +2202,45 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
                   ['Temp UUID', volumeDetail.tempEnvironment.tempUuid],
                   ['Instance', volumeDetail.tempEnvironment.instanceId],
                   ['State', volumeDetail.tempEnvironment.instanceState],
-                  ['SSM', volumeDetail.tempEnvironment.ssmReady ? 'Ready' : 'Not ready'],
+                  ['SSM', ssmStatusLabel(selectedVolumeTempSsmStatus)],
+                  ['Last Ping', formatTimestamp(volumeTempSsmTarget?.managedInstance?.lastPingAt ?? '-')],
                   ['Subnet', volumeDetail.tempEnvironment.subnetId],
                   ['Security Group', volumeDetail.tempEnvironment.securityGroupId],
                   ['Instance Profile', volumeDetail.tempEnvironment.instanceProfileName],
                   ['Role', volumeDetail.tempEnvironment.iamRoleName]
                 ]} />
-                {volumeDetail.tempEnvironment.ssmReady && (
-                  <div className="ec2-btn-row" style={{ marginTop: 10 }}>
-                    <button className="ec2-action-btn ssm" type="button" disabled={!onRunTerminalCommand} onClick={() => void doOpenSsmShell(volumeDetail.tempEnvironment?.instanceId)}>
-                      Open SSM Session
-                    </button>
+                {volumeTempSsmTarget?.diagnostics?.length ? (
+                  <div className="ec2-ssm-summary-issues" style={{ marginTop: 10 }}>
+                    {volumeTempSsmTarget.diagnostics.map((diagnostic) => (
+                      <div key={diagnostic.code} className={`ec2-ssm-diag ${diagnostic.severity}`}>
+                        <strong>{diagnostic.summary}</strong>
+                        <span>{diagnostic.detail}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                <div className="ec2-btn-row" style={{ marginTop: 10 }}>
+                  <button
+                    className="ec2-action-btn ssm"
+                    type="button"
+                    disabled={!onRunTerminalCommand || !(volumeTempSsmTarget?.canStartSession ?? volumeDetail.tempEnvironment.ssmReady)}
+                    onClick={() => void doOpenSsmShell(volumeDetail.tempEnvironment?.instanceId)}
+                  >
+                    Open SSM Session
+                  </button>
+                  <button className="ec2-action-btn" type="button" onClick={() => {
+                    setMainTab('instances')
+                    void selectInstance(volumeDetail.tempEnvironment?.instanceId ?? '')
+                  }}>
+                    Open Temp Instance
+                  </button>
+                  <ConfirmButton className="ec2-action-btn remove" type="button" onConfirm={() => void doDeleteTempInspection(volumeDetail.tempEnvironment?.tempUuid || volumeDetail.tempEnvironment?.instanceId || '', volumeDetail.volumeId)}>
+                    Cleanup Temp Environment
+                  </ConfirmButton>
+                </div>
+                {volumeWorkflowStatus?.mode === 'delete' && volumeWorkflowStatus.tempUuid === volumeDetail.tempEnvironment.tempUuid && (
+                  <div className="ec2-sidebar-hint" style={{ marginTop: 10 }}>
+                    Cleanup in progress: {volumeWorkflowStatus.message}
                   </div>
                 )}
               </div>
@@ -1853,7 +2267,7 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
                   <div className="ec2-list-meta"><span className={`ec2-badge ${s.state}`}>{s.state}</span> | {s.progress}</div>
                 </button>
               ))}
-              {!snapshots.length && <div className="ec2-empty">No snapshots.</div>}
+              {!snapshots.length && <SvcState variant="empty" resourceName="snapshots" compact />}
             </div>
           </div>
           <div className="ec2-detail-stack">
@@ -1866,15 +2280,18 @@ useEffect(() => { void reload(); void loadRecommendations() }, [connection.sessi
                     ['Snapshot ID', selectedSnap.snapshotId], ['Volume', selectedSnap.volumeId],
                     ['State', selectedSnap.state], ['Progress', selectedSnap.progress],
                     ['Size', `${selectedSnap.volumeSize} GiB`],
-                    ['Started', selectedSnap.startTime !== '-' ? new Date(selectedSnap.startTime).toLocaleString() : '-'],
+                    ['Started', formatTimestamp(selectedSnap.startTime)],
                     ['Encrypted', selectedSnap.encrypted ? 'Yes' : 'No'],
                     ['Description', selectedSnap.description || '-'], ['Owner', selectedSnap.ownerId]
                   ]} />
                   <div className="ec2-btn-row" style={{ marginTop: 10 }}>
+                    <button className="ec2-action-btn" type="button" onClick={() => openVolumeFromSnapshot(selectedSnap.volumeId)}>
+                      Open Source Volume
+                    </button>
                     <ConfirmButton type="button" className="danger" onConfirm={() => void doDeleteSnap()} confirmLabel="Confirm Delete?">Delete Snapshot</ConfirmButton>
                   </div>
                 </>
-              ) : <div className="ec2-empty">Select a snapshot.</div>}
+              ) : <SvcState variant="no-selection" resourceName="snapshot" compact />}
             </div>
 
             {/* Tag */}

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { SvcState } from './SvcState'
 
 import type { AcmCertificateDetail, AcmCertificateSummary, AwsConnection, Route53RecordChange } from '@shared/types'
 import { ConfirmButton } from './ConfirmButton'
@@ -110,11 +111,13 @@ function sortValue(cert: AcmCertificateSummary, key: SortKey): string | number {
 export function AcmConsole({
   connection,
   onOpenRoute53 = () => undefined,
-  onOpenLoadBalancer = () => undefined
+  onOpenLoadBalancer = () => undefined,
+  onOpenWaf = () => undefined
 }: {
   connection: AwsConnection
   onOpenRoute53?: (record: Route53RecordChange) => void
   onOpenLoadBalancer?: (loadBalancerArn: string) => void
+  onOpenWaf?: (webAclName: string) => void
 }) {
   const [certs, setCerts] = useState<AcmCertificateSummary[]>([])
   const [loading, setLoading] = useState(false)
@@ -297,7 +300,7 @@ export function AcmConsole({
       </div>
 
       {msg && <div className="svc-msg">{msg}</div>}
-      {error && <div className="svc-error">{error}</div>}
+      {error && <SvcState variant="error" error={error} />}
 
       <div className="svc-stat-strip">
         <button type="button" className={`svc-stat-card acm-watch-card ${summaryBucket === 'all' ? 'active' : ''}`} onClick={() => setSummaryBucket('all')}>
@@ -452,7 +455,7 @@ export function AcmConsole({
               ))}
             </tbody>
           </table>
-          {!filteredCerts.length && !loading && <div className="svc-empty">No certificates match the current watch filters.</div>}
+          {!filteredCerts.length && !loading && <SvcState variant="no-filter-matches" resourceName="certificates" compact />}
         </div>
 
         <div className="svc-sidebar">
@@ -477,7 +480,7 @@ export function AcmConsole({
                 </div>
               </>
             ) : (
-              <div className="svc-empty">Select a certificate to inspect its watch status.</div>
+              <SvcState variant="no-selection" resourceName="certificate" message="Select a certificate to inspect its watch status." compact />
             )}
           </div>
 
@@ -534,7 +537,7 @@ export function AcmConsole({
                       })}
                     </tbody>
                   </table>
-                  {detail.domainValidationOptions.length === 0 && <div className="svc-empty">No validation details returned.</div>}
+                  {detail.domainValidationOptions.length === 0 && <SvcState variant="empty" resourceName="validation details" compact />}
                 </div>
 
                 <div style={{ marginTop: 14 }}>
@@ -550,10 +553,21 @@ export function AcmConsole({
                     </div>
                   )}
                   {detail.inUseAssociations.length > 0 && (
-                    <div className="svc-code">{detail.inUseAssociations.map((association) => association.label).join('\n')}</div>
+                    <div className="svc-list" style={{ marginBottom: 10 }}>
+                      {detail.inUseAssociations.map((association) => {
+                        const isWaf = association.service === 'wafv2' || association.service === 'waf' || association.resourceType?.toLowerCase().includes('webacl')
+                        const wafName = isWaf ? association.label.split('/').pop() || association.label : ''
+                        return (
+                          <button key={association.arn} type="button" className="svc-list-item" disabled={!isWaf} onClick={() => { if (isWaf && wafName) onOpenWaf(wafName) }}>
+                            <div className="svc-list-title">{association.label}</div>
+                            <div className="svc-list-meta">{association.service} · {association.resourceType}</div>
+                          </button>
+                        )
+                      })}
+                    </div>
                   )}
                   {detail.loadBalancerAssociations.length === 0 && detail.inUseAssociations.length === 0 && (
-                    <div className="svc-empty">This certificate is currently unused.</div>
+                    <SvcState variant="empty" message="This certificate is currently unused." compact />
                   )}
                 </div>
 
@@ -562,7 +576,7 @@ export function AcmConsole({
                 </div>
               </>
             ) : (
-              <div className="svc-empty">Select a certificate.</div>
+              <SvcState variant="no-selection" resourceName="certificate" compact />
             )}
           </div>
         </div>

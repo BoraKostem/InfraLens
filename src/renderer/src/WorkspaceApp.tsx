@@ -8,6 +8,7 @@ import type {
 } from '@shared/types'
 import { deleteLoadBalancer, listEc2Instances, listLoadBalancerWorkspaces } from './workspaceApi'
 import { ConfirmButton } from './ConfirmButton'
+import { FreshnessIndicator, useFreshnessState } from './freshness'
 
 /* ── Column definitions ───────────────────────────────────── */
 
@@ -43,9 +44,11 @@ type SideTab = 'details' | 'targets' | 'rules' | 'timeline'
 
 export function WorkspaceApp({
   connection,
+  refreshNonce = 0,
   focusLoadBalancer
 }: {
   connection: AwsConnection
+  refreshNonce?: number
   focusLoadBalancer?: { token: number; loadBalancerArn: string } | null
 }) {
   const [workspaces, setWorkspaces] = useState<LoadBalancerWorkspace[]>([])
@@ -61,6 +64,12 @@ export function WorkspaceApp({
   const [visCols, setVisCols] = useState<Set<ColKey>>(() => new Set(COLUMNS.map(c => c.key)))
   const [sideTab, setSideTab] = useState<SideTab>('details')
   const [appliedFocusToken, setAppliedFocusToken] = useState(0)
+  const {
+    freshness,
+    beginRefresh,
+    completeRefresh,
+    failRefresh
+  } = useFreshnessState({ staleAfterMs: 5 * 60 * 1000 })
 
   const selected = useMemo(() => workspaces.find(w => w.summary.arn === selectedArn) ?? null, [workspaces, selectedArn])
   const selectedListener = useMemo(() => selected?.listeners.find(l => l.arn === selectedListenerArn) ?? null, [selected, selectedListenerArn])
@@ -71,23 +80,40 @@ export function WorkspaceApp({
   const relatedInstance = useMemo(() => instances.find(i => i.instanceId === selectedTargetId) ?? null, [instances, selectedTargetId])
 
   function pickDefaults(next: LoadBalancerWorkspace[]) {
-    const first = next[0]
-    setSelectedArn(first?.summary.arn ?? '')
-    setSelectedListenerArn(first?.listeners[0]?.arn ?? '')
-    setSelectedGroupArn(first?.targetGroups[0]?.arn ?? '')
-    setSelectedTargetId(first?.targetGroups[0] ? first.targetsByGroup[first.targetGroups[0].arn]?.[0]?.id ?? '' : '')
+    const selectedWorkspace = next.find((workspace) => workspace.summary.arn === selectedArn) ?? next[0]
+    const nextSelectedArn = selectedWorkspace?.summary.arn ?? ''
+    const selectedListener = selectedWorkspace?.listeners.find((listener) => listener.arn === selectedListenerArn) ?? selectedWorkspace?.listeners[0]
+    const selectedGroup = selectedWorkspace?.targetGroups.find((group) => group.arn === selectedGroupArn) ?? selectedWorkspace?.targetGroups[0]
+    const selectedTarget = selectedGroup
+      ? selectedWorkspace?.targetsByGroup[selectedGroup.arn]?.find((target) => target.id === selectedTargetId) ?? selectedWorkspace?.targetsByGroup[selectedGroup.arn]?.[0]
+      : null
+
+    setSelectedArn(nextSelectedArn)
+    setSelectedListenerArn(selectedListener?.arn ?? '')
+    setSelectedGroupArn(selectedGroup?.arn ?? '')
+    setSelectedTargetId(selectedTarget?.id ?? '')
   }
 
-  async function load() {
+  async function load(reason: 'initial' | 'manual' | 'background' = 'manual') {
+    beginRefresh(reason)
     setLoading(true); setError('')
     try {
       const [lbs, ec2] = await Promise.all([listLoadBalancerWorkspaces(connection), listEc2Instances(connection)])
       setWorkspaces(lbs); setInstances(ec2); pickDefaults(lbs)
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+      completeRefresh()
+    } catch (e) { failRefresh(); setError(e instanceof Error ? e.message : String(e)) }
     finally { setLoading(false) }
   }
 
-  useEffect(() => { void load() }, [connection.sessionId, connection.region])
+  useEffect(() => { void load('initial') }, [connection.sessionId, connection.region])
+
+  useEffect(() => {
+    if (refreshNonce === 0) {
+      return
+    }
+
+    void load('manual')
+  }, [refreshNonce])
 
   useEffect(() => {
     if (!focusLoadBalancer || focusLoadBalancer.token === appliedFocusToken) {
@@ -134,8 +160,9 @@ export function WorkspaceApp({
     <div className="svc-console">
       <div className="svc-tab-bar">
         <button className="svc-tab active" type="button">Load Balancers</button>
-        <button className="svc-tab right" type="button" onClick={() => void load()} disabled={loading}>{loading ? 'Loading...' : 'Refresh'}</button>
+        <button className="svc-tab right" type="button" onClick={() => void load('manual')} disabled={loading}>{loading ? 'Loading...' : 'Refresh'}</button>
       </div>
+      <FreshnessIndicator freshness={freshness} label="Workspace last updated" />
 
       {msg && <div className="svc-msg">{msg}</div>}
       {error && <div className="svc-error">{error}</div>}

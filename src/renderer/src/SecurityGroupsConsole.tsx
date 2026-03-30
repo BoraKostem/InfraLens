@@ -146,7 +146,10 @@ function RuleModal({
 
 /* ── Main Console ─────────────────────────────────────────── */
 
-export function SecurityGroupsConsole({ connection }: { connection: AwsConnection }) {
+export function SecurityGroupsConsole({ connection, focusSecurityGroupId }: {
+  connection: AwsConnection
+  focusSecurityGroupId?: { token: number; securityGroupId: string } | null
+}) {
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
@@ -176,6 +179,15 @@ export function SecurityGroupsConsole({ connection }: { connection: AwsConnectio
   }
 
 useEffect(() => { void reload() }, [connection.sessionId, connection.region])
+
+  /* ── Focus drilldown ─────────────────────────────────────── */
+  const [appliedFocusToken, setAppliedFocusToken] = useState(0)
+  useEffect(() => {
+    if (!focusSecurityGroupId || focusSecurityGroupId.token === appliedFocusToken) return
+    setAppliedFocusToken(focusSecurityGroupId.token)
+    const match = groups.find(g => g.groupId === focusSecurityGroupId.securityGroupId)
+    if (match) void selectGroup(match.groupId)
+  }, [appliedFocusToken, focusSecurityGroupId, groups])
 
   async function selectGroup(groupId: string) {
     setSelectedId(groupId); setMsg(''); setError('')

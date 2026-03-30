@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { AwsConnection, CostBreakdown, InsightItem, OverviewMetrics, OverviewStatistics, RegionMetric, RegionalSignal, RelationshipMap, ServiceId, ServiceRelationship, TagSearchResult } from '@shared/types'
 import { useAwsPageConnection } from './AwsPage'
 import { getCostBreakdown, getOverviewMetrics, getOverviewStatistics, getRelationshipMap, searchByTag } from './api'
+import { SvcState } from './SvcState'
 
 type OverviewTab = 'overview' | 'relationships' | 'statistics' | 'tags'
 type RelFilterType = 'all' | string
@@ -193,7 +194,7 @@ export function OverviewConsole({
 
   const content = (
     <>
-      {(connectionState.error || pageError) && <div className="error-banner">{connectionState.error || pageError}</div>}
+      {(connectionState.error || pageError) && <SvcState variant="error" error={(connectionState.error || pageError)!} />}
       {!connectionState.connection || !connectionState.connected ? (
         <section className="empty-hero">
           <div>
@@ -289,7 +290,7 @@ export function OverviewConsole({
                         </div>
                       </div>
                     ) : (
-                      <div className="empty-state compact">No {globalBreakdownService.label.toLowerCase()} found in any region.</div>
+                      <SvcState variant="empty" message={`No ${globalBreakdownService.label.toLowerCase()} found in any region.`} compact />
                     )}
                   </section>
                 )}
@@ -301,7 +302,7 @@ export function OverviewConsole({
           {tab === 'overview' && (
             <>
               <div className="overview-section-title">Overview (Region)</div>
-              {loading && <div className="empty-state compact">Loading overview data...</div>}
+              {loading && <SvcState variant="loading" resourceName="overview data" compact />}
               {metrics && (
                 <>
                   <section className="overview-tiles">
@@ -406,14 +407,14 @@ export function OverviewConsole({
                             <div className="insight-card-message">{item.message}</div>
                           </div>
                         ))}
-                        {!statistics?.insights.length && <div className="empty-state compact">No insights generated.</div>}
+                        {!statistics?.insights.length && <SvcState variant="empty" resourceName="insights" message="No insights generated." compact />}
                       </div>
                     </div>
                   </section>
                 </>
               )}
               {!metrics && !loading && (
-                <div className="empty-state compact">No regional data loaded yet.</div>
+                <SvcState variant="empty" message="No regional data loaded yet." compact />
               )}
             </>
           )}
@@ -520,7 +521,7 @@ export function OverviewConsole({
                           <strong>{count}</strong>
                         </div>
                       ))}
-                      {relationGroups.size === 0 && <div className="empty-state compact">No relations.</div>}
+                      {relationGroups.size === 0 && <SvcState variant="empty" resourceName="relations" compact />}
                     </div>
                   </div>
                 </section>
@@ -578,7 +579,7 @@ export function OverviewConsole({
                               </div>
                             )
                           })}
-                          {filteredEdges.length === 0 && <div className="empty-state compact">No relationships found{relFilter !== 'all' || edgeRelFilter !== 'all' ? ' for the selected filters' : ''}.</div>}
+                          {filteredEdges.length === 0 && <SvcState variant={relFilter !== 'all' || edgeRelFilter !== 'all' ? 'no-filter-matches' : 'empty'} resourceName="relationships" compact />}
                         </div>
                         {totalPages > 1 && (
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.6rem' }}>
@@ -684,7 +685,7 @@ export function OverviewConsole({
                               <div className="hero-path">{item.detail}</div>
                             </div>
                           ))}
-                          {group.items.length === 0 && <div className="empty-state compact">No data.</div>}
+                          {group.items.length === 0 && <SvcState variant="empty" message="No data." compact />}
                         </div>
                       </div>
                     ))}
@@ -705,7 +706,7 @@ export function OverviewConsole({
                               <div className="hero-path">{item.detail}</div>
                             </div>
                           ))}
-                          {group.items.length === 0 && <div className="empty-state compact">No data.</div>}
+                          {group.items.length === 0 && <SvcState variant="empty" message="No data." compact />}
                         </div>
                       </div>
                     ))}
@@ -742,7 +743,7 @@ export function OverviewConsole({
                       <div className="insight-card-message">{item.message}</div>
                     </div>
                   ))}
-                  {filteredInsights.length === 0 && <div className="empty-state compact">No insights for this filter.</div>}
+                  {filteredInsights.length === 0 && <SvcState variant="no-filter-matches" resourceName="insights" compact />}
                 </section>
 
                 {/* Regional Signals with filter */}
@@ -779,7 +780,7 @@ export function OverviewConsole({
                       <p className="signal-next-step">Next step: {signal.nextStep}</p>
                     </div>
                   ))}
-                  {filteredSignals.length === 0 && <div className="empty-state compact">No signals for this category.</div>}
+                  {filteredSignals.length === 0 && <SvcState variant="no-filter-matches" resourceName="signals" compact />}
                 </section>
               </>
             )
@@ -842,7 +843,7 @@ export function OverviewConsole({
                             <div className="mono">{resource.resourceId}</div>
                           </div>
                         ))}
-                        {!filteredTagResources.length && <div className="empty-state compact">No resources matched the selected type.</div>}
+                        {!filteredTagResources.length && <SvcState variant="no-filter-matches" resourceName="resources" compact />}
                       </div>
                     </div>
                   </div>
@@ -857,14 +858,14 @@ export function OverviewConsole({
                             <span>{fmtCurrency(entry.monthlyCost)}</span>
                           </div>
                         ))}
-                        {!tagResults.costBreakdown.length && <div className="empty-state compact">No cost breakdown.</div>}
+                        {!tagResults.costBreakdown.length && <SvcState variant="empty" resourceName="cost breakdown" compact />}
                       </div>
                     </div>
                   </div>
                 </section>
               )}
 
-              {!tagResults && <div className="empty-state compact">Enter a tag key and search to find matching resources.</div>}
+              {!tagResults && <SvcState variant="no-selection" message="Enter a tag key and search to find matching resources." compact />}
             </>
           )}
         </>

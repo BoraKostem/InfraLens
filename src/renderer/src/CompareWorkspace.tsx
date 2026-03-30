@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { SvcState } from './SvcState'
 
 import type {
   ComparisonDiffRow,
@@ -59,11 +60,13 @@ function defaultRightKey(leftKey: string, options: SelectorOption[]): string {
 export function CompareWorkspace({
   connectionState,
   seed,
+  refreshNonce = 0,
   onNavigate
 }: {
   connectionState: ReturnType<typeof useAwsPageConnection>
   seed: CompareSeed | null
-  onNavigate: (serviceId: ServiceId, region?: string) => void
+  refreshNonce?: number
+  onNavigate: (serviceId: ServiceId, resourceId?: string, region?: string) => void
 }) {
   const options = useMemo<SelectorOption[]>(() => {
     const profileOptions = connectionState.profiles.map((profile) => ({
@@ -184,7 +187,10 @@ export function CompareWorkspace({
     try {
       const next = await runComparison(request)
       setResult(next)
-      setSelectedRowId(next.groups[0]?.rows[0]?.id ?? '')
+      setSelectedRowId((current) => {
+        const rows = next.groups.flatMap((group) => group.rows)
+        return rows.some((row) => row.id === current) ? current : (rows[0]?.id ?? '')
+      })
     } catch (compareError) {
       setResult(null)
       setSelectedRowId('')
@@ -193,6 +199,15 @@ export function CompareWorkspace({
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    if (refreshNonce === 0 || !result) {
+      return
+    }
+
+    void handleCompare()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshNonce])
 
   function renderRow(row: ComparisonDiffRow) {
     return (
@@ -232,7 +247,7 @@ export function CompareWorkspace({
 
   return (
     <div className="stack">
-      {error && <div className="error-banner">{error}</div>}
+      {error && <SvcState variant="error" error={error} />}
 
       <section className="hero catalog-hero">
         <div>
@@ -297,7 +312,7 @@ export function CompareWorkspace({
                     {selectedRow.navigation && (
                       <button
                         type="button"
-                        onClick={() => onNavigate(selectedRow.navigation!.serviceId, selectedRow.navigation!.region)}
+                        onClick={() => onNavigate(selectedRow.navigation!.serviceId, selectedRow.navigation!.resourceLabel, selectedRow.navigation!.region)}
                       >
                         Open {selectedRow.navigation.serviceId}
                       </button>
@@ -449,7 +464,7 @@ export function CompareWorkspace({
         </>
       ) : (
         <section className="panel">
-          <div className="empty-state compact">Choose two contexts, then run the diff to load summary totals, inventory deltas, posture changes, ownership tags, and cost signals.</div>
+          <SvcState variant="no-selection" message="Choose two contexts, then run the diff to load summary totals, inventory deltas, posture changes, ownership tags, and cost signals." />
         </section>
       )}
     </div>

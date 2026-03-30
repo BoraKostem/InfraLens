@@ -3307,6 +3307,12 @@ button.overview-tile.clickable.active strong {
   border-color: rgba(105, 120, 143, 0.34);
 }
 
+.sidebar-refresh-hint {
+  color: #90a0b5;
+  font-size: 0.73rem;
+  line-height: 1.35;
+}
+
 .service-nav-controls .field span {
   color: #9aa8bb;
   font-size: 0.72rem;

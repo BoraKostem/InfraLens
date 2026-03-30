@@ -40,6 +40,12 @@ declare global {
       listEbsVolumes: (connection: AwsConnection) => Promise<unknown>
       describeEc2Instance: (connection: AwsConnection, instanceId: string) => Promise<unknown>
       describeEbsVolume: (connection: AwsConnection, volumeId: string) => Promise<unknown>
+      tagEbsVolume: (connection: AwsConnection, volumeId: string, tags: Record<string, string>) => Promise<unknown>
+      untagEbsVolume: (connection: AwsConnection, volumeId: string, tagKeys: string[]) => Promise<unknown>
+      attachEbsVolume: (connection: AwsConnection, volumeId: string, request: unknown) => Promise<unknown>
+      detachEbsVolume: (connection: AwsConnection, volumeId: string, request?: unknown) => Promise<unknown>
+      deleteEbsVolume: (connection: AwsConnection, volumeId: string) => Promise<unknown>
+      modifyEbsVolume: (connection: AwsConnection, volumeId: string, request: unknown) => Promise<unknown>
       runEc2InstanceAction: (connection: AwsConnection, instanceId: string, action: Ec2InstanceAction) => Promise<unknown>
       terminateEc2Instance: (connection: AwsConnection, instanceId: string) => Promise<unknown>
       resizeEc2Instance: (connection: AwsConnection, instanceId: string, instanceType: string) => Promise<unknown>

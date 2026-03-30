@@ -123,6 +123,220 @@
   font-size: 13px;
 }
 
+.freshness-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+  min-height: 52px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.freshness-indicator__summary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.freshness-indicator__summary strong {
+  color: #e2e8f0;
+  font-size: 0.82rem;
+  line-height: 1.15;
+}
+
+.freshness-indicator__label {
+  color: #94a3b8;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.freshness-indicator__badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.freshness-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(51, 65, 85, 0.55);
+  color: #e2e8f0;
+}
+
+.freshness-pill.ready {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.28);
+  color: #86efac;
+}
+
+.freshness-pill.loading {
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.28);
+  color: #7dd3fc;
+}
+
+.freshness-pill.stale {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.28);
+  color: #fcd34d;
+}
+
+/* ── Unified state rendering ─────────────────────────────── */
+
+.svc-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px;
+  font-size: 13px;
+  gap: 6px;
+  position: relative;
+}
+
+.svc-state-compact {
+  padding: 8px 12px;
+  font-size: 11px;
+  gap: 4px;
+}
+
+.svc-state-loading {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  color: #9ca7b7;
+}
+
+.svc-state-empty {
+  color: #9ca7b7;
+}
+
+.svc-state-error {
+  padding: 8px 12px;
+  border: 1px solid #6a4a4a;
+  border-radius: 4px;
+  background: #3a2a2a;
+  color: #e0b8b8;
+  font-size: 12px;
+  align-items: flex-start;
+  text-align: left;
+}
+
+.svc-state-permission {
+  padding: 10px 14px;
+  border: 1px solid #6a5a2a;
+  border-radius: 4px;
+  background: #3a3520;
+  color: #d0c8a0;
+  font-size: 12px;
+  align-items: flex-start;
+  text-align: left;
+}
+
+.svc-state-partial {
+  padding: 8px 12px;
+  border: 1px solid #5a5020;
+  border-radius: 4px;
+  background: #33301a;
+  color: #e0d48e;
+  font-size: 12px;
+  width: 100%;
+  text-align: left;
+  align-items: flex-start;
+  box-sizing: border-box;
+}
+
+.svc-state-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #3b4350;
+  border-top-color: #4a8fe7;
+  border-radius: 50%;
+  animation: svc-spin 0.6s linear infinite;
+  flex-shrink: 0;
+}
+
+.svc-state-compact .svc-state-spinner {
+  width: 12px;
+  height: 12px;
+}
+
+@keyframes svc-spin {
+  to { transform: rotate(360deg); }
+}
+
+.svc-state-title {
+  font-weight: 700;
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+
+.svc-state-compact .svc-state-title {
+  font-size: 11px;
+}
+
+.svc-state-hint {
+  display: block;
+  font-size: 11px;
+  color: #6b7688;
+  margin-top: 2px;
+}
+
+.svc-state-code {
+  display: block;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  color: #d0b8b0;
+  background: #2a2020;
+  border-radius: 3px;
+  padding: 6px 10px;
+  margin-top: 4px;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+.svc-state-permission .svc-state-code {
+  color: #c8c090;
+  background: #2a2810;
+}
+
+.svc-state-timestamp {
+  display: block;
+  font-size: 10px;
+  color: #6b7688;
+  margin-top: 6px;
+}
+
+.svc-state-dismiss {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  opacity: 0.6;
+}
+
+.svc-state-dismiss:hover {
+  opacity: 1;
+}
+
 /* ── Filter bar ───────────────────────────────────────────── */
 
 .svc-filter-bar {

@@ -3,19 +3,25 @@ import { ipcMain } from 'electron'
 import type {
   AwsConnection,
   BastionLaunchConfig,
+  EbsVolumeAttachRequest,
+  EbsVolumeDetachRequest,
+  EbsVolumeModifyRequest,
   SnapshotLaunchConfig,
   SsmSendCommandRequest,
   SsmStartSessionRequest
 } from '@shared/types'
 import {
+  attachEbsVolume,
   attachIamProfile,
   createEc2Snapshot,
   createTempInspectionEnvironment,
+  deleteEbsVolume,
   deleteBastionForInstance,
   deleteEc2Snapshot,
   deleteTempInspectionEnvironment,
   describeEbsVolume,
   describeEc2Instance,
+  detachEbsVolume,
   describeVpc,
   findBastionConnectionsForInstance,
   getIamAssociation,
@@ -27,13 +33,16 @@ import {
   listEc2Snapshots,
   listInstanceTypes,
   listPopularBastionAmis,
+  modifyEbsVolume,
   removeIamProfile,
   replaceIamProfile,
   resizeEc2Instance,
   runEc2InstanceAction,
   getEc2Recommendations,
   sendSshPublicKey,
+  tagEbsVolume,
   tagEc2Snapshot,
+  untagEbsVolume,
   terminateEc2Instance
 } from './aws/ec2'
 import {
@@ -66,6 +75,30 @@ export function registerEc2IpcHandlers(): void {
   )
   ipcMain.handle('ec2:describe-volume', async (_event, connection: AwsConnection, volumeId: string) =>
     wrap(() => describeEbsVolume(connection, volumeId))
+  )
+  ipcMain.handle('ec2:tag-volume', async (_event, connection: AwsConnection, volumeId: string, tags: Record<string, string>) =>
+    wrap(() => tagEbsVolume(connection, volumeId, tags))
+  )
+  ipcMain.handle('ec2:untag-volume', async (_event, connection: AwsConnection, volumeId: string, tagKeys: string[]) =>
+    wrap(() => untagEbsVolume(connection, volumeId, tagKeys))
+  )
+  ipcMain.handle(
+    'ec2:attach-volume',
+    async (_event, connection: AwsConnection, volumeId: string, request: EbsVolumeAttachRequest) =>
+      wrap(() => attachEbsVolume(connection, volumeId, request))
+  )
+  ipcMain.handle(
+    'ec2:detach-volume',
+    async (_event, connection: AwsConnection, volumeId: string, request?: EbsVolumeDetachRequest) =>
+      wrap(() => detachEbsVolume(connection, volumeId, request))
+  )
+  ipcMain.handle('ec2:delete-volume', async (_event, connection: AwsConnection, volumeId: string) =>
+    wrap(() => deleteEbsVolume(connection, volumeId))
+  )
+  ipcMain.handle(
+    'ec2:modify-volume',
+    async (_event, connection: AwsConnection, volumeId: string, request: EbsVolumeModifyRequest) =>
+      wrap(() => modifyEbsVolume(connection, volumeId, request))
   )
   ipcMain.handle(
     'ec2:action',

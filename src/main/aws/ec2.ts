@@ -23,6 +23,7 @@ import {
   DisassociateIamInstanceProfileCommand,
   EC2Client,
   ModifyInstanceAttributeCommand,
+  ModifyVolumeCommand,
   RebootInstancesCommand,
   RegisterImageCommand,
   ReplaceIamInstanceProfileAssociationCommand,
@@ -79,8 +80,11 @@ import type {
   Ec2VpcDetail,
   EbsTempInspectionEnvironment,
   EbsTempInspectionProgress,
+  EbsVolumeAttachRequest,
   EbsVolumeAttachment,
   EbsVolumeDetail,
+  EbsVolumeDetachRequest,
+  EbsVolumeModifyRequest,
   EbsVolumeStatus,
   EbsVolumeSummary,
   SsmConnectionDiagnostic,
@@ -936,6 +940,101 @@ export async function describeEbsVolume(connection: AwsConnection, volumeId: str
     ...summary,
     isOrphan: summary.status === 'available-orphan'
   }
+}
+
+export async function tagEbsVolume(
+  connection: AwsConnection,
+  volumeId: string,
+  tags: Record<string, string>
+): Promise<void> {
+  const client = createClient(connection)
+  await tagResources(client, [volumeId], tags)
+}
+
+export async function untagEbsVolume(
+  connection: AwsConnection,
+  volumeId: string,
+  tagKeys: string[]
+): Promise<void> {
+  const client = createClient(connection)
+  await removeTagKeys(client, [volumeId], tagKeys)
+}
+
+export async function attachEbsVolume(
+  connection: AwsConnection,
+  volumeId: string,
+  request: EbsVolumeAttachRequest
+): Promise<void> {
+  const client = createClient(connection)
+  const volume = await describeTargetVolume(client, volumeId)
+  const instance = await describeTargetInstance(client, request.instanceId)
+
+  if ((volume.AvailabilityZone ?? '') !== (instance.Placement?.AvailabilityZone ?? '')) {
+    throw new Error(`Volume ${volumeId} and instance ${request.instanceId} must be in the same availability zone`)
+  }
+
+  await client.send(
+    new AttachVolumeCommand({
+      VolumeId: volumeId,
+      InstanceId: request.instanceId,
+      Device: request.device
+    })
+  )
+}
+
+export async function detachEbsVolume(
+  connection: AwsConnection,
+  volumeId: string,
+  request: EbsVolumeDetachRequest = {}
+): Promise<void> {
+  const client = createClient(connection)
+  await client.send(
+    new DetachVolumeCommand({
+      VolumeId: volumeId,
+      InstanceId: request.instanceId,
+      Device: request.device,
+      Force: request.force
+    })
+  )
+}
+
+export async function deleteEbsVolume(connection: AwsConnection, volumeId: string): Promise<void> {
+  const client = createClient(connection)
+  await client.send(new DeleteVolumeCommand({ VolumeId: volumeId }))
+}
+
+export async function modifyEbsVolume(
+  connection: AwsConnection,
+  volumeId: string,
+  request: EbsVolumeModifyRequest
+): Promise<void> {
+  const client = createClient(connection)
+  const payload: {
+    VolumeId: string
+    Size?: number
+    VolumeType?: string
+    Iops?: number
+    Throughput?: number
+  } = { VolumeId: volumeId }
+
+  if (request.sizeGiB !== undefined) {
+    payload.Size = request.sizeGiB
+  }
+  if (request.type) {
+    payload.VolumeType = request.type as never
+  }
+  if (request.iops !== undefined) {
+    payload.Iops = request.iops
+  }
+  if (request.throughput !== undefined) {
+    payload.Throughput = request.throughput
+  }
+
+  if (!('Size' in payload) && !('VolumeType' in payload) && !('Iops' in payload) && !('Throughput' in payload)) {
+    throw new Error('Provide at least one volume setting to modify')
+  }
+
+  await client.send(new ModifyVolumeCommand(payload as never))
 }
 
 /* ── Instance detail ───────────────────────────────────────── */

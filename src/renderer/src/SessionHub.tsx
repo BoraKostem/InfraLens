@@ -9,6 +9,7 @@ import {
   listIamRoles,
   saveAssumeRoleTarget
 } from './api'
+import { FreshnessIndicator, useFreshnessState } from './freshness'
 
 type ConnectionState = {
   profile: string
@@ -147,6 +148,12 @@ export function SessionHub({
   const [rolesLoading, setRolesLoading] = useState(false)
   const [roleArnPickerOpen, setRoleArnPickerOpen] = useState(false)
   const [sourceProfilePickerOpen, setSourceProfilePickerOpen] = useState(false)
+  const {
+    freshness,
+    beginRefresh,
+    completeRefresh,
+    failRefresh
+  } = useFreshnessState({ staleAfterMs: 2 * 60 * 1000, initialFetchedAt: Date.now() })
 
   useEffect(() => {
     const timer = window.setInterval(() => setCountdownTick(Date.now()), 1000)
@@ -281,7 +288,14 @@ export function SessionHub({
   }
 
   async function refreshSessionHub(): Promise<void> {
-    await connectionState.refreshProfiles()
+    beginRefresh('session')
+    try {
+      await connectionState.refreshProfiles()
+      completeRefresh()
+    } catch (error) {
+      failRefresh()
+      throw error
+    }
   }
 
   async function handleSaveTarget(): Promise<void> {
@@ -477,6 +491,8 @@ export function SessionHub({
         </div>
       </section>
 
+      <FreshnessIndicator freshness={freshness} label="Sessions last refreshed" staleLabel="Session list may be stale" />
+
       <div className="overview-bottom-row">
         <span>Current context: <strong>{currentContextMeta}</strong></span>
         {connectionState.connection && (
@@ -495,7 +511,7 @@ export function SessionHub({
           </button>
         )}
         <button type="button" onClick={() => void refreshSessionHub()}>
-          Refresh
+          Refresh Sessions
         </button>
       </div>
 
