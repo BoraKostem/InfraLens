@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import './s3.css'
 import { SvcState } from './SvcState'
 
@@ -39,6 +39,7 @@ type BucketTab = 'objects' | 'governance'
 type BucketColKey = 'name' | 'created' | 'region' | 'risk'
 type ColKey = 'name' | 'type' | 'key' | 'size' | 'modified' | 'storageClass'
 type SummaryFilterKey = 'all' | 'high-risk' | 'public-risk' | 'no-encryption' | 'no-lifecycle' | 'important-no-versioning'
+type BucketGroupKey = 'urgent' | 'attention' | 'covered' | 'unverified'
 type GovernanceCheckItem = {
   label: string
   check:
@@ -49,6 +50,31 @@ type GovernanceCheckItem = {
     | S3BucketGovernancePosture['policy']
     | S3BucketGovernancePosture['logging']
     | S3BucketGovernancePosture['replication']
+}
+type RemediationActionItem = {
+  id: string
+  title: string
+  description: string
+  detail: string
+  actionLabel: string
+  disabled?: boolean
+  readOnly?: boolean
+  onAction?: () => void
+}
+type RemediationFeedback = {
+  bucketName: string
+  action: string
+  completedAt: string
+  changedChecks: Array<{ label: string; before: string; after: string }>
+  beforeSeverity: S3GovernanceSeverity
+  afterSeverity: S3GovernanceSeverity
+}
+type HygieneCandidate = {
+  key: string
+  size: number
+  lastModified: string
+  ageDays: number
+  reasons: string[]
 }
 
 const BUCKET_COLUMNS: { key: BucketColKey; label: string; color: string }[] = [
@@ -94,6 +120,16 @@ function formatSeverity(severity: S3GovernanceSeverity): string {
   return severity.charAt(0).toUpperCase() + severity.slice(1)
 }
 
+function severityPriority(severity: S3GovernanceSeverity): number {
+  switch (severity) {
+    case 'critical': return 5
+    case 'high': return 4
+    case 'medium': return 3
+    case 'low': return 2
+    case 'info': return 1
+  }
+}
+
 function severityClass(severity: S3GovernanceSeverity): string {
   return `s3-severity-${severity}`
 }
@@ -128,6 +164,39 @@ function badgeTone(status: 'enabled' | 'present' | 'disabled' | 'missing' | 'par
   if (status === 'enabled' || status === 'present') return 'ok'
   if (status === 'partial' || status === 'suspended' || status === 'unknown') return 'warn'
   return 'risk'
+}
+
+function checkStatusLabel(status: S3BucketGovernancePosture['publicAccessBlock']['status']): string {
+  switch (status) {
+    case 'enabled': return 'Enabled'
+    case 'present': return 'Present'
+    case 'disabled': return 'Disabled'
+    case 'missing': return 'Missing'
+    case 'partial': return 'Partial'
+    case 'suspended': return 'Suspended'
+    case 'unknown': return 'Unknown'
+  }
+}
+
+function bucketGroupKey(posture: S3BucketGovernancePosture | null): BucketGroupKey {
+  if (!posture) return 'unverified'
+  if (posture.highestSeverity === 'critical' || posture.highestSeverity === 'high') return 'urgent'
+  if (posture.highestSeverity === 'medium' || posture.highestSeverity === 'low') return 'attention'
+  return 'covered'
+}
+
+function bucketGroupLabel(group: BucketGroupKey): string {
+  switch (group) {
+    case 'urgent': return 'Urgent Buckets'
+    case 'attention': return 'Needs Attention'
+    case 'covered': return 'Stable / Covered'
+    case 'unverified': return 'Unverified'
+  }
+}
+
+function objectAgeDays(lastModified: string): number {
+  if (lastModified === '-') return 0
+  return Math.max(0, Math.floor((Date.now() - new Date(lastModified).getTime()) / (24 * 60 * 60 * 1000)))
 }
 
 function displayName(key: string, prefix: string): string {
@@ -254,6 +323,8 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
   const [showLifecycleJson, setShowLifecycleJson] = useState(false)
   const [showPolicyEditor, setShowPolicyEditor] = useState(false)
   const [selectedSummaryFilter, setSelectedSummaryFilter] = useState<SummaryFilterKey | null>(null)
+  const [activeBucketAction, setActiveBucketAction] = useState('')
+  const [remediationFeedback, setRemediationFeedback] = useState<RemediationFeedback | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const bucketPostureMap = useMemo(() => new Map((governanceOverview?.buckets ?? []).map((bucket) => [bucket.bucketName, bucket])), [governanceOverview])
@@ -278,6 +349,38 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
     return [...summary.values()].sort((left, right) => right.totalBytes - left.totalBytes)
   }, [objectFiles])
   const policyDirty = governanceDetail !== null && policyEditor !== governanceDetail.policyJson
+  const selectedPosture = governanceDetail?.posture.bucketName === selectedBucket
+    ? governanceDetail.posture
+    : bucketPostureMap.get(selectedBucket) ?? null
+  const hygieneCandidates = useMemo(() => {
+    return objectFiles
+      .map((obj) => {
+        const reasons: string[] = []
+        const ageDays = objectAgeDays(obj.lastModified)
+        if (obj.size >= largeThresholdBytes) {
+          reasons.push(`${formatSize(obj.size)} exceeds ${Number(largeObjectThresholdMb) || 100} MB`)
+        }
+        if (ageDays >= oldThresholdDays) {
+          reasons.push(`${ageDays} days old`)
+        }
+        return {
+          key: obj.key,
+          size: obj.size,
+          lastModified: obj.lastModified,
+          ageDays,
+          reasons
+        } satisfies HygieneCandidate
+      })
+      .filter((candidate) => candidate.reasons.length > 0)
+      .sort((left, right) => {
+        const reasonDelta = right.reasons.length - left.reasons.length
+        if (reasonDelta !== 0) return reasonDelta
+        const sizeDelta = right.size - left.size
+        if (sizeDelta !== 0) return sizeDelta
+        return right.ageDays - left.ageDays
+      })
+  }, [largeObjectThresholdMb, largeThresholdBytes, objectFiles, oldThresholdDays])
+  const topHygieneCandidates = useMemo(() => hygieneCandidates.slice(0, 8), [hygieneCandidates])
 
   const summaryFilterBuckets = useMemo(() => {
     const postures = governanceOverview?.buckets ?? []
@@ -427,6 +530,56 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
     await Promise.all([loadBucketsAndSelection(bucketName, nextPrefix), loadGovernanceSummary()])
   }
 
+  async function runBucketRemediation(actionLabel: string, mutation: () => Promise<void>): Promise<void> {
+    if (!selectedBucket) return
+    const beforePosture = governanceDetail?.posture.bucketName === selectedBucket
+      ? governanceDetail.posture
+      : bucketPostureMap.get(selectedBucket) ?? null
+
+    setActiveBucketAction(actionLabel)
+    setError('')
+
+    try {
+      await mutation()
+      await refreshAll(selectedBucket, prefix)
+      const refreshedDetail = await getS3GovernanceDetail(resolveBucketConnection(connection, buckets, selectedBucket), selectedBucket)
+      setGovernanceDetail(refreshedDetail)
+      setPolicyEditor(refreshedDetail.policyJson)
+      setShowPolicyEditor((current) => current || Boolean(refreshedDetail.policyJson))
+
+      const changedChecks = beforePosture ? [
+        { label: 'Public access block', before: beforePosture.publicAccessBlock.status, after: refreshedDetail.posture.publicAccessBlock.status },
+        { label: 'Default encryption', before: beforePosture.encryption.status, after: refreshedDetail.posture.encryption.status },
+        { label: 'Versioning', before: beforePosture.versioning.status, after: refreshedDetail.posture.versioning.status },
+        { label: 'Lifecycle', before: beforePosture.lifecycle.status, after: refreshedDetail.posture.lifecycle.status },
+        { label: 'Bucket policy', before: beforePosture.policy.status, after: refreshedDetail.posture.policy.status }
+      ]
+        .filter((entry) => entry.before !== entry.after)
+        .map((entry) => ({
+          label: entry.label,
+          before: checkStatusLabel(entry.before),
+          after: checkStatusLabel(entry.after)
+        })) : []
+
+      setRemediationFeedback({
+        bucketName: selectedBucket,
+        action: actionLabel,
+        completedAt: new Date().toISOString(),
+        changedChecks,
+        beforeSeverity: beforePosture?.highestSeverity ?? refreshedDetail.posture.highestSeverity,
+        afterSeverity: refreshedDetail.posture.highestSeverity
+      })
+
+      setMsg(changedChecks.length > 0
+        ? `${actionLabel} applied to ${selectedBucket}. ${changedChecks.map((entry) => `${entry.label}: ${entry.after}`).join(' | ')}`
+        : `${actionLabel} applied to ${selectedBucket}. Posture refreshed.`)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setActiveBucketAction('')
+    }
+  }
+
   function goUp(): void {
     if (!prefix) return
     const parts = prefix.replace(/\/$/, '').split('/')
@@ -480,6 +633,8 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
     setGovernanceDetail(null)
     setPolicyEditor('')
     setSelectedSummaryFilter(null)
+    setActiveBucketAction('')
+    setRemediationFeedback(null)
     setInventoryMessage('')
     setManualBucketName('')
     closePreview()
@@ -497,6 +652,29 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
     const posture = bucketPostureMap.get(bucket.name) ?? (governanceDetail?.posture.bucketName === bucket.name ? governanceDetail.posture : null)
     return BUCKET_COLUMNS.some((column) => getBucketColValue(bucket, posture, column.key).toLowerCase().includes(search))
   })
+  const groupedBuckets = useMemo(() => {
+    const groups = new Map<BucketGroupKey, Array<{ bucket: S3BucketSummary; posture: S3BucketGovernancePosture | null }>>([
+      ['urgent', []],
+      ['attention', []],
+      ['covered', []],
+      ['unverified', []]
+    ])
+
+    for (const bucket of filteredBuckets) {
+      const posture = bucketPostureMap.get(bucket.name) ?? (governanceDetail?.posture.bucketName === bucket.name ? governanceDetail.posture : null)
+      groups.get(bucketGroupKey(posture))!.push({ bucket, posture })
+    }
+
+    for (const [, entries] of groups) {
+      entries.sort((left, right) => {
+        const severityDelta = severityPriority(right.posture?.highestSeverity ?? 'info') - severityPriority(left.posture?.highestSeverity ?? 'info')
+        if (severityDelta !== 0) return severityDelta
+        return left.bucket.name.localeCompare(right.bucket.name)
+      })
+    }
+
+    return groups
+  }, [bucketPostureMap, filteredBuckets, governanceDetail])
 
   const activeBucketCols = BUCKET_COLUMNS.filter((column) => visibleBucketCols.has(column.key))
   const filteredObjects = objects.filter((obj) => {
@@ -509,6 +687,108 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
   })
 
   const activeObjCols = OBJ_COLUMNS.filter((column) => visibleObjCols.has(column.key))
+  const nextActions = useMemo<RemediationActionItem[]>(() => {
+    if (!selectedBucket || !selectedPosture) return []
+
+    const actions: RemediationActionItem[] = []
+
+    if (selectedPosture.encryption.status !== 'enabled') {
+      actions.push({
+        id: 'enable-encryption',
+        title: 'Enable default encryption',
+        description: 'Protect new uploads with bucket-level default encryption.',
+        detail: selectedPosture.encryption.summary,
+        actionLabel: activeBucketAction === 'Enable default encryption' ? 'Applying...' : 'Enable Encryption',
+        disabled: activeBucketAction.length > 0,
+        onAction: () => {
+          setSelectedTab('governance')
+          void runBucketRemediation('Enable default encryption', async () => {
+          await enableS3BucketEncryption(resolveBucketConnection(connection, buckets, selectedBucket), selectedBucket)
+          })
+        }
+      })
+    }
+
+    if (selectedPosture.versioning.status !== 'enabled') {
+      actions.push({
+        id: 'enable-versioning',
+        title: 'Enable versioning',
+        description: selectedPosture.important ? 'Recommended first for important buckets.' : 'Improve overwrite and delete recovery.',
+        detail: selectedPosture.versioning.summary,
+        actionLabel: activeBucketAction === 'Enable versioning' ? 'Applying...' : 'Enable Versioning',
+        disabled: activeBucketAction.length > 0,
+        onAction: () => {
+          setSelectedTab('governance')
+          void runBucketRemediation('Enable versioning', async () => {
+          await enableS3BucketVersioning(resolveBucketConnection(connection, buckets, selectedBucket), selectedBucket)
+          })
+        }
+      })
+    }
+
+    actions.push({
+      id: 'policy-editor',
+      title: 'Review bucket policy',
+      description: policyDirty ? 'Unsaved edits are ready to apply.' : 'Inspect or update the current bucket policy JSON.',
+      detail: selectedPosture.policy.summary,
+      actionLabel: showPolicyEditor ? 'Hide Policy' : 'Open Policy',
+      onAction: () => {
+        setSelectedTab('governance')
+        setShowPolicyEditor((current) => !current)
+      }
+    })
+
+    actions.push({
+      id: 'lifecycle-inspect',
+      title: 'Inspect lifecycle configuration',
+      description: selectedPosture.lifecycle.status === 'missing'
+        ? 'No lifecycle rules are configured. Review object hygiene first.'
+        : 'Inspect lifecycle rules before tuning hygiene or retention.',
+      detail: selectedPosture.lifecycle.summary,
+      actionLabel: showLifecycleJson ? 'Hide Lifecycle' : 'Inspect Lifecycle',
+      readOnly: true,
+      onAction: () => {
+        setSelectedTab('governance')
+        setShowLifecycleJson((current) => !current)
+      }
+    })
+
+    if (selectedPosture.publicAccessBlock.status !== 'enabled') {
+      actions.push({
+        id: 'public-access',
+        title: 'Review public access posture',
+        description: 'This finding is surfaced clearly but remains read-only here.',
+        detail: selectedPosture.publicAccessBlock.summary,
+        actionLabel: 'Open Governance',
+        readOnly: true,
+        onAction: () => setSelectedTab('governance')
+      })
+    }
+
+    if (topHygieneCandidates.length > 0) {
+      actions.push({
+        id: 'object-hygiene',
+        title: 'Triage object hygiene',
+        description: `${topHygieneCandidates.length} large or old object candidates are visible in this prefix.`,
+        detail: topHygieneCandidates[0]?.reasons.join(' | ') ?? '',
+        actionLabel: 'Open Hygiene',
+        readOnly: true,
+        onAction: () => setSelectedTab('objects')
+      })
+    }
+
+    return actions
+  }, [
+    activeBucketAction,
+    buckets,
+    connection,
+    policyDirty,
+    selectedBucket,
+    selectedPosture,
+    showLifecycleJson,
+    showPolicyEditor,
+    topHygieneCandidates
+  ])
 
   if (loading && buckets.length === 0) {
     return <SvcState variant="loading" resourceName="S3" />
@@ -566,25 +846,49 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
             <table className="s3-bucket-table">
               <thead><tr>{activeBucketCols.map((column) => <th key={column.key}>{column.label}</th>)}</tr></thead>
               <tbody>
-                {filteredBuckets.map((bucket) => {
-                  const posture = bucketPostureMap.get(bucket.name) ?? (governanceDetail?.posture.bucketName === bucket.name ? governanceDetail.posture : null)
+                {(['urgent', 'attention', 'covered', 'unverified'] as BucketGroupKey[]).map((group) => {
+                  const entries = groupedBuckets.get(group) ?? []
+                  if (entries.length === 0) return null
                   return (
-                    <tr key={bucket.name} className={bucket.name === selectedBucket ? 'active' : ''} onClick={() => void browseBucket(bucket.name)}>
-                      {activeBucketCols.map((column) => (
-                        <td key={column.key}>
-                          {column.key === 'risk' && posture ? (
-                            <div className="s3-bucket-risk-cell">
-                              <span className={`s3-badge ${severityClass(posture.highestSeverity)}`}>{formatSeverity(posture.highestSeverity)}</span>
-                              <div className="s3-mini-badges">
-                                <span className={`s3-mini-badge ${badgeTone(posture.publicAccessBlock.status)}`}>{publicBadgeLabel(posture)}</span>
-                                <span className={`s3-mini-badge ${badgeTone(posture.encryption.status)}`}>{encryptionBadgeLabel(posture)}</span>
-                                <span className={`s3-mini-badge ${badgeTone(posture.versioning.status)}`}>{versioningBadgeLabel(posture)}</span>
-                              </div>
-                            </div>
-                          ) : getBucketColValue(bucket, posture, column.key)}
+                    <Fragment key={group}>
+                      <tr key={`${group}-header`} className="s3-group-row">
+                        <td colSpan={activeBucketCols.length}>
+                          <div className="s3-group-header">
+                            <strong>{bucketGroupLabel(group)}</strong>
+                            <span>{entries.length}</span>
+                          </div>
                         </td>
+                      </tr>
+                      {entries.map(({ bucket, posture }) => (
+                        <tr key={bucket.name} className={bucket.name === selectedBucket ? 'active' : ''} onClick={() => void browseBucket(bucket.name)}>
+                          {activeBucketCols.map((column) => (
+                            <td key={column.key}>
+                              {column.key === 'risk'
+                                ? posture ? (
+                                  <div className="s3-bucket-risk-cell">
+                                    <div className="s3-bucket-risk-top">
+                                      <span className={`s3-badge ${severityClass(posture.highestSeverity)}`}>{formatSeverity(posture.highestSeverity)}</span>
+                                      <span className="s3-bucket-finding-count">{posture.findings.length} finding{posture.findings.length === 1 ? '' : 's'}</span>
+                                    </div>
+                                    <div className="s3-mini-badges">
+                                      <span className={`s3-mini-badge ${badgeTone(posture.publicAccessBlock.status)}`}>{publicBadgeLabel(posture)}</span>
+                                      <span className={`s3-mini-badge ${badgeTone(posture.encryption.status)}`}>{encryptionBadgeLabel(posture)}</span>
+                                      <span className={`s3-mini-badge ${badgeTone(posture.versioning.status)}`}>{versioningBadgeLabel(posture)}</span>
+                                    </div>
+                                    {posture.findings[0] && <div className="s3-bucket-risk-note">{posture.findings[0].title}</div>}
+                                  </div>
+                                ) : (
+                                  <div className="s3-bucket-risk-cell">
+                                    <span className="s3-badge s3-severity-info">Pending</span>
+                                    <div className="s3-bucket-risk-note">Governance posture not loaded yet.</div>
+                                  </div>
+                                )
+                                : getBucketColValue(bucket, posture, column.key)}
+                            </td>
+                          ))}
+                        </tr>
                       ))}
-                    </tr>
+                    </Fragment>
                   )
                 })}
               </tbody>
@@ -658,6 +962,24 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
             </div>
           </div>
 
+          {remediationFeedback && remediationFeedback.bucketName === selectedBucket && (
+            <div className="s3-remediation-feedback">
+              <div className="s3-remediation-feedback-head">
+                <strong>{remediationFeedback.action}</strong>
+                <span>{new Date(remediationFeedback.completedAt).toLocaleString()}</span>
+              </div>
+              <div className="s3-remediation-feedback-summary">
+                Severity {formatSeverity(remediationFeedback.beforeSeverity)} -&gt; {formatSeverity(remediationFeedback.afterSeverity)}
+              </div>
+              {remediationFeedback.changedChecks.length > 0 ? remediationFeedback.changedChecks.map((entry) => (
+                <div key={entry.label} className="s3-remediation-feedback-item">
+                  <span>{entry.label}</span>
+                  <strong>{entry.before} -&gt; {entry.after}</strong>
+                </div>
+              )) : <div className="s3-remediation-feedback-item"><span>Posture</span><strong>Refreshed after action</strong></div>}
+            </div>
+          )}
+
           {selectedTab === 'objects' ? (
             <>
               <div className="s3-hygiene-panel">
@@ -685,6 +1007,45 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
                     ))}
                   </div>
                 </div>
+              </div>
+
+              <div className="s3-hygiene-queue">
+                <div className="s3-hygiene-queue-header">
+                  <div>
+                    <strong>Object Hygiene Triage</strong>
+                    <p>Prioritize oversized or stale objects before changing lifecycle policy.</p>
+                  </div>
+                  <div className="s3-mini-badges">
+                    <span className="s3-mini-badge warn">{hygieneCandidates.length} candidates</span>
+                    <button className="s3-btn" type="button" onClick={() => setSelectedTab('governance')} disabled={!selectedBucket}>Review Governance</button>
+                  </div>
+                </div>
+                {topHygieneCandidates.length === 0 ? (
+                  <SvcState variant="empty" message="No large or old objects in this prefix for the current thresholds." compact />
+                ) : (
+                  <div className="s3-hygiene-queue-list">
+                    {topHygieneCandidates.map((candidate) => (
+                      <button
+                        key={candidate.key}
+                        type="button"
+                        className={`s3-hygiene-item ${selectedKey === candidate.key ? 'active' : ''}`}
+                        onClick={() => {
+                          setSelectedKey(candidate.key)
+                          void doPreview(candidate.key)
+                        }}
+                      >
+                        <div className="s3-hygiene-item-main">
+                          <strong>{displayName(candidate.key, prefix)}</strong>
+                          <span>{candidate.reasons.join(' | ')}</span>
+                        </div>
+                        <div className="s3-hygiene-item-meta">
+                          <span>{formatSize(candidate.size)}</span>
+                          <span>{candidate.lastModified !== '-' ? new Date(candidate.lastModified).toLocaleDateString() : '-'}</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <input className="s3-filter-input" placeholder="Filter objects..." value={objectFilter} onChange={(e) => setObjectFilter(e.target.value)} />
@@ -815,6 +1176,52 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
               {detailLoading && <SvcState variant="loading" resourceName="governance posture" compact />}
               {!detailLoading && selectedBucket && governanceDetail && (
                 <>
+                  {selectedPosture && (
+                    <div className="s3-bucket-focus">
+                      <div className="s3-bucket-focus-main">
+                        <div className="s3-bucket-focus-top">
+                          <div>
+                            <h3>{selectedBucket}</h3>
+                            <p>{selectedPosture.important ? selectedPosture.importantReason : `Region ${selectedPosture.region}`}</p>
+                          </div>
+                          <div className="s3-mini-badges">
+                            <span className={`s3-badge ${severityClass(selectedPosture.highestSeverity)}`}>{formatSeverity(selectedPosture.highestSeverity)}</span>
+                            {selectedPosture.important && <span className="s3-badge s3-important-badge">Important</span>}
+                          </div>
+                        </div>
+                        <div className="s3-bucket-focus-badges">
+                          <span className={`s3-mini-badge ${badgeTone(selectedPosture.publicAccessBlock.status)}`}>{publicBadgeLabel(selectedPosture)}</span>
+                          <span className={`s3-mini-badge ${badgeTone(selectedPosture.encryption.status)}`}>{encryptionBadgeLabel(selectedPosture)}</span>
+                          <span className={`s3-mini-badge ${badgeTone(selectedPosture.versioning.status)}`}>{versioningBadgeLabel(selectedPosture)}</span>
+                          <span className={`s3-mini-badge ${badgeTone(selectedPosture.lifecycle.status)}`}>{selectedPosture.lifecycle.ruleCount > 0 ? `${selectedPosture.lifecycle.ruleCount} lifecycle rule${selectedPosture.lifecycle.ruleCount === 1 ? '' : 's'}` : 'No lifecycle'}</span>
+                        </div>
+                      </div>
+                      <div className="s3-next-actions-panel">
+                        <div className="s3-next-actions-header">
+                          <strong>Next Actions</strong>
+                          <span>{nextActions.length}</span>
+                        </div>
+                        {nextActions.length === 0 ? (
+                          <div className="s3-next-action-empty">No immediate actions. Review objects or governance details for manual follow-up.</div>
+                        ) : nextActions.slice(0, 5).map((item) => (
+                          <div key={item.id} className={`s3-next-action-card ${item.readOnly ? 'readonly' : 'editable'}`}>
+                            <div className="s3-next-action-head">
+                              <strong>{item.title}</strong>
+                              <span className={`s3-action-mode ${item.readOnly ? 'readonly' : 'editable'}`}>{item.readOnly ? 'Read-only / Inspect' : 'Editable'}</span>
+                            </div>
+                            <div className="s3-next-action-body">
+                              <div className="s3-next-action-copy">
+                                <p>{item.description}</p>
+                                <div className="s3-next-action-detail">{item.detail}</div>
+                              </div>
+                              <button className="s3-btn s3-next-action-btn" type="button" onClick={item.onAction} disabled={item.disabled}>{item.actionLabel}</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="s3-governance-header">
                     <div>
                       <h3>{selectedBucket}</h3>
@@ -824,38 +1231,82 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
                       </p>
                     </div>
                     <div className="s3-quick-actions">
-                      <ConfirmButton className="s3-btn" onConfirm={() => void (async () => {
+                      <ConfirmButton className="s3-btn" onConfirm={() => void runBucketRemediation('Enable versioning', async () => {
                         await enableS3BucketVersioning(resolveBucketConnection(connection, buckets, selectedBucket), selectedBucket)
-                        setMsg(`Versioning enabled for ${selectedBucket}`)
-                        await refreshAll(selectedBucket, prefix)
-                        await loadBucketGovernanceDetail(selectedBucket, true)
-                      })()} confirmLabel="Enable versioning?" disabled={governanceDetail.posture.versioning.status === 'enabled'}>Enable Versioning</ConfirmButton>
-                      <ConfirmButton className="s3-btn" onConfirm={() => void (async () => {
+                      })} confirmLabel="Enable versioning?" disabled={governanceDetail.posture.versioning.status === 'enabled' || activeBucketAction.length > 0}>Enable Versioning</ConfirmButton>
+                      <ConfirmButton className="s3-btn" onConfirm={() => void runBucketRemediation('Enable default encryption', async () => {
                         await enableS3BucketEncryption(resolveBucketConnection(connection, buckets, selectedBucket), selectedBucket)
-                        setMsg(`Default encryption enabled for ${selectedBucket}`)
-                        await refreshAll(selectedBucket, prefix)
-                        await loadBucketGovernanceDetail(selectedBucket, true)
-                      })()} confirmLabel="Enable encryption?" disabled={governanceDetail.posture.encryption.status === 'enabled'}>Enable Encryption</ConfirmButton>
+                      })} confirmLabel="Enable encryption?" disabled={governanceDetail.posture.encryption.status === 'enabled' || activeBucketAction.length > 0}>Enable Encryption</ConfirmButton>
                       <button className="s3-btn" type="button" onClick={() => setShowPolicyEditor((value) => !value)}>{showPolicyEditor ? 'Hide Policy JSON' : 'Open Policy JSON'}</button>
                       <button className="s3-btn" type="button" onClick={() => setShowLifecycleJson((value) => !value)}>{showLifecycleJson ? 'Hide Lifecycle JSON' : 'Open Lifecycle JSON'}</button>
                     </div>
                   </div>
 
-                  <div className="s3-governance-checks">
-                    {([
-                      { label: 'Public access block', check: governanceDetail.posture.publicAccessBlock },
-                      { label: 'Default encryption', check: governanceDetail.posture.encryption },
-                      { label: 'Versioning', check: governanceDetail.posture.versioning },
-                      { label: 'Lifecycle', check: governanceDetail.posture.lifecycle },
-                      { label: 'Bucket policy', check: governanceDetail.posture.policy },
-                      { label: 'Logging', check: governanceDetail.posture.logging },
-                      { label: 'Replication', check: governanceDetail.posture.replication }
-                    ] satisfies GovernanceCheckItem[]).map(({ label, check }) => (
-                      <div key={label} className="s3-check-card">
-                        <div className="s3-check-top"><strong>{label}</strong><span className={`s3-badge s3-check-${check.status}`}>{check.status}</span></div>
-                        <p>{check.summary}</p>
-                      </div>
-                    ))}
+                  {(showPolicyEditor || showLifecycleJson) && (
+                    <div className="s3-governance-json-stack">
+                      {showPolicyEditor && (
+                        <div className="s3-json-panel">
+                          <div className="s3-json-panel-header">
+                            <h4>Bucket Policy JSON</h4>
+                            <ConfirmButton className="s3-btn s3-btn-ok" onConfirm={() => void (async () => {
+                              JSON.parse(policyEditor)
+                              await runBucketRemediation('Save bucket policy', async () => {
+                                await putS3BucketPolicy(resolveBucketConnection(connection, buckets, selectedBucket), selectedBucket, policyEditor)
+                              })
+                            })()} confirmLabel="Save policy?" disabled={!policyDirty || !policyEditor.trim() || activeBucketAction.length > 0}>Save Policy</ConfirmButton>
+                          </div>
+                          <textarea className="s3-edit-area" value={policyEditor} onChange={(e) => setPolicyEditor(e.target.value)} placeholder="No bucket policy is currently configured." />
+                        </div>
+                      )}
+
+                      {showLifecycleJson && (
+                        <div className="s3-json-panel">
+                          <div className="s3-json-panel-header"><h4>Lifecycle Configuration</h4></div>
+                          <textarea className="s3-edit-area" value={governanceDetail.lifecycleJson || 'No lifecycle configuration is currently configured.'} readOnly />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="s3-check-section">
+                    <div className="s3-check-section-header">
+                      <strong>Editable Settings</strong>
+                      <span>Direct actions stay behind confirmation.</span>
+                    </div>
+                    <div className="s3-governance-checks">
+                      {([
+                        { label: 'Default encryption', check: governanceDetail.posture.encryption },
+                        { label: 'Versioning', check: governanceDetail.posture.versioning },
+                        { label: 'Lifecycle', check: governanceDetail.posture.lifecycle },
+                        { label: 'Bucket policy', check: governanceDetail.posture.policy }
+                      ] satisfies GovernanceCheckItem[]).map(({ label, check }) => (
+                        <div key={label} className="s3-check-card editable">
+                          <div className="s3-check-top"><strong>{label}</strong><span className={`s3-badge s3-check-${check.status}`}>{checkStatusLabel(check.status)}</span></div>
+                          <p>{check.summary}</p>
+                          <div className="s3-check-mode">Editable or inspectable from this panel.</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="s3-check-section">
+                    <div className="s3-check-section-header">
+                      <strong>Read-Only Findings</strong>
+                      <span>Visible here, but not modified by quick actions.</span>
+                    </div>
+                    <div className="s3-governance-checks">
+                      {([
+                        { label: 'Public access block', check: governanceDetail.posture.publicAccessBlock },
+                        { label: 'Logging', check: governanceDetail.posture.logging },
+                        { label: 'Replication', check: governanceDetail.posture.replication }
+                      ] satisfies GovernanceCheckItem[]).map(({ label, check }) => (
+                        <div key={label} className="s3-check-card readonly">
+                          <div className="s3-check-top"><strong>{label}</strong><span className={`s3-badge s3-check-${check.status}`}>{checkStatusLabel(check.status)}</span></div>
+                          <p>{check.summary}</p>
+                          <div className="s3-check-mode">Read-only posture signal.</div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
 
                   <div className="s3-findings-panel">
@@ -868,29 +1319,6 @@ export function S3Console({ connection }: { connection: AwsConnection }) {
                       </div>
                     ))}
                   </div>
-
-                  {showPolicyEditor && (
-                    <div className="s3-json-panel">
-                      <div className="s3-json-panel-header">
-                        <h4>Bucket Policy JSON</h4>
-                        <ConfirmButton className="s3-btn s3-btn-ok" onConfirm={() => void (async () => {
-                          JSON.parse(policyEditor)
-                          await putS3BucketPolicy(resolveBucketConnection(connection, buckets, selectedBucket), selectedBucket, policyEditor)
-                          setMsg(`Bucket policy saved for ${selectedBucket}`)
-                          await loadBucketGovernanceDetail(selectedBucket, true)
-                          await loadGovernanceSummary()
-                        })()} confirmLabel="Save policy?" disabled={!policyDirty || !policyEditor.trim()}>Save Policy</ConfirmButton>
-                      </div>
-                      <textarea className="s3-edit-area" value={policyEditor} onChange={(e) => setPolicyEditor(e.target.value)} placeholder="No bucket policy is currently configured." />
-                    </div>
-                  )}
-
-                  {showLifecycleJson && (
-                    <div className="s3-json-panel">
-                      <div className="s3-json-panel-header"><h4>Lifecycle Configuration</h4></div>
-                      <textarea className="s3-edit-area" value={governanceDetail.lifecycleJson || 'No lifecycle configuration is currently configured.'} readOnly />
-                    </div>
-                  )}
                 </>
               )}
             </div>
