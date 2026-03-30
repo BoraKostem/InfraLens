@@ -153,23 +153,25 @@ export function githubAuthRouter(): Router {
 }
 
 /**
- * Write a git credential helper that injects the token for github.com.
- * Uses GIT_ASKPASS-style helper written to a temp script.
+ * Configure git to use the GitHub token for github.com requests.
+ * Uses git credential approve via stdin — no token interpolated into shell strings.
  */
 function configureGitCredentials(token: string): void {
   try {
-    const { execSync } = require('node:child_process')
-    // Store credentials via git credential store for the session
-    execSync(
-      `git config --global credential.helper '!f() { echo username=x-token; echo password=${token}; }; f'`,
-      { stdio: 'ignore' }
-    )
+    const { execFileSync, spawnSync } = require('node:child_process')
+    // Set credential helper to store (session memory)
+    execFileSync('git', ['config', '--global', 'credential.helper', 'store'], { stdio: 'ignore' })
+    // Pipe token into git credential approve — no shell involved
+    const input = `protocol=https\nhost=github.com\nusername=x-token\npassword=${token}\n\n`
+    spawnSync('git', ['credential', 'approve'], { input, encoding: 'utf8', stdio: ['pipe', 'ignore', 'ignore'] })
   } catch {/* non-fatal — git may not be available yet */}
 }
 
 function clearGitCredentials(): void {
   try {
-    const { execSync } = require('node:child_process')
-    execSync('git config --global --unset credential.helper', { stdio: 'ignore' })
-  } catch {/* ignore — may not be set */}
+    const { spawnSync, execFileSync } = require('node:child_process')
+    const input = `protocol=https\nhost=github.com\n\n`
+    spawnSync('git', ['credential', 'reject'], { input, encoding: 'utf8', stdio: ['pipe', 'ignore', 'ignore'] })
+    execFileSync('git', ['config', '--global', '--unset', 'credential.helper'], { stdio: 'ignore' })
+  } catch {/* ignore */}
 }

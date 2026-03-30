@@ -102,7 +102,8 @@ app.post('/api/rpc', async (req, res) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error(`[rpc] ${channel} failed:`, message)
-    res.status(500).json({ ok: false, error: message, channel })
+    // Return the AWS/app error message (needed by UI) but not the channel name
+    res.status(500).json({ ok: false, error: message })
   }
 })
 
