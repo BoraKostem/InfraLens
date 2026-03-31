@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 
 import type {
+  AwsCapabilitySnapshot,
+  AwsCapabilitySubject,
   AppSettings,
   ComparisonRequest,
   ComparisonResult,
@@ -12,6 +14,16 @@ import type {
   EnvironmentHealthReport,
   AppReleaseInfo,
   AppSecuritySummary,
+  CloudWatchQueryFilter,
+  CloudWatchQueryHistoryEntry,
+  CloudWatchQueryHistoryInput,
+  CloudWatchSavedQuery,
+  CloudWatchSavedQueryInput,
+  DbConnectionPreset,
+  DbConnectionPresetFilter,
+  DbConnectionPresetInput,
+  GovernanceTagDefaults,
+  GovernanceTagDefaultsUpdate,
   AssumeRoleResult,
   AssumeRoleRequest,
   AwsAssumeRoleTarget,
@@ -179,6 +191,7 @@ export type AwsActivityState = {
 
 type AwsLensBridge = Window['awsLens']
 export type CacheTag =
+  | 'phase1-foundations'
   | 'shell'
   | 'compare'
   | 'overview'
@@ -229,6 +242,19 @@ let enterpriseSettingsState: EnterpriseSettings = {
 }
 
 const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
+  getGovernanceTagDefaults: 'phase1-foundations',
+  updateGovernanceTagDefaults: 'phase1-foundations',
+  listCloudWatchSavedQueries: 'phase1-foundations',
+  saveCloudWatchSavedQuery: 'phase1-foundations',
+  deleteCloudWatchSavedQuery: 'phase1-foundations',
+  listCloudWatchQueryHistory: 'phase1-foundations',
+  recordCloudWatchQueryHistory: 'phase1-foundations',
+  clearCloudWatchQueryHistory: 'phase1-foundations',
+  listDbConnectionPresets: 'phase1-foundations',
+  saveDbConnectionPreset: 'phase1-foundations',
+  deleteDbConnectionPreset: 'phase1-foundations',
+  markDbConnectionPresetUsed: 'phase1-foundations',
+  getAwsCapabilitySnapshot: 'phase1-foundations',
   listProfiles: 'shell',
   deleteProfile: 'shell',
   chooseAndImportConfig: 'shell',
@@ -825,6 +851,58 @@ export async function assumeSavedRoleTarget(targetId: string): Promise<AssumeRol
 
 export async function listServices(): Promise<ServiceDescriptor[]> {
   return unwrap((await awsBridge().listServices()) as Wrapped<ServiceDescriptor[]>)
+}
+
+export async function getGovernanceTagDefaults(): Promise<GovernanceTagDefaults> {
+  return unwrap((await awsBridge().getGovernanceTagDefaults()) as Wrapped<GovernanceTagDefaults>)
+}
+
+export async function updateGovernanceTagDefaults(update: GovernanceTagDefaultsUpdate): Promise<GovernanceTagDefaults> {
+  return unwrap((await awsBridge().updateGovernanceTagDefaults(update)) as Wrapped<GovernanceTagDefaults>)
+}
+
+export async function listCloudWatchSavedQueries(filter?: CloudWatchQueryFilter): Promise<CloudWatchSavedQuery[]> {
+  return unwrap((await awsBridge().listCloudWatchSavedQueries(filter)) as Wrapped<CloudWatchSavedQuery[]>)
+}
+
+export async function saveCloudWatchSavedQuery(input: CloudWatchSavedQueryInput): Promise<CloudWatchSavedQuery> {
+  return unwrap((await awsBridge().saveCloudWatchSavedQuery(input)) as Wrapped<CloudWatchSavedQuery>)
+}
+
+export async function deleteCloudWatchSavedQuery(id: string): Promise<void> {
+  return unwrap((await awsBridge().deleteCloudWatchSavedQuery(id)) as Wrapped<void>)
+}
+
+export async function listCloudWatchQueryHistory(filter?: CloudWatchQueryFilter): Promise<CloudWatchQueryHistoryEntry[]> {
+  return unwrap((await awsBridge().listCloudWatchQueryHistory(filter)) as Wrapped<CloudWatchQueryHistoryEntry[]>)
+}
+
+export async function recordCloudWatchQueryHistory(input: CloudWatchQueryHistoryInput): Promise<CloudWatchQueryHistoryEntry> {
+  return unwrap((await awsBridge().recordCloudWatchQueryHistory(input)) as Wrapped<CloudWatchQueryHistoryEntry>)
+}
+
+export async function clearCloudWatchQueryHistory(filter?: CloudWatchQueryFilter): Promise<number> {
+  return unwrap((await awsBridge().clearCloudWatchQueryHistory(filter)) as Wrapped<number>)
+}
+
+export async function listDbConnectionPresets(filter?: DbConnectionPresetFilter): Promise<DbConnectionPreset[]> {
+  return unwrap((await awsBridge().listDbConnectionPresets(filter)) as Wrapped<DbConnectionPreset[]>)
+}
+
+export async function saveDbConnectionPreset(input: DbConnectionPresetInput): Promise<DbConnectionPreset> {
+  return unwrap((await awsBridge().saveDbConnectionPreset(input)) as Wrapped<DbConnectionPreset>)
+}
+
+export async function deleteDbConnectionPreset(id: string): Promise<void> {
+  return unwrap((await awsBridge().deleteDbConnectionPreset(id)) as Wrapped<void>)
+}
+
+export async function markDbConnectionPresetUsed(id: string): Promise<DbConnectionPreset> {
+  return unwrap((await awsBridge().markDbConnectionPresetUsed(id)) as Wrapped<DbConnectionPreset>)
+}
+
+export async function getAwsCapabilitySnapshot(region: string, subjects?: AwsCapabilitySubject[]): Promise<AwsCapabilitySnapshot> {
+  return unwrap((await awsBridge().getAwsCapabilitySnapshot(region, subjects)) as Wrapped<AwsCapabilitySnapshot>)
 }
 
 export function subscribeToEnterpriseSettings(listener: (settings: EnterpriseSettings) => void): () => void {
