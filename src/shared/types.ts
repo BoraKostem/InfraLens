@@ -340,6 +340,16 @@ export type AppSettings = {
   updates: AppSettingsUpdates
 }
 
+export type AppSecuritySummary = {
+  vaultEntryCounts: {
+    all: number
+    awsProfiles: number
+    sshKeys: number
+    pem: number
+    accessKeys: number
+  }
+}
+
 export type EnvironmentToolId =
   | 'aws-cli'
   | 'session-manager-plugin'

@@ -48,6 +48,7 @@ const awsLensApi = {
   getAppSettings: () => ipcRenderer.invoke('app:settings:get'),
   updateAppSettings: (update: Partial<AppSettings>) => ipcRenderer.invoke('app:settings:update', update),
   resetAppSettings: () => ipcRenderer.invoke('app:settings:reset'),
+  getAppSecuritySummary: () => ipcRenderer.invoke('app:security-summary'),
   getEnvironmentHealth: () => ipcRenderer.invoke('app:environment-health'),
   checkForAppUpdates: () => ipcRenderer.invoke('app:update:check'),
   downloadAppUpdate: () => ipcRenderer.invoke('app:update:download'),

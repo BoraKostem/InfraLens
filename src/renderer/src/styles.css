@@ -4815,6 +4815,47 @@ button.overview-tile.clickable.active strong {
   align-items: start;
 }
 
+.settings-security-grid {
+  display: grid;
+  grid-template-columns: 1.05fr 1.2fr;
+  gap: 0.8rem;
+}
+
+.settings-security-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.settings-security-block {
+  padding: 0.9rem 0.95rem;
+  border-radius: 14px;
+  border: 1px solid rgba(136, 156, 181, 0.12);
+  background: rgba(8, 14, 22, 0.72);
+}
+
+.settings-security-block strong {
+  color: #f3f7fc;
+  display: block;
+}
+
+.settings-security-block p {
+  margin: 0.28rem 0 0;
+  color: #a8b8ca;
+}
+
+.settings-security-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem 0.8rem;
+  margin-top: 0.75rem;
+}
+
+.settings-security-metrics span {
+  color: #dbe7f3;
+  font-size: 0.82rem;
+}
+
 .settings-checkbox-row {
   display: flex;
   align-items: flex-start;
@@ -7001,6 +7042,7 @@ textarea {
   .settings-general-form,
   .settings-toolchain-form,
   .settings-updates-form,
+  .settings-security-grid,
   .settings-info-grid,
   .settings-environment-grid,
   .environment-onboarding-grid {

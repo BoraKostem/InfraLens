@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import appLogoUrl from '../../../assets/aws-lens-logo.png'
 import type {
   AppReleaseInfo,
+  AppSecuritySummary,
   AppSettings,
   ComparisonRequest,
   EnvironmentHealthReport,
@@ -24,6 +25,7 @@ import {
   exportDiagnosticsBundle,
   exportEnterpriseAuditEvents,
   getAppReleaseInfo,
+  getAppSecuritySummary,
   getAppSettings,
   getEnvironmentHealth,
   getEnterpriseSettings,
@@ -368,6 +370,7 @@ export function App() {
   const [environmentBusy, setEnvironmentBusy] = useState(false)
   const [toolchainInfo, setToolchainInfo] = useState<TerraformCliInfo | null>(null)
   const [toolchainBusy, setToolchainBusy] = useState(false)
+  const [securitySummary, setSecuritySummary] = useState<AppSecuritySummary | null>(null)
   const [showEnvironmentOnboarding, setShowEnvironmentOnboarding] = useState(false)
   const [globalWarning, setGlobalWarning] = useState('')
   const [focusMap, setFocusMap] = useState<FocusMap>({})
@@ -406,6 +409,12 @@ export function App() {
   useEffect(() => {
     void getTerraformCliInfo().then(setToolchainInfo).catch(() => {
       // Ignore toolchain hydration failures until the settings surface is opened.
+    })
+  }, [])
+
+  useEffect(() => {
+    void getAppSecuritySummary().then(setSecuritySummary).catch(() => {
+      // Ignore security summary hydration failures until the settings surface is opened.
     })
   }, [])
 
@@ -887,16 +896,16 @@ export function App() {
 
   async function handleAccessModeChange(accessMode: EnterpriseAccessMode): Promise<void> {
     setEnterpriseBusy(true)
-    setProfileActionMsg('')
+    setSettingsMessage('')
     try {
       await setEnterpriseAccessMode(accessMode)
-      setProfileActionMsg(
+      setSettingsMessage(
         accessMode === 'operator'
           ? 'Operator mode enabled. Mutating actions and command execution are available.'
           : 'Read-only mode enabled. AWS Lens will block mutating and command execution flows.'
       )
     } catch (err) {
-      connectionState.setError(err instanceof Error ? err.message : String(err))
+      setSettingsMessage(err instanceof Error ? err.message : String(err))
     } finally {
       setEnterpriseBusy(false)
     }
@@ -904,7 +913,7 @@ export function App() {
 
   async function handleAuditExport(): Promise<void> {
     setEnterpriseBusy(true)
-    setProfileActionMsg('')
+    setSettingsMessage('')
     try {
       const exported = await exportEnterpriseAuditEvents()
       if (!exported.path) {
@@ -912,11 +921,11 @@ export function App() {
       }
 
       const rangeLabel = exported.rangeDays === 1 ? 'last 1 day' : 'last 7 days'
-      setProfileActionMsg(
+      setSettingsMessage(
         `Exported ${exported.eventCount} audit event${exported.eventCount === 1 ? '' : 's'} from the ${rangeLabel} to ${exported.path}`
       )
     } catch (err) {
-      connectionState.setError(err instanceof Error ? err.message : String(err))
+      setSettingsMessage(err instanceof Error ? err.message : String(err))
     } finally {
       setEnterpriseBusy(false)
     }
@@ -924,18 +933,18 @@ export function App() {
 
   async function handleDiagnosticsExport(): Promise<void> {
     setEnterpriseBusy(true)
-    setProfileActionMsg('')
+    setSettingsMessage('')
     try {
       const exported = await exportDiagnosticsBundle()
       if (!exported.path) {
         return
       }
 
-      setProfileActionMsg(
+      setSettingsMessage(
         `Exported diagnostics bundle with ${exported.bundleEntries} item${exported.bundleEntries === 1 ? '' : 's'} to ${exported.path}`
       )
     } catch (err) {
-      connectionState.setError(err instanceof Error ? err.message : String(err))
+      setSettingsMessage(err instanceof Error ? err.message : String(err))
     } finally {
       setEnterpriseBusy(false)
     }
@@ -1071,7 +1080,7 @@ export function App() {
               <h2>Switch accounts without losing context.</h2>
               <p className="hero-path">
                 Pinned profiles stay in the rail, region stays global, and every workspace uses the same active AWS context.
-                Enterprise mode, audit history, service maturity, and support guidance are managed here.
+                Security posture, audit history, and support exports now live in Settings.
               </p>
             </div>
             <div className="profile-catalog-stats" aria-label="Profile catalog summary">
@@ -1156,109 +1165,6 @@ export function App() {
             )}
           </div>
           </div>
-          <div className="enterprise-panel-grid enterprise-panel-grid-bottom">
-            <section className="panel stack enterprise-panel">
-              <div className="panel-header">
-                <div>
-                  <div className="eyebrow">Access Mode</div>
-                  <h3>Separate read-only and operator access</h3>
-                </div>
-                <span className={`enterprise-mode-pill ${enterpriseSettings.accessMode}`}>
-                  {enterpriseSettings.accessMode === 'operator' ? 'Operator' : 'Read-only'}
-                </span>
-              </div>
-              <p className="hero-path">
-                Read-only mode blocks AWS mutations and command execution flows. Operator mode enables critical actions and audit export.
-              </p>
-              <div className="button-row">
-                <button
-                  type="button"
-                  className={enterpriseSettings.accessMode === 'read-only' ? 'accent' : ''}
-                  disabled={enterpriseBusy}
-                  onClick={() => void handleAccessModeChange('read-only')}
-                >
-                  Read-only
-                </button>
-                <button
-                  type="button"
-                  className={enterpriseSettings.accessMode === 'operator' ? 'accent' : ''}
-                  disabled={enterpriseBusy}
-                  onClick={() => void handleAccessModeChange('operator')}
-                >
-                  Operator
-                </button>
-              </div>
-              <div className="enterprise-inline-note">
-                <strong>Updated</strong>
-                <span>{enterpriseSettings.updatedAt ? new Date(enterpriseSettings.updatedAt).toLocaleString() : 'Not yet changed'}</span>
-              </div>
-            </section>
-            <section className="panel stack enterprise-panel">
-              <div className="panel-header">
-                <div>
-                  <div className="eyebrow">Audit Trail</div>
-                  <h3>Critical action history</h3>
-                </div>
-              </div>
-              <div className="enterprise-stats-row">
-                <div className="profile-catalog-stat">
-                  <span>Total</span>
-                  <strong>{auditSummary.total}</strong>
-                </div>
-                <div className="profile-catalog-stat">
-                  <span>Blocked</span>
-                  <strong>{auditSummary.blocked}</strong>
-                </div>
-                <div className="profile-catalog-stat">
-                  <span>Failed</span>
-                  <strong>{auditSummary.failed}</strong>
-                </div>
-              </div>
-              <div className="enterprise-audit-list">
-                {auditEvents.map((event) => (
-                  <div key={event.id} className={`enterprise-audit-item ${event.outcome}`}>
-                    <div className="enterprise-audit-item__header">
-                      <div className="enterprise-audit-item__title">
-                        <strong>{event.action}</strong>
-                        {event.outcome === 'blocked' && <span className="enterprise-audit-badge blocked">Blocked</span>}
-                        {event.outcome === 'failed' && <span className="enterprise-audit-badge failed">Failed</span>}
-                      </div>
-                      <span>{new Date(event.happenedAt).toLocaleString()}</span>
-                    </div>
-                    {event.outcome === 'blocked' && (
-                      <div className="enterprise-audit-item__reason">
-                        Blocked in read-only mode
-                        {event.resourceId ? ` for ${event.resourceId}` : ''}
-                      </div>
-                    )}
-                    <div className="enterprise-audit-item__meta">
-                      <span>{event.actorLabel || 'local-app'}</span>
-                      <span>{event.region || 'no-region'}</span>
-                      <span>{event.resourceId || event.channel}</span>
-                    </div>
-                    {event.summary && event.summary !== event.action && (
-                      <div className="enterprise-audit-item__summary">{event.summary}</div>
-                    )}
-                  </div>
-                ))}
-                {auditEvents.length === 0 && (
-                  <div className="profile-catalog-empty">
-                    <div className="eyebrow">Audit Trail</div>
-                    <h3>No audit events yet</h3>
-                    <p className="hero-path">Critical actions run in operator mode, or blocked in read-only mode, will appear here.</p>
-                  </div>
-                )}
-              </div>
-              <div className="button-row">
-                <button type="button" disabled={enterpriseBusy || auditEvents.length === 0} onClick={() => void handleAuditExport()}>
-                  Export Audit JSON
-                </button>
-                <button type="button" disabled={enterpriseBusy} onClick={() => void handleDiagnosticsExport()}>
-                  Export Diagnostics Bundle
-                </button>
-              </div>
-            </section>
-          </div>
         </section>
       )
     }
@@ -1303,16 +1209,26 @@ export function App() {
           profiles={connectionState.profiles}
           regions={connectionState.regions}
           toolchainInfo={toolchainInfo}
+          securitySummary={securitySummary}
+          enterpriseSettings={enterpriseSettings}
+          auditSummary={auditSummary}
+          auditEvents={auditEvents}
+          activeSessionLabel={connectionState.activeSession?.label ?? ''}
           releaseInfo={releaseInfo}
           releaseStateLabel={releaseStateLabel}
           releaseStateTone={releaseStateTone}
           environmentHealth={environmentHealth}
           environmentBusy={environmentBusy}
           toolchainBusy={toolchainBusy}
+          enterpriseBusy={enterpriseBusy}
           settingsMessage={settingsMessage}
           onUpdateGeneralSettings={(update) => void handleUpdateGeneralSettings(update)}
           onUpdateToolchainSettings={(update) => void handleUpdateToolchainSettings(update)}
           onUpdatePreferences={(update) => void handleUpdatePreferences(update)}
+          onAccessModeChange={(mode) => void handleAccessModeChange(mode)}
+          onAuditExport={() => void handleAuditExport()}
+          onDiagnosticsExport={() => void handleDiagnosticsExport()}
+          onClearActiveSession={() => connectionState.clearActiveSession()}
           onCheckForUpdates={() => void handleCheckForUpdates()}
           onDownloadUpdate={() => void handleDownloadUpdate()}
           onInstallUpdate={() => void handleInstallUpdate()}

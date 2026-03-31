@@ -39,6 +39,7 @@ declare global {
       getAppSettings: () => Promise<unknown>
       updateAppSettings: (update: Partial<AppSettings>) => Promise<unknown>
       resetAppSettings: () => Promise<unknown>
+      getAppSecuritySummary: () => Promise<unknown>
       getEnvironmentHealth: () => Promise<unknown>
       checkForAppUpdates: () => Promise<unknown>
       downloadAppUpdate: () => Promise<unknown>

@@ -11,6 +11,7 @@ import type {
   AppDiagnosticsExportResult,
   EnvironmentHealthReport,
   AppReleaseInfo,
+  AppSecuritySummary,
   AssumeRoleResult,
   AssumeRoleRequest,
   AwsAssumeRoleTarget,
@@ -866,6 +867,10 @@ export async function getAppReleaseInfo(): Promise<AppReleaseInfo> {
 
 export async function getAppSettings(): Promise<AppSettings> {
   return unwrap((await rawAwsBridge().getAppSettings()) as Wrapped<AppSettings>)
+}
+
+export async function getAppSecuritySummary(): Promise<AppSecuritySummary> {
+  return unwrap((await rawAwsBridge().getAppSecuritySummary()) as Wrapped<AppSecuritySummary>)
 }
 
 export async function updateAppSettings(update: Partial<AppSettings>): Promise<AppSettings> {

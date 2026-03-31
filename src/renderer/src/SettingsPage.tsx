@@ -1,22 +1,47 @@
 import { useEffect, useState } from 'react'
 
-import type { AppReleaseInfo, AppSettings, AwsProfile, AwsRegionOption, EnvironmentHealthReport, TerraformCliInfo } from '@shared/types'
+import type {
+  AppReleaseInfo,
+  AppSecuritySummary,
+  AppSettings,
+  AwsProfile,
+  AwsRegionOption,
+  EnterpriseAccessMode,
+  EnterpriseAuditEvent,
+  EnterpriseSettings,
+  EnvironmentHealthReport,
+  TerraformCliInfo
+} from '@shared/types'
 
 type SettingsPageProps = {
   appSettings: AppSettings | null
   profiles: AwsProfile[]
   regions: AwsRegionOption[]
   toolchainInfo: TerraformCliInfo | null
+  securitySummary: AppSecuritySummary | null
+  enterpriseSettings: EnterpriseSettings
+  auditSummary: {
+    total: number
+    blocked: number
+    failed: number
+  }
+  auditEvents: EnterpriseAuditEvent[]
+  activeSessionLabel: string
   releaseInfo: AppReleaseInfo | null
   releaseStateLabel: string
   releaseStateTone: string
   environmentHealth: EnvironmentHealthReport | null
   environmentBusy: boolean
   toolchainBusy: boolean
+  enterpriseBusy: boolean
   settingsMessage: string
   onUpdateGeneralSettings: (update: AppSettings['general']) => void
   onUpdateToolchainSettings: (update: AppSettings['toolchain']) => void
   onUpdatePreferences: (update: AppSettings['updates']) => void
+  onAccessModeChange: (accessMode: EnterpriseAccessMode) => void
+  onAuditExport: () => void
+  onDiagnosticsExport: () => void
+  onClearActiveSession: () => void
   onCheckForUpdates: () => void
   onDownloadUpdate: () => void
   onInstallUpdate: () => void
@@ -98,17 +123,25 @@ function summarizeToolchain(settings: AppSettings | null, toolchainInfo: Terrafo
   return rows
 }
 
-function summarizeSecurity(): Array<{ label: string; value: string; detail: string }> {
+function summarizeSecurity(
+  securitySummary: AppSecuritySummary | null,
+  enterpriseSettings: EnterpriseSettings,
+  activeSessionLabel: string
+): Array<{ label: string; value: string; detail: string }> {
   return [
     {
       label: 'Vault and secrets',
-      value: 'Connected',
-      detail: 'Security actions will consolidate local vault status, stored secret types, and rotation-oriented support actions.'
+      value: securitySummary ? `${securitySummary.vaultEntryCounts.all} stored` : 'Loading',
+      detail: securitySummary
+        ? `${securitySummary.vaultEntryCounts.awsProfiles} AWS profile, ${securitySummary.vaultEntryCounts.sshKeys} SSH key, ${securitySummary.vaultEntryCounts.pem} PEM, ${securitySummary.vaultEntryCounts.accessKeys} access key secret tracked in the local vault.`
+        : 'Loading local vault inventory.'
     },
     {
       label: 'Access mode',
-      value: 'Prepared',
-      detail: 'Read-only and operator mode controls will move into this surface with clearer guardrail messaging.'
+      value: enterpriseSettings.accessMode === 'operator' ? 'Operator' : 'Read-only',
+      detail: activeSessionLabel
+        ? `Active session: ${activeSessionLabel}`
+        : 'No elevated session is currently pinned as the active workspace context.'
     }
   ]
 }
@@ -150,16 +183,26 @@ export function SettingsPage({
   profiles,
   regions,
   toolchainInfo,
+  securitySummary,
+  enterpriseSettings,
+  auditSummary,
+  auditEvents,
+  activeSessionLabel,
   releaseInfo,
   releaseStateLabel,
   releaseStateTone,
   environmentHealth,
   environmentBusy,
   toolchainBusy,
+  enterpriseBusy,
   settingsMessage,
   onUpdateGeneralSettings,
   onUpdateToolchainSettings,
   onUpdatePreferences,
+  onAccessModeChange,
+  onAuditExport,
+  onDiagnosticsExport,
+  onClearActiveSession,
   onCheckForUpdates,
   onDownloadUpdate,
   onInstallUpdate,
@@ -592,7 +635,7 @@ export function SettingsPage({
         <SummaryCard
           eyebrow="Security"
           title="Vault and access posture"
-          rows={summarizeSecurity()}
+          rows={summarizeSecurity(securitySummary, enterpriseSettings, activeSessionLabel)}
         />
 
         <section className="settings-panel-card">
@@ -607,7 +650,137 @@ export function SettingsPage({
               ? <pre>{releaseNotesPreview}</pre>
               : <p>No release notes are available yet for the currently resolved release metadata.</p>}
           </div>
-        </section>
+      </section>
+
+      <section className="settings-panel-card settings-panel-card-wide">
+        <div className="settings-panel-card__header">
+          <div>
+            <div className="eyebrow">Security</div>
+            <h3>Access mode, vault, and audit exports</h3>
+          </div>
+          <span className={`enterprise-mode-pill ${enterpriseSettings.accessMode}`}>
+            {enterpriseSettings.accessMode === 'operator' ? 'Operator' : 'Read-only'}
+          </span>
+        </div>
+        <div className="settings-security-grid">
+          <section className="settings-security-section">
+            <div className="settings-security-block">
+              <strong>Workspace access mode</strong>
+              <p>Read-only blocks AWS mutations and command execution flows. Operator mode enables critical actions and export workflows.</p>
+              <div className="settings-action-row">
+                <button
+                  type="button"
+                  className={enterpriseSettings.accessMode === 'read-only' ? 'accent' : ''}
+                  disabled={enterpriseBusy}
+                  onClick={() => onAccessModeChange('read-only')}
+                >
+                  Read-only
+                </button>
+                <button
+                  type="button"
+                  className={enterpriseSettings.accessMode === 'operator' ? 'accent' : ''}
+                  disabled={enterpriseBusy}
+                  onClick={() => onAccessModeChange('operator')}
+                >
+                  Operator
+                </button>
+              </div>
+              <div className="enterprise-inline-note">
+                <strong>Updated</strong>
+                <span>{enterpriseSettings.updatedAt ? new Date(enterpriseSettings.updatedAt).toLocaleString() : 'Not yet changed'}</span>
+              </div>
+            </div>
+
+            <div className="settings-security-block">
+              <strong>Local vault and session state</strong>
+              <p>
+                {securitySummary
+                  ? `${securitySummary.vaultEntryCounts.all} encrypted vault entries are available locally.`
+                  : 'Loading local vault state.'}
+              </p>
+              <div className="settings-security-metrics">
+                <span>AWS profiles: {securitySummary?.vaultEntryCounts.awsProfiles ?? '-'}</span>
+                <span>SSH keys: {securitySummary?.vaultEntryCounts.sshKeys ?? '-'}</span>
+                <span>PEM files: {securitySummary?.vaultEntryCounts.pem ?? '-'}</span>
+                <span>Access keys: {securitySummary?.vaultEntryCounts.accessKeys ?? '-'}</span>
+              </div>
+              <div className="settings-action-row">
+                <button type="button" disabled={!activeSessionLabel} onClick={onClearActiveSession}>
+                  {activeSessionLabel ? `Clear session: ${activeSessionLabel}` : 'No active session'}
+                </button>
+              </div>
+            </div>
+
+            <div className="settings-security-block">
+              <strong>Support exports</strong>
+              <p>Export audit history for security review or diagnostics bundles for support and recovery workflows.</p>
+              <div className="settings-action-row">
+                <button type="button" disabled={enterpriseBusy || auditEvents.length === 0} onClick={onAuditExport}>
+                  Export Audit JSON
+                </button>
+                <button type="button" disabled={enterpriseBusy} onClick={onDiagnosticsExport}>
+                  Export Diagnostics Bundle
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <section className="settings-security-section">
+            <div className="settings-security-block">
+              <strong>Audit trail</strong>
+              <div className="enterprise-stats-row">
+                <div className="profile-catalog-stat">
+                  <span>Total</span>
+                  <strong>{auditSummary.total}</strong>
+                </div>
+                <div className="profile-catalog-stat">
+                  <span>Blocked</span>
+                  <strong>{auditSummary.blocked}</strong>
+                </div>
+                <div className="profile-catalog-stat">
+                  <span>Failed</span>
+                  <strong>{auditSummary.failed}</strong>
+                </div>
+              </div>
+              <div className="enterprise-audit-list">
+                {auditEvents.map((event) => (
+                  <div key={event.id} className={`enterprise-audit-item ${event.outcome}`}>
+                    <div className="enterprise-audit-item__header">
+                      <div className="enterprise-audit-item__title">
+                        <strong>{event.action}</strong>
+                        {event.outcome === 'blocked' && <span className="enterprise-audit-badge blocked">Blocked</span>}
+                        {event.outcome === 'failed' && <span className="enterprise-audit-badge failed">Failed</span>}
+                      </div>
+                      <span>{new Date(event.happenedAt).toLocaleString()}</span>
+                    </div>
+                    {event.outcome === 'blocked' && (
+                      <div className="enterprise-audit-item__reason">
+                        Blocked in read-only mode
+                        {event.resourceId ? ` for ${event.resourceId}` : ''}
+                      </div>
+                    )}
+                    <div className="enterprise-audit-item__meta">
+                      <span>{event.actorLabel || 'local-app'}</span>
+                      <span>{event.region || 'no-region'}</span>
+                      <span>{event.resourceId || event.channel}</span>
+                    </div>
+                    {event.summary && event.summary !== event.action && (
+                      <div className="enterprise-audit-item__summary">{event.summary}</div>
+                    )}
+                  </div>
+                ))}
+                {auditEvents.length === 0 && (
+                  <div className="profile-catalog-empty">
+                    <div className="eyebrow">Audit Trail</div>
+                    <h3>No audit events yet</h3>
+                    <p className="hero-path">Critical actions run in operator mode, or blocked in read-only mode, will appear here.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
       </div>
     </section>
   )
