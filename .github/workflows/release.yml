@@ -339,64 +339,89 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
-
+            
             function collectFiles(rootDir) {
               const entries = fs.readdirSync(rootDir, { withFileTypes: true });
               const files = [];
-
+            
               for (const entry of entries) {
                 const fullPath = path.join(rootDir, entry.name);
                 if (entry.isDirectory()) {
                   files.push(...collectFiles(fullPath));
                   continue;
                 }
-
+            
                 if (entry.isFile()) {
                   files.push(fullPath);
                 }
               }
-
+            
               return files;
             }
-
+            
+            async function sleep(ms) {
+              return new Promise((resolve) => setTimeout(resolve, ms));
+            }
+            
             const distArtifactsDir = path.join(process.env.GITHUB_WORKSPACE, 'dist-artifacts');
             const artifactFiles = collectFiles(distArtifactsDir);
-
+            
             const expectedAssetNames = new Set();
             const publishablePattern = /(\.exe|\.dmg|\.zip|\.deb|\.AppImage|\.yml|\.yaml|\.blockmap)$/u;
             const generatedMetadataPattern = /(^release-manifest-.*\.json$|^release-checksums-.*\.txt$)/u;
-
+            
             for (const filePath of artifactFiles) {
               const fileName = path.basename(filePath);
               if (publishablePattern.test(fileName) || generatedMetadataPattern.test(fileName)) {
                 expectedAssetNames.add(fileName);
               }
             }
-
+            
             if (expectedAssetNames.size === 0) {
               core.setFailed('No publishable files found under dist-artifacts.');
               return;
             }
-
+            
             const { owner, repo } = context.repo;
             const tag = process.env.RELEASE_TAG;
-            const release = await github.rest.repos.getReleaseByTag({ owner, repo, tag });
-            const assetNames = new Set(release.data.assets.map((asset) => asset.name));
-
-            for (const expectedName of expectedAssetNames) {
-              if (!assetNames.has(expectedName)) {
-                core.setFailed(`Published release is missing asset: ${expectedName}`);
-                return;
+            
+            let release;
+            let assetNames = new Set();
+            let missing = [];
+            
+            for (let attempt = 1; attempt <= 6; attempt += 1) {
+              release = await github.rest.repos.getReleaseByTag({ owner, repo, tag });
+              assetNames = new Set(release.data.assets.map((asset) => asset.name));
+              missing = [...expectedAssetNames].filter((name) => !assetNames.has(name));
+            
+              if (missing.length === 0) {
+                break;
+              }
+            
+              core.info(
+                `Release asset check attempt ${attempt}/6: still missing ${missing.join(', ')}`
+              );
+            
+              if (attempt < 6) {
+                await sleep(5000);
               }
             }
-
-            const expectedPrerelease = process.env.EXPECTED_PRERELEASE === 'true';
-            if (release.data.prerelease !== expectedPrerelease) {
-              core.setFailed(`Expected prerelease=${expectedPrerelease} but release was prerelease=${release.data.prerelease}`);
+            
+            if (missing.length > 0) {
+              core.setFailed(`Published release is missing assets: ${missing.join(', ')}`);
               return;
             }
-
+            
+            const expectedPrerelease = process.env.EXPECTED_PRERELEASE === 'true';
+            if (release.data.prerelease !== expectedPrerelease) {
+              core.setFailed(
+                `Expected prerelease=${expectedPrerelease} but release was prerelease=${release.data.prerelease}`
+              );
+              return;
+            }
+            
             core.info(`Verified ${expectedAssetNames.size} expected assets on release ${tag}.`);
+
 
 
   cleanup:
