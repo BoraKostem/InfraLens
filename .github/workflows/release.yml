@@ -322,7 +322,6 @@ jobs:
             dist-artifacts/**/*.deb
             dist-artifacts/**/*.AppImage
             dist-artifacts/**/*.yml
-            dist-artifacts/**/*.yaml
             dist-artifacts/**/*.blockmap
             dist-artifacts/**/release-manifest-*.json
             dist-artifacts/**/release-checksums-*.txt
