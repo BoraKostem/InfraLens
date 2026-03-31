@@ -4752,6 +4752,7 @@ button.overview-tile.clickable.active strong {
     linear-gradient(180deg, rgba(26, 31, 37, 0.98), rgba(22, 27, 34, 0.98)),
     radial-gradient(circle at top right, rgba(112, 167, 255, 0.06), transparent 28%);
   min-height: 0;
+  overflow: hidden;
 }
 
 .settings-content__header {
@@ -4772,7 +4773,11 @@ button.overview-tile.clickable.active strong {
 .settings-tab-content {
   display: flex;
   flex-direction: column;
+  flex: 1;
   gap: 1.4rem;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 1.6rem;
 }
 
 .settings-tab-section {
@@ -4910,6 +4915,7 @@ button.overview-tile.clickable.active strong {
   display: grid;
   gap: 0.55rem;
   margin-top: 0.3rem;
+  padding-bottom: 0.2rem;
 }
 
 .settings-audit-compact-item {

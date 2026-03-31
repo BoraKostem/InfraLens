@@ -380,7 +380,8 @@ export function App() {
   const [enterpriseBusy, setEnterpriseBusy] = useState(false)
   const connectionState = useAwsPageConnection(
     appSettings?.general.defaultRegion ?? 'us-east-1',
-    appSettings?.general.defaultProfileName ?? ''
+    appSettings?.general.defaultProfileName ?? '',
+    Boolean(appSettings)
   )
   const awsActivity = useAwsActivity()
   const enterpriseSettings = useEnterpriseSettings()

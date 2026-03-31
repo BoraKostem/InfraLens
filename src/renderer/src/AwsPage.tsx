@@ -62,7 +62,7 @@ export function formatDateTime(value?: string): string {
   return value ? new Date(value).toLocaleString() : '-'
 }
 
-export function useAwsPageConnection(defaultRegion = 'eu-central-1', defaultProfileName = '') {
+export function useAwsPageConnection(defaultRegion = 'eu-central-1', defaultProfileName = '', defaultsHydrated = false) {
   const [profiles, setProfiles] = useState<AwsProfile[]>([])
   const [regions, setRegions] = useState<AwsRegionOption[]>([])
   const [profile, setProfile] = useState(() => readStoredValue(PROFILE_STORAGE_KEY, ''))
@@ -75,6 +75,7 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1', defaultProf
   const [connected, setConnected] = useState(false)
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState('')
+  const appliedDefaultRegionRef = useRef('')
 
   useEffect(() => {
     void (async () => {
@@ -118,14 +119,20 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1', defaultProf
   // Profile is only set by explicit user selection — no auto-select
 
   useEffect(() => {
-    if (hasStoredValue(REGION_STORAGE_KEY)) {
+    if (!defaultsHydrated || activeSessionId || !defaultRegion) {
       return
     }
 
-    if (defaultRegion && region !== defaultRegion) {
+    if (appliedDefaultRegionRef.current === defaultRegion) {
+      return
+    }
+
+    if (region !== defaultRegion) {
       setRegion(defaultRegion)
     }
-  }, [defaultRegion, region])
+
+    appliedDefaultRegionRef.current = defaultRegion
+  }, [activeSessionId, defaultRegion, defaultsHydrated, region])
 
   useEffect(() => {
     if (hasStoredValue(PROFILE_STORAGE_KEY) || activeSessionId || profile || !defaultProfileName) {
@@ -138,10 +145,17 @@ export function useAwsPageConnection(defaultRegion = 'eu-central-1', defaultProf
     }
 
     setProfile(match.name)
-    if (!hasStoredValue(REGION_STORAGE_KEY) && match.region) {
-      setRegion(match.region)
+    if (!hasStoredValue(REGION_STORAGE_KEY)) {
+      if (defaultRegion) {
+        setRegion(defaultRegion)
+        return
+      }
+
+      if (match.region) {
+        setRegion(match.region)
+      }
     }
-  }, [activeSessionId, defaultProfileName, profile, profiles])
+  }, [activeSessionId, defaultProfileName, defaultRegion, profile, profiles])
 
   const activeSession = useMemo(
     () => sessions.find((entry) => entry.id === activeSessionId) ?? null,
