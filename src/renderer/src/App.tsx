@@ -385,6 +385,7 @@ export function App() {
   const awsActivity = useAwsActivity()
   const enterpriseSettings = useEnterpriseSettings()
   const launchScreenInitializedRef = useRef(false)
+  const terminalAutoOpenedScopeRef = useRef('')
 
   useEffect(() => {
     void listServices().then((loadedServices) => {
@@ -761,6 +762,23 @@ export function App() {
   }, [enterpriseSettings.accessMode, terminalOpen])
 
   useEffect(() => {
+    if (!appSettings?.terminal.autoOpen || enterpriseSettings.accessMode !== 'operator') {
+      return
+    }
+
+    if (!connectionState.connected || !connectionState.connection) {
+      return
+    }
+
+    if (terminalAutoOpenedScopeRef.current === connectionScopeKey) {
+      return
+    }
+
+    terminalAutoOpenedScopeRef.current = connectionScopeKey
+    setTerminalOpen(true)
+  }, [appSettings?.terminal.autoOpen, connectionScopeKey, connectionState.connected, connectionState.connection, enterpriseSettings.accessMode])
+
+  useEffect(() => {
     function handleBlockedAction(event: Event): void {
       const detail = event instanceof CustomEvent && typeof event.detail === 'string'
         ? event.detail
@@ -802,6 +820,49 @@ export function App() {
       return current.sawPending ? null : current
     })
   }, [awsActivity.pendingCount])
+
+  useEffect(() => {
+    const refreshSettings = appSettings?.refresh
+    if (!refreshSettings || refreshSettings.autoRefreshIntervalSeconds <= 0) {
+      return
+    }
+
+    if (!connectionState.connected || !connectionState.connection || !activeCacheTag) {
+      return
+    }
+
+    if (screen === 'profiles' || screen === 'settings' || screen === 'session-hub' || screen === 'direct-access') {
+      return
+    }
+
+    if (refreshSettings.heavyScreenMode !== 'automatic' && SOFT_REFRESH_SCREENS.has(screen)) {
+      return
+    }
+
+    const timerId = window.setInterval(() => {
+      const refreshTags = refreshTagsForScreen(screen)
+      if (refreshTags.length === 0) {
+        return
+      }
+
+      setRefreshState({ screen, sawPending: false })
+      for (const tag of refreshTags) {
+        invalidatePageCache(tag)
+      }
+      setPageRefreshNonceByScreen((current) => ({
+        ...current,
+        [screen]: (current[screen] ?? 0) + 1
+      }))
+    }, refreshSettings.autoRefreshIntervalSeconds * 1000)
+
+    return () => window.clearInterval(timerId)
+  }, [
+    activeCacheTag,
+    appSettings?.refresh,
+    connectionState.connected,
+    connectionState.connection,
+    screen
+  ])
 
   function handlePageRefresh(): void {
     const refreshTags = refreshTagsForScreen(screen)
@@ -1007,6 +1068,28 @@ export function App() {
       const nextReleaseInfo = await getAppReleaseInfo()
       setReleaseInfo(nextReleaseInfo)
       setSettingsMessage('Update preferences saved.')
+    } catch (err) {
+      setSettingsMessage(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function handleUpdateTerminalSettings(update: AppSettings['terminal']): Promise<void> {
+    setSettingsMessage('')
+    try {
+      const nextSettings = await updateAppSettings({ terminal: update })
+      setAppSettings(nextSettings)
+      setSettingsMessage('Terminal preferences saved.')
+    } catch (err) {
+      setSettingsMessage(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function handleUpdateRefreshSettings(update: AppSettings['refresh']): Promise<void> {
+    setSettingsMessage('')
+    try {
+      const nextSettings = await updateAppSettings({ refresh: update })
+      setAppSettings(nextSettings)
+      setSettingsMessage('Refresh preferences saved.')
     } catch (err) {
       setSettingsMessage(err instanceof Error ? err.message : String(err))
     }
@@ -1223,6 +1306,8 @@ export function App() {
           enterpriseBusy={enterpriseBusy}
           settingsMessage={settingsMessage}
           onUpdateGeneralSettings={(update) => void handleUpdateGeneralSettings(update)}
+          onUpdateTerminalSettings={(update) => void handleUpdateTerminalSettings(update)}
+          onUpdateRefreshSettings={(update) => void handleUpdateRefreshSettings(update)}
           onUpdateToolchainSettings={(update) => void handleUpdateToolchainSettings(update)}
           onUpdatePreferences={(update) => void handleUpdatePreferences(update)}
           onAccessModeChange={(mode) => void handleAccessModeChange(mode)}
@@ -1891,6 +1976,8 @@ export function App() {
         connection={connectionState.connection}
         open={terminalOpen}
         onClose={() => setTerminalOpen(false)}
+        defaultCommand={appSettings?.terminal.defaultCommand}
+        fontSize={appSettings?.terminal.fontSize ?? 13}
         commandToRun={pendingTerminalCommand}
         onCommandHandled={(id) => {
           setPendingTerminalCommand((current) => (current?.id === id ? null : current))

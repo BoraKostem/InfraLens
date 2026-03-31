@@ -36,6 +36,8 @@ type SettingsPageProps = {
   enterpriseBusy: boolean
   settingsMessage: string
   onUpdateGeneralSettings: (update: AppSettings['general']) => void
+  onUpdateTerminalSettings: (update: AppSettings['terminal']) => void
+  onUpdateRefreshSettings: (update: AppSettings['refresh']) => void
   onUpdateToolchainSettings: (update: AppSettings['toolchain']) => void
   onUpdatePreferences: (update: AppSettings['updates']) => void
   onAccessModeChange: (accessMode: EnterpriseAccessMode) => void
@@ -61,6 +63,15 @@ const RELEASE_CHANNEL_OPTIONS: Array<{ value: AppSettings['updates']['releaseCha
   { value: 'system', label: 'System / build default' },
   { value: 'stable', label: 'Stable' },
   { value: 'preview', label: 'Preview' }
+]
+
+const TERMINAL_SHELL_OPTIONS: Array<{ value: AppSettings['terminal']['shellPreference']; label: string }> = [
+  { value: '', label: 'System default' },
+  { value: 'powershell', label: 'Windows PowerShell' },
+  { value: 'pwsh', label: 'PowerShell 7' },
+  { value: 'cmd', label: 'Command Prompt' },
+  { value: 'bash', label: 'Bash' },
+  { value: 'zsh', label: 'Zsh' }
 ]
 
 function summarizeValue(value: string, fallback: string): string {
@@ -197,6 +208,8 @@ export function SettingsPage({
   enterpriseBusy,
   settingsMessage,
   onUpdateGeneralSettings,
+  onUpdateTerminalSettings,
+  onUpdateRefreshSettings,
   onUpdateToolchainSettings,
   onUpdatePreferences,
   onAccessModeChange,
@@ -229,6 +242,16 @@ export function SettingsPage({
     releaseChannel: 'system',
     autoDownload: false
   })
+  const [terminalDraft, setTerminalDraft] = useState<AppSettings['terminal']>({
+    autoOpen: false,
+    defaultCommand: '',
+    fontSize: 13,
+    shellPreference: ''
+  })
+  const [refreshDraft, setRefreshDraft] = useState<AppSettings['refresh']>({
+    autoRefreshIntervalSeconds: 0,
+    heavyScreenMode: 'manual'
+  })
 
   useEffect(() => {
     if (!appSettings) {
@@ -252,6 +275,22 @@ export function SettingsPage({
     }
 
     setUpdateDraft(appSettings.updates)
+  }, [appSettings])
+
+  useEffect(() => {
+    if (!appSettings) {
+      return
+    }
+
+    setTerminalDraft(appSettings.terminal)
+  }, [appSettings])
+
+  useEffect(() => {
+    if (!appSettings) {
+      return
+    }
+
+    setRefreshDraft(appSettings.refresh)
   }, [appSettings])
 
   return (
@@ -396,6 +435,117 @@ export function SettingsPage({
           rows={summarizeToolchain(appSettings, toolchainInfo)}
         />
       </div>
+
+      <section className="settings-panel-card settings-panel-card-wide">
+        <div className="settings-panel-card__header">
+          <div>
+            <div className="eyebrow">Terminal</div>
+            <h3>Drawer behavior and defaults</h3>
+          </div>
+        </div>
+        <div className="settings-terminal-form">
+          <label className="settings-checkbox-row">
+            <input
+              type="checkbox"
+              checked={terminalDraft.autoOpen}
+              onChange={(event) => setTerminalDraft((current) => ({ ...current, autoOpen: event.target.checked }))}
+              disabled={!appSettings}
+            />
+            <div>
+              <strong>Automatically open terminal for operator sessions</strong>
+              <p>When a new operator-capable workspace context becomes active, open the terminal drawer automatically.</p>
+            </div>
+          </label>
+
+          <label className="field compact">
+            <span>Default command</span>
+            <input
+              value={terminalDraft.defaultCommand}
+              onChange={(event) => setTerminalDraft((current) => ({ ...current, defaultCommand: event.target.value }))}
+              placeholder="Optional command to run when a new tab opens"
+              disabled={!appSettings}
+            />
+          </label>
+
+          <label className="field compact">
+            <span>Font size</span>
+            <input
+              type="number"
+              min={10}
+              max={24}
+              value={terminalDraft.fontSize}
+              onChange={(event) => setTerminalDraft((current) => ({ ...current, fontSize: Number(event.target.value) || 13 }))}
+              disabled={!appSettings}
+            />
+          </label>
+
+          <label className="field compact">
+            <span>Shell preference</span>
+            <select
+              value={terminalDraft.shellPreference}
+              onChange={(event) => setTerminalDraft((current) => ({
+                ...current,
+                shellPreference: event.target.value as AppSettings['terminal']['shellPreference']
+              }))}
+              disabled={!appSettings}
+            >
+              {TERMINAL_SHELL_OPTIONS.map((option) => (
+                <option key={option.value || 'system'} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="settings-action-row">
+          <button type="button" className="accent" disabled={!appSettings} onClick={() => onUpdateTerminalSettings(terminalDraft)}>
+            Save terminal preferences
+          </button>
+        </div>
+      </section>
+
+      <section className="settings-panel-card settings-panel-card-wide">
+        <div className="settings-panel-card__header">
+          <div>
+            <div className="eyebrow">Refresh</div>
+            <h3>Automatic refresh and heavy screen policy</h3>
+          </div>
+        </div>
+        <div className="settings-refresh-form">
+          <label className="field compact">
+            <span>Auto refresh interval (seconds)</span>
+            <input
+              type="number"
+              min={0}
+              step={30}
+              value={refreshDraft.autoRefreshIntervalSeconds}
+              onChange={(event) => setRefreshDraft((current) => ({
+                ...current,
+                autoRefreshIntervalSeconds: Math.max(0, Number(event.target.value) || 0)
+              }))}
+              disabled={!appSettings}
+            />
+          </label>
+
+          <label className="field compact">
+            <span>Heavy screen refresh mode</span>
+            <select
+              value={refreshDraft.heavyScreenMode}
+              onChange={(event) => setRefreshDraft((current) => ({
+                ...current,
+                heavyScreenMode: event.target.value as AppSettings['refresh']['heavyScreenMode']
+              }))}
+              disabled={!appSettings}
+            >
+              <option value="manual">Manual only</option>
+              <option value="automatic">Allow automatic refresh</option>
+            </select>
+          </label>
+        </div>
+        <div className="settings-action-row">
+          <button type="button" className="accent" disabled={!appSettings} onClick={() => onUpdateRefreshSettings(refreshDraft)}>
+            Save refresh preferences
+          </button>
+        </div>
+      </section>
 
       <section className="settings-panel-card settings-panel-card-wide">
         <div className="settings-panel-card__header">

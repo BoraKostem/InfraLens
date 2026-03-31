@@ -4808,6 +4808,13 @@ button.overview-tile.clickable.active strong {
   gap: 0.8rem;
 }
 
+.settings-terminal-form,
+.settings-refresh-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
 .settings-updates-form {
   display: grid;
   grid-template-columns: minmax(0, 280px) minmax(0, 1fr);
@@ -7040,6 +7047,8 @@ textarea {
 @media (max-width: 1040px) {
   .settings-section-grid,
   .settings-general-form,
+  .settings-terminal-form,
+  .settings-refresh-form,
   .settings-toolchain-form,
   .settings-updates-form,
   .settings-security-grid,
