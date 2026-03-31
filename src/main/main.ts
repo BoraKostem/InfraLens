@@ -12,6 +12,7 @@ import { registerEc2IpcHandlers } from './ec2Ipc'
 import { assertEnterpriseAccess, recordEnterpriseAuditEvent } from './enterprise'
 import { registerEcrIpcHandlers } from './ecrIpc'
 import { registerEksIpcHandlers } from './eksIpc'
+import { registerFoundationIpcHandlers } from './foundationIpc'
 import { registerIpcHandlers } from './ipc'
 import { registerOverviewIpcHandlers } from './overviewIpc'
 import { registerSecurityIpcHandlers } from './securityIpc'
@@ -217,6 +218,7 @@ app.whenReady().then(() => {
   registerEc2IpcHandlers()
   registerEcrIpcHandlers()
   registerEksIpcHandlers(() => mainWindow)
+  registerFoundationIpcHandlers()
   registerOverviewIpcHandlers()
   registerSecurityIpcHandlers()
   registerServiceIpcHandlers()

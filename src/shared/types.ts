@@ -948,6 +948,140 @@ export type ServiceId =
   | 'kms'
   | 'waf'
 
+export type GovernanceTagKey = 'Owner' | 'Environment' | 'Project' | 'CostCenter'
+
+export type GovernanceTagDefaults = {
+  inheritByDefault: boolean
+  values: Record<GovernanceTagKey, string>
+  updatedAt: string
+}
+
+export type GovernanceTagDefaultsUpdate = {
+  inheritByDefault?: boolean
+  values?: Partial<Record<GovernanceTagKey, string>>
+}
+
+export type CloudWatchQueryFilter = {
+  profile?: string
+  region?: string
+  serviceHint?: ServiceId | ''
+  logGroupName?: string
+  limit?: number
+}
+
+export type CloudWatchSavedQuery = {
+  id: string
+  name: string
+  description: string
+  queryString: string
+  logGroupNames: string[]
+  profile: string
+  region: string
+  serviceHint: ServiceId | ''
+  createdAt: string
+  updatedAt: string
+  lastRunAt: string
+}
+
+export type CloudWatchSavedQueryInput = Omit<CloudWatchSavedQuery, 'id' | 'createdAt' | 'updatedAt' | 'lastRunAt'> & {
+  id?: string
+}
+
+export type CloudWatchQueryHistoryStatus = 'success' | 'failed'
+
+export type CloudWatchQueryHistoryEntry = {
+  id: string
+  queryString: string
+  logGroupNames: string[]
+  profile: string
+  region: string
+  serviceHint: ServiceId | ''
+  savedQueryId: string
+  status: CloudWatchQueryHistoryStatus
+  durationMs: number
+  resultSummary: string
+  executedAt: string
+}
+
+export type CloudWatchQueryHistoryInput = Omit<CloudWatchQueryHistoryEntry, 'id' | 'executedAt'>
+
+export type DbConnectionEngine =
+  | 'postgres'
+  | 'mysql'
+  | 'mariadb'
+  | 'sqlserver'
+  | 'oracle'
+  | 'aurora-postgresql'
+  | 'aurora-mysql'
+  | 'unknown'
+
+export type DbConnectionResourceKind =
+  | 'rds-instance'
+  | 'rds-cluster'
+  | 'aurora-cluster'
+  | 'manual'
+
+export type DbConnectionCredentialSourceKind = 'local-vault' | 'aws-secrets-manager' | 'manual'
+
+export type DbConnectionPresetFilter = {
+  profile?: string
+  region?: string
+  resourceId?: string
+  engine?: DbConnectionEngine
+}
+
+export type DbConnectionPreset = {
+  id: string
+  name: string
+  profile: string
+  region: string
+  resourceKind: DbConnectionResourceKind
+  resourceId: string
+  engine: DbConnectionEngine
+  host: string
+  port: number
+  databaseName: string
+  username: string
+  credentialSourceKind: DbConnectionCredentialSourceKind
+  credentialSourceRef: string
+  notes: string
+  createdAt: string
+  updatedAt: string
+  lastUsedAt: string
+}
+
+export type DbConnectionPresetInput = Omit<DbConnectionPreset, 'id' | 'createdAt' | 'updatedAt' | 'lastUsedAt'> & {
+  id?: string
+}
+
+export type AwsCapabilitySubject =
+  | ServiceId
+  | 'billing'
+  | 'organizations'
+  | 'route53-domains'
+  | 'local-zones'
+
+export type AwsCapabilityAvailability = 'supported' | 'limited' | 'unsupported'
+
+export type AwsCapabilityHintSeverity = 'info' | 'warning' | 'error'
+
+export type AwsCapabilityHint = {
+  id: string
+  subject: AwsCapabilitySubject
+  region: string
+  availability: AwsCapabilityAvailability
+  severity: AwsCapabilityHintSeverity
+  title: string
+  summary: string
+  recommendedAction: string
+}
+
+export type AwsCapabilitySnapshot = {
+  region: string
+  generatedAt: string
+  hints: AwsCapabilityHint[]
+}
+
 export type ServiceMaturity = 'production-ready' | 'beta' | 'experimental'
 
 export type ServiceDescriptor = {

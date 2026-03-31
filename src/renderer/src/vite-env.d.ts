@@ -1,12 +1,18 @@
 /// <reference types="vite/client" />
 
 import type {
+  AwsCapabilitySubject,
   AppSettings,
   ComparisonRequest,
   AssumeRoleRequest,
   AwsAssumeRoleTarget,
   AwsConnection,
   BastionLaunchConfig,
+  CloudWatchQueryFilter,
+  CloudWatchQueryHistoryInput,
+  CloudWatchSavedQueryInput,
+  DbConnectionPresetFilter,
+  DbConnectionPresetInput,
   Ec2InstanceAction,
   EbsTempInspectionProgress,
   EcsFargateServiceConfig,
@@ -35,6 +41,19 @@ declare global {
       assumeRoleSession: (request: AssumeRoleRequest) => Promise<unknown>
       assumeSavedRoleTarget: (targetId: string) => Promise<unknown>
       listServices: () => Promise<unknown>
+      getGovernanceTagDefaults: () => Promise<unknown>
+      updateGovernanceTagDefaults: (update: unknown) => Promise<unknown>
+      listCloudWatchSavedQueries: (filter?: CloudWatchQueryFilter) => Promise<unknown>
+      saveCloudWatchSavedQuery: (input: CloudWatchSavedQueryInput) => Promise<unknown>
+      deleteCloudWatchSavedQuery: (id: string) => Promise<unknown>
+      listCloudWatchQueryHistory: (filter?: CloudWatchQueryFilter) => Promise<unknown>
+      recordCloudWatchQueryHistory: (input: CloudWatchQueryHistoryInput) => Promise<unknown>
+      clearCloudWatchQueryHistory: (filter?: CloudWatchQueryFilter) => Promise<unknown>
+      listDbConnectionPresets: (filter?: DbConnectionPresetFilter) => Promise<unknown>
+      saveDbConnectionPreset: (input: DbConnectionPresetInput) => Promise<unknown>
+      deleteDbConnectionPreset: (id: string) => Promise<unknown>
+      markDbConnectionPresetUsed: (id: string) => Promise<unknown>
+      getAwsCapabilitySnapshot: (region: string, subjects?: AwsCapabilitySubject[]) => Promise<unknown>
       getReleaseInfo: () => Promise<unknown>
       getAppSettings: () => Promise<unknown>
       updateAppSettings: (update: Partial<AppSettings>) => Promise<unknown>
