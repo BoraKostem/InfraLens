@@ -346,6 +346,7 @@ jobs:
             
               for (const entry of entries) {
                 const fullPath = path.join(rootDir, entry.name);
+            
                 if (entry.isDirectory()) {
                   files.push(...collectFiles(fullPath));
                   continue;
@@ -367,12 +368,26 @@ jobs:
             const artifactFiles = collectFiles(distArtifactsDir);
             
             const expectedAssetNames = new Set();
-            const publishablePattern = /(\.exe|\.dmg|\.zip|\.deb|\.AppImage|\.yml|\.yaml|\.blockmap)$/u;
-            const generatedMetadataPattern = /(^release-manifest-.*\.json$|^release-checksums-.*\.txt$)/u;
             
             for (const filePath of artifactFiles) {
+              const relativePath = path.relative(distArtifactsDir, filePath).split(path.sep).join('/');
               const fileName = path.basename(filePath);
-              if (publishablePattern.test(fileName) || generatedMetadataPattern.test(fileName)) {
+            
+              const shouldPublish =
+                /^windows-installers\/[^/]+\.exe$/u.test(relativePath) ||
+                /^windows-installers\/[^/]+\.blockmap$/u.test(relativePath) ||
+                /^windows-installers\/latest[^/]*\.yml$/u.test(relativePath) ||
+                /^macos-installers\/[^/]+\.dmg$/u.test(relativePath) ||
+                /^macos-installers\/[^/]+\.zip$/u.test(relativePath) ||
+                /^macos-installers\/[^/]+\.blockmap$/u.test(relativePath) ||
+                /^macos-installers\/latest[^/]*\.yml$/u.test(relativePath) ||
+                /^linux-installers\/[^/]+\.deb$/u.test(relativePath) ||
+                /^linux-installers\/[^/]+\.AppImage$/u.test(relativePath) ||
+                /^linux-installers\/latest[^/]*\.yml$/u.test(relativePath) ||
+                /^.+\/release-manifest-.*\.json$/u.test(relativePath) ||
+                /^.+\/release-checksums-.*\.txt$/u.test(relativePath);
+            
+              if (shouldPublish) {
                 expectedAssetNames.add(fileName);
               }
             }
@@ -398,9 +413,7 @@ jobs:
                 break;
               }
             
-              core.info(
-                `Release asset check attempt ${attempt}/6: still missing ${missing.join(', ')}`
-              );
+              core.info(`Release asset check attempt ${attempt}/6: still missing ${missing.join(', ')}`);
             
               if (attempt < 6) {
                 await sleep(5000);
@@ -421,6 +434,7 @@ jobs:
             }
             
             core.info(`Verified ${expectedAssetNames.size} expected assets on release ${tag}.`);
+
 
 
 
