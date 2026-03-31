@@ -7,6 +7,7 @@ import type {
   AcmCertificateDetail,
   AcmCertificateSummary,
   AcmRequestCertificateInput,
+  AppDiagnosticsExportResult,
   AppReleaseInfo,
   AssumeRoleResult,
   AssumeRoleRequest,
@@ -765,6 +766,10 @@ export async function exportEnterpriseAuditEvents(): Promise<EnterpriseAuditExpo
 
 export async function getAppReleaseInfo(): Promise<AppReleaseInfo> {
   return unwrap((await rawAwsBridge().getReleaseInfo()) as Wrapped<AppReleaseInfo>)
+}
+
+export async function exportDiagnosticsBundle(): Promise<AppDiagnosticsExportResult> {
+  return unwrap((await rawAwsBridge().exportDiagnosticsBundle()) as Wrapped<AppDiagnosticsExportResult>)
 }
 
 export async function openPath(targetPath: string): Promise<void> {
