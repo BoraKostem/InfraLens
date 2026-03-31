@@ -279,6 +279,65 @@ export type AppReleaseInfo = {
   latestRelease: AppReleaseArtifactInfo
 }
 
+export type AppSettingsLaunchScreen =
+  | 'profiles'
+  | 'settings'
+  | 'overview'
+  | 'session-hub'
+  | 'terraform'
+
+export type AppSettingsTerminalShellPreference =
+  | ''
+  | 'powershell'
+  | 'pwsh'
+  | 'cmd'
+  | 'bash'
+  | 'zsh'
+
+export type AppSettingsRefreshMode = 'manual' | 'automatic'
+
+export type AppSettingsReleaseChannelPreference = 'system' | 'stable' | 'preview'
+
+export type AppSettingsGeneral = {
+  defaultProfileName: string
+  defaultRegion: string
+  launchScreen: AppSettingsLaunchScreen
+}
+
+export type AppSettingsTerminal = {
+  autoOpen: boolean
+  defaultCommand: string
+  fontSize: number
+  shellPreference: AppSettingsTerminalShellPreference
+}
+
+export type AppSettingsRefresh = {
+  autoRefreshIntervalSeconds: number
+  heavyScreenMode: AppSettingsRefreshMode
+}
+
+export type AppSettingsToolchain = {
+  preferredTerraformCliKind: TerraformCliKind | ''
+  terraformPathOverride: string
+  opentofuPathOverride: string
+  awsCliPathOverride: string
+  kubectlPathOverride: string
+  dockerPathOverride: string
+}
+
+export type AppSettingsUpdates = {
+  releaseChannel: AppSettingsReleaseChannelPreference
+  autoDownload: boolean
+}
+
+export type AppSettings = {
+  general: AppSettingsGeneral
+  terminal: AppSettingsTerminal
+  refresh: AppSettingsRefresh
+  toolchain: AppSettingsToolchain
+  updates: AppSettingsUpdates
+}
+
 export type EnvironmentToolId =
   | 'aws-cli'
   | 'session-manager-plugin'
