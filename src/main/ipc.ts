@@ -9,6 +9,7 @@ import type { AwsConnection, TerraformCommandRequest, TerraformInputConfiguratio
 import { importAwsConfigFile } from './aws/profiles'
 import { SERVICE_CATALOG } from './catalog'
 import { exportEnterpriseAuditEvents, getEnterpriseSettings, listEnterpriseAuditEvents, setEnterpriseAccessMode } from './enterprise'
+import { createHandlerWrapper } from './operations'
 import { getReleaseInfo } from './releaseCheck'
 import { getSelectedProjectId, setSelectedProjectId } from './store'
 import {
@@ -56,14 +57,8 @@ import { generateTerraformObservabilityReport } from './aws/observabilityLab'
 
 type HandlerResult<T> = { ok: true; data: T } | { ok: false; error: string }
 const execFileAsync = promisify(execFile)
-
-async function wrap<T>(fn: () => Promise<T> | T): Promise<HandlerResult<T>> {
-  try {
-    return { ok: true, data: await fn() }
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) }
-  }
-}
+const wrap: <T>(fn: () => Promise<T> | T, label?: string) => Promise<HandlerResult<T>> =
+  createHandlerWrapper('ipc', { timeoutMs: 60000 })
 
 async function lockDownPrivateKey(filePath: string): Promise<void> {
   if (process.platform === 'win32') {
