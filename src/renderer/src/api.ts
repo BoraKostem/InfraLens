@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import type {
+  AppSettings,
   ComparisonRequest,
   ComparisonResult,
   AccessKeyOwnership,
@@ -860,6 +861,18 @@ export async function exportEnterpriseAuditEvents(): Promise<EnterpriseAuditExpo
 
 export async function getAppReleaseInfo(): Promise<AppReleaseInfo> {
   return unwrap((await rawAwsBridge().getReleaseInfo()) as Wrapped<AppReleaseInfo>)
+}
+
+export async function getAppSettings(): Promise<AppSettings> {
+  return unwrap((await rawAwsBridge().getAppSettings()) as Wrapped<AppSettings>)
+}
+
+export async function updateAppSettings(update: Partial<AppSettings>): Promise<AppSettings> {
+  return unwrap((await rawAwsBridge().updateAppSettings(update)) as Wrapped<AppSettings>)
+}
+
+export async function resetAppSettings(): Promise<AppSettings> {
+  return unwrap((await rawAwsBridge().resetAppSettings()) as Wrapped<AppSettings>)
 }
 
 export async function getEnvironmentHealth(): Promise<EnvironmentHealthReport> {

@@ -5,7 +5,8 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { dialog, ipcMain, shell, app, type BrowserWindow, type OpenDialogOptions } from 'electron'
 
-import type { AwsConnection, TerraformCommandRequest, TerraformInputConfiguration, TerraformRunHistoryFilter } from '@shared/types'
+import type { AppSettings, AwsConnection, TerraformCommandRequest, TerraformInputConfiguration, TerraformRunHistoryFilter } from '@shared/types'
+import { getAppSettings, resetAppSettings, updateAppSettings } from './appSettings'
 import { importAwsConfigFile } from './aws/profiles'
 import { SERVICE_CATALOG } from './catalog'
 import { exportDiagnosticsBundle } from './diagnostics'
@@ -237,6 +238,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('shell:open-external', async (_event, url: string) => wrap(() => shell.openExternal(url)))
   ipcMain.handle('shell:open-path', async (_event, targetPath: string) => wrap(() => shell.openPath(targetPath)))
   ipcMain.handle('app:release-info', async () => wrap(() => getReleaseInfo()))
+  ipcMain.handle('app:settings:get', async () => wrap(() => getAppSettings()))
+  ipcMain.handle('app:settings:update', async (_event, update: Partial<AppSettings>) => wrap(() => updateAppSettings(update)))
+  ipcMain.handle('app:settings:reset', async () => wrap(() => resetAppSettings()))
   ipcMain.handle('app:environment-health', async () => wrap(() => getEnvironmentHealthReport()))
   ipcMain.handle('app:update:check', async () => wrap(() => checkForAppUpdates()))
   ipcMain.handle('app:update:download', async () => wrap(() => downloadAppUpdate()))

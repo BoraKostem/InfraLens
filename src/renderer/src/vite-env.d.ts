@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 import type {
+  AppSettings,
   ComparisonRequest,
   AssumeRoleRequest,
   AwsAssumeRoleTarget,
@@ -35,6 +36,9 @@ declare global {
       assumeSavedRoleTarget: (targetId: string) => Promise<unknown>
       listServices: () => Promise<unknown>
       getReleaseInfo: () => Promise<unknown>
+      getAppSettings: () => Promise<unknown>
+      updateAppSettings: (update: Partial<AppSettings>) => Promise<unknown>
+      resetAppSettings: () => Promise<unknown>
       getEnvironmentHealth: () => Promise<unknown>
       checkForAppUpdates: () => Promise<unknown>
       downloadAppUpdate: () => Promise<unknown>
