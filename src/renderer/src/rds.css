@@ -660,6 +660,7 @@
   background: linear-gradient(180deg, rgba(20, 29, 40, 0.98), rgba(11, 18, 28, 0.98));
   color: #edf1f6;
   font-size: 12px;
+  font: inherit;
   box-sizing: border-box;
 }
 
@@ -667,6 +668,12 @@
   height: 36px;
   padding: 6px 10px;
   cursor: pointer;
+  color-scheme: dark;
+}
+
+.rds-select option {
+  background: #0f1722;
+  color: #edf1f6;
 }
 
 .rds-search-input,
