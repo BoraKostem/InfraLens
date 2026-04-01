@@ -13,7 +13,7 @@ import { exportDiagnosticsBundle } from './diagnostics'
 import { getEnvironmentHealthReport } from './environment'
 import { exportEnterpriseAuditEvents, getEnterpriseSettings, listEnterpriseAuditEvents, setEnterpriseAccessMode } from './enterprise'
 import { getVaultEntryCounts } from './localVault'
-import { createHandlerWrapper } from './operations'
+import { createHandlerWrapper, type OperationOptions } from './operations'
 import { checkForAppUpdates, downloadAppUpdate, getReleaseInfo, installAppUpdate } from './releaseCheck'
 import { getSelectedProjectId, setSelectedProjectId } from './store'
 import {
@@ -61,8 +61,11 @@ import { generateTerraformObservabilityReport } from './aws/observabilityLab'
 
 type HandlerResult<T> = { ok: true; data: T } | { ok: false; error: string }
 const execFileAsync = promisify(execFile)
-const wrap: <T>(fn: () => Promise<T> | T, label?: string) => Promise<HandlerResult<T>> =
-  createHandlerWrapper('ipc', { timeoutMs: 60000 })
+const wrap: <T>(
+  fn: () => Promise<T> | T,
+  label?: string,
+  options?: OperationOptions
+) => Promise<HandlerResult<T>> = createHandlerWrapper('ipc', { timeoutMs: 60000 })
 
 async function lockDownPrivateKey(filePath: string): Promise<void> {
   if (process.platform === 'win32') {
@@ -290,7 +293,10 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   )
   ipcMain.handle('terraform:logs:list', async (_event, projectId: string) => wrap(() => getCommandLogs(projectId)))
   ipcMain.handle('terraform:command:run', async (_event, request: TerraformCommandRequest) =>
-    wrap(() => runProjectCommand(request, getWindow()))
+    // Terraform commands already enforce their own process-level timeout. Disabling
+    // the outer IPC wrapper timeout avoids false failures while long-running
+    // apply/destroy operations continue streaming progress events.
+    wrap(() => runProjectCommand(request, getWindow()), 'terraform:command:run', { timeoutMs: 0 })
   )
   ipcMain.handle('terraform:plan:has-saved', async (_event, projectId: string) => wrap(() => hasSavedPlan(projectId)))
   ipcMain.handle('terraform:plan:clear', async (_event, projectId: string) => wrap(() => clearSavedPlan(projectId)))
