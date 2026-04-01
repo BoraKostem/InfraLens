@@ -27,7 +27,11 @@ import {
 } from '@aws-sdk/client-ssm'
 
 import { awsClientConfig, readTags } from './client'
-import { buildAwsCliCommand } from '../shell'
+import {
+  buildAwsCliCommand,
+  getResolvedProcessEnv,
+  listSessionManagerPluginCommandCandidates
+} from '../shell'
 import { getToolCommand } from '../toolchain'
 import type {
   AwsConnection,
@@ -341,13 +345,23 @@ function connectionDiagnostics(
   return diagnostics
 }
 
-async function executableExists(command: string): Promise<boolean> {
-  const probe = process.platform === 'win32' ? 'where.exe' : 'which'
-  return new Promise((resolve) => {
-    const child = spawn(probe, [command], { stdio: 'ignore' })
-    child.once('error', () => resolve(false))
-    child.once('exit', (code) => resolve(code === 0))
-  })
+async function executableExists(command: string | string[]): Promise<boolean> {
+  const env = await getResolvedProcessEnv()
+  const candidates = Array.isArray(command) ? command : [command]
+
+  for (const candidate of candidates) {
+    const found = await new Promise<boolean>((resolve) => {
+      const child = spawn(candidate, ['--version'], { stdio: 'ignore', env, windowsHide: true })
+      child.once('error', () => resolve(false))
+      child.once('exit', () => resolve(true))
+    })
+
+    if (found) {
+      return true
+    }
+  }
+
+  return false
 }
 
 function toSessionSummary(session: Session, accessType: 'shell' | 'port-forward'): SsmSessionSummary {
@@ -453,7 +467,7 @@ export async function startSsmSession(connection: AwsConnection, request: SsmSta
 
   const [hasAwsCli, hasPlugin] = await Promise.all([
     executableExists(getToolCommand('aws-cli', 'aws')),
-    executableExists('session-manager-plugin')
+    executableExists(listSessionManagerPluginCommandCandidates())
   ])
 
   if (!hasAwsCli) {
