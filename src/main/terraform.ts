@@ -55,6 +55,7 @@ import type {
 import { getProjects, setPreferredTerraformCliKind, setProjects } from './store'
 import { resolveTerraformSecretReference } from './aws/terraformInputs'
 import { executeOperation, OperationTimeoutError } from './operations'
+import { getResolvedProcessEnv, resolveExecutablePath } from './shell'
 import { getConnectionEnv } from './sessionHub'
 import { saveRunRecord, updateRunRecord, redactArgs } from './terraformHistoryStore'
 import { invalidateTerraformDriftReports } from './terraformDrift'
@@ -417,10 +418,14 @@ function cliKindLabel(kind: TerraformCliKind): string {
   return kind === 'opentofu' ? 'OpenTofu' : 'Terraform'
 }
 
-async function probeCliCandidate(kind: TerraformCliKind, candidate: string): Promise<TerraformCliOption | null> {
+async function probeCliCandidate(
+  kind: TerraformCliKind,
+  candidate: string,
+  env: Record<string, string>
+): Promise<TerraformCliOption | null> {
   try {
     const result = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-      execFile(candidate, ['version', '-json'], { timeout: 10000, windowsHide: true }, (err, stdout, stderr) => {
+      execFile(candidate, ['version', '-json'], { env, timeout: 10000, windowsHide: true }, (err, stdout, stderr) => {
         if (err) reject(err)
         else resolve({ stdout, stderr })
       })
@@ -436,7 +441,7 @@ async function probeCliCandidate(kind: TerraformCliKind, candidate: string): Pro
     return {
       kind,
       label: cliKindLabel(kind),
-      path: candidate,
+      path: await resolveExecutablePath(candidate, env),
       version
     }
   } catch {
@@ -444,11 +449,11 @@ async function probeCliCandidate(kind: TerraformCliKind, candidate: string): Pro
   }
 }
 
-async function detectAvailableCliOptions(): Promise<TerraformCliOption[]> {
+async function detectAvailableCliOptions(env: Record<string, string>): Promise<TerraformCliOption[]> {
   const discovered: TerraformCliOption[] = []
   for (const kind of ['opentofu', 'terraform'] as const) {
     for (const candidate of cliCandidates(kind)) {
-      const option = await probeCliCandidate(kind, candidate)
+      const option = await probeCliCandidate(kind, candidate, env)
       if (!option) continue
       if (discovered.some((item) => item.kind === option.kind)) break
       discovered.push(option)
@@ -468,8 +473,9 @@ function chooseActiveCli(options: TerraformCliOption[], preferredKind: Terraform
     ?? null
 }
 
-export async function detectTerraformCli(): Promise<TerraformCliInfo> {
-  const available = await detectAvailableCliOptions()
+export async function detectTerraformCli(baseEnv?: Record<string, string>): Promise<TerraformCliInfo> {
+  const env = baseEnv ?? await getResolvedProcessEnv()
+  const available = await detectAvailableCliOptions(env)
   const selected = chooseActiveCli(available, getPreferredTerraformCliKindSetting())
   if (selected) {
     cachedCli = {

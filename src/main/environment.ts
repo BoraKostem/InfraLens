@@ -10,6 +10,7 @@ import type {
   EnvironmentToolCheck,
   EnvironmentToolId
 } from '@shared/types'
+import { getResolvedProcessEnv, listSessionManagerPluginCommandCandidates, resolveExecutablePath } from './shell'
 import { detectTerraformCli } from './terraform'
 import type { ToolchainOverrideId } from './toolchain'
 import { listToolCommandCandidates } from './toolchain'
@@ -42,7 +43,7 @@ const TOOL_SPECS: ToolProbeSpec[] = [
     id: 'session-manager-plugin',
     label: 'Session Manager Plugin',
     required: false,
-    commands: process.platform === 'win32' ? ['session-manager-plugin.exe', 'session-manager-plugin'] : ['session-manager-plugin'],
+    commands: listSessionManagerPluginCommandCandidates(),
     versionArgs: ['--version'],
     versionPattern: /([\d.]+)/,
     remediation: 'Install the AWS Session Manager Plugin if you want shell and port-forwarding flows from the app.',
@@ -76,9 +77,13 @@ function summarizeOutput(stdout: string, stderr: string): string {
   return `${stdout}\n${stderr}`.trim()
 }
 
-function probeCommand(command: string, args: string[]): Promise<{ found: boolean; path: string; output: string }> {
+function probeCommand(
+  command: string,
+  args: string[],
+  env: Record<string, string>
+): Promise<{ found: boolean; path: string; output: string }> {
   return new Promise((resolve) => {
-    execFile(command, args, { timeout: 12000, windowsHide: true }, (error, stdout, stderr) => {
+    execFile(command, args, { env, timeout: 12000, windowsHide: true }, async (error, stdout, stderr) => {
       if (error) {
         resolve({ found: false, path: '', output: '' })
         return
@@ -86,16 +91,16 @@ function probeCommand(command: string, args: string[]): Promise<{ found: boolean
 
       resolve({
         found: true,
-        path: command,
+        path: await resolveExecutablePath(command, env),
         output: summarizeOutput(stdout, stderr)
       })
     })
   })
 }
 
-async function detectTool(spec: ToolProbeSpec): Promise<EnvironmentToolCheck> {
+async function detectTool(spec: ToolProbeSpec, env: Record<string, string>): Promise<EnvironmentToolCheck> {
   for (const command of listToolCommandCandidates(spec.overrideId, spec.commands)) {
-    const result = await probeCommand(command, spec.versionArgs)
+    const result = await probeCommand(command, spec.versionArgs, env)
     if (!result.found) {
       continue
     }
@@ -129,8 +134,8 @@ async function detectTool(spec: ToolProbeSpec): Promise<EnvironmentToolCheck> {
   }
 }
 
-async function detectTerraformFamily(): Promise<EnvironmentToolCheck[]> {
-  const cliInfo = await detectTerraformCli()
+async function detectTerraformFamily(env: Record<string, string>): Promise<EnvironmentToolCheck[]> {
+  const cliInfo = await detectTerraformCli(env)
 
   const terraformTool: EnvironmentToolCheck = {
     id: 'terraform',
@@ -268,9 +273,10 @@ function buildSummary(tools: EnvironmentToolCheck[], permissions: EnvironmentPer
 }
 
 export async function getEnvironmentHealthReport(): Promise<EnvironmentHealthReport> {
+  const resolvedEnv = await getResolvedProcessEnv({ fresh: true })
   const [genericTools, terraformTools, permissions] = await Promise.all([
-    Promise.all(TOOL_SPECS.map((spec) => detectTool(spec))),
-    detectTerraformFamily(),
+    Promise.all(TOOL_SPECS.map((spec) => detectTool(spec, resolvedEnv))),
+    detectTerraformFamily(resolvedEnv),
     detectPermissions()
   ])
 

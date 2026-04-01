@@ -1,6 +1,9 @@
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
+import os from 'node:os'
+import path from 'node:path'
 
-import type { AwsConnection } from '@shared/types'
+import type { AppSettingsTerminalShellPreference, AwsConnection } from '@shared/types'
+import { getAppSettings } from './appSettings'
 import { getConnectionEnv } from './sessionHub'
 import { getToolCommand } from './toolchain'
 
@@ -10,6 +13,185 @@ export type ShellConfig = {
   kind: ShellKind
   command: string
   args: string[]
+}
+
+type ShellEnvironmentCacheEntry = {
+  key: string
+  promise: Promise<Record<string, string>>
+}
+
+let shellEnvironmentCache: ShellEnvironmentCacheEntry | null = null
+
+function getShellPreference(): AppSettingsTerminalShellPreference {
+  try {
+    return getAppSettings().terminal.shellPreference
+  } catch {
+    return ''
+  }
+}
+
+function getDefaultPosixShell(): string {
+  return process.env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash')
+}
+
+function looksLikeExplicitPath(command: string): boolean {
+  return path.isAbsolute(command) || command.includes('/') || command.includes('\\')
+}
+
+function parseEnvOutput(output: string): Record<string, string> {
+  const parsed: Record<string, string> = {}
+
+  for (const entry of output.split('\0')) {
+    if (!entry) {
+      continue
+    }
+
+    const separatorIndex = entry.indexOf('=')
+    if (separatorIndex <= 0) {
+      continue
+    }
+
+    const key = entry.slice(0, separatorIndex)
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+      continue
+    }
+
+    parsed[key] = entry.slice(separatorIndex + 1)
+  }
+
+  return parsed
+}
+
+function execFileText(command: string, args: string[], env: Record<string, string>): Promise<string> {
+  return new Promise((resolve) => {
+    execFile(
+      command,
+      args,
+      {
+        env,
+        timeout: 12000,
+        windowsHide: true,
+        maxBuffer: 1024 * 1024
+      },
+      (error, stdout) => {
+        if (error) {
+          resolve('')
+          return
+        }
+
+        resolve(stdout)
+      }
+    )
+  })
+}
+
+async function loadShellEnvironment(): Promise<Record<string, string>> {
+  const baseEnv = { ...process.env as Record<string, string> }
+  if (process.platform === 'win32') {
+    return baseEnv
+  }
+
+  const shell = getShellConfig()
+  if (shell.kind !== 'posix') {
+    return baseEnv
+  }
+
+  const output = await execFileText(shell.command, ['-lc', 'env -0'], {
+    ...baseEnv,
+    TERM: 'dumb'
+  })
+  const parsed = parseEnvOutput(output)
+
+  if (!parsed.PATH) {
+    return baseEnv
+  }
+
+  return {
+    ...baseEnv,
+    ...parsed
+  }
+}
+
+function shellEnvironmentCacheKey(): string {
+  const shell = getShellConfig()
+  return [
+    process.platform,
+    shell.kind,
+    shell.command,
+    getShellPreference(),
+    process.env.SHELL ?? '',
+    process.env.HOME ?? '',
+    process.env.PATH ?? ''
+  ].join('|')
+}
+
+export function invalidateResolvedProcessEnv(): void {
+  shellEnvironmentCache = null
+}
+
+export async function getResolvedProcessEnv(options: { fresh?: boolean } = {}): Promise<Record<string, string>> {
+  if (process.platform === 'win32') {
+    return { ...process.env as Record<string, string> }
+  }
+
+  const key = shellEnvironmentCacheKey()
+  if (!options.fresh && shellEnvironmentCache?.key === key) {
+    return { ...await shellEnvironmentCache.promise }
+  }
+
+  const promise = loadShellEnvironment()
+  if (!options.fresh) {
+    shellEnvironmentCache = { key, promise }
+  }
+
+  return { ...await promise }
+}
+
+export async function resolveExecutablePath(command: string, env?: Record<string, string>): Promise<string> {
+  if (!command.trim()) {
+    return ''
+  }
+
+  if (looksLikeExplicitPath(command)) {
+    return command
+  }
+
+  const baseEnv = env ?? await getResolvedProcessEnv()
+  const probeCommand = process.platform === 'win32' ? 'where.exe' : 'which'
+  const output = await execFileText(probeCommand, [command], baseEnv)
+  const resolved = output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean)
+
+  return resolved || command
+}
+
+export function listSessionManagerPluginCommandCandidates(): string[] {
+  const homeDir = process.env.USERPROFILE || process.env.HOME || os.homedir()
+  const candidates =
+    process.platform === 'win32'
+      ? [
+          'session-manager-plugin.exe',
+          'session-manager-plugin',
+          path.join(process.env.ProgramFiles ?? 'C:\\Program Files', 'Amazon', 'SessionManagerPlugin', 'bin', 'session-manager-plugin.exe'),
+          path.join(process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Amazon', 'SessionManagerPlugin', 'bin', 'session-manager-plugin.exe')
+        ]
+      : process.platform === 'darwin'
+        ? [
+            'session-manager-plugin',
+            '/opt/homebrew/bin/session-manager-plugin',
+            '/usr/local/bin/session-manager-plugin',
+            path.join(homeDir, '.local', 'bin', 'session-manager-plugin')
+          ]
+        : [
+            'session-manager-plugin',
+            '/usr/local/bin/session-manager-plugin',
+            '/usr/bin/session-manager-plugin',
+            path.join(homeDir, '.local', 'bin', 'session-manager-plugin')
+          ]
+
+  return [...new Set(candidates)]
 }
 
 function quotePowerShell(value: string): string {
@@ -60,9 +242,26 @@ export function getShellConfig(): ShellConfig {
     }
   }
 
+  const preference = getShellPreference()
+  if (preference === 'bash') {
+    return {
+      kind: 'posix',
+      command: 'bash',
+      args: ['-il']
+    }
+  }
+
+  if (preference === 'zsh') {
+    return {
+      kind: 'posix',
+      command: 'zsh',
+      args: ['-il']
+    }
+  }
+
   return {
     kind: 'posix',
-    command: process.env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash'),
+    command: getDefaultPosixShell(),
     args: []
   }
 }

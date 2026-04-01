@@ -113,13 +113,29 @@ function TerminalTabSurface({
     function resizeAndSendInput(data: string): Promise<void> {
       return Promise.resolve().then(async () => {
         await syncTerminalSize()
-        await sendAwsTerminalInput(tab.id, data)
+        await sendAwsTerminalInput(tab.id, normalizeTerminalInput(data))
       })
     }
 
+    function normalizeTerminalInput(data: string): string {
+      // SSM interactive shells often expect DEL (0x7f) as the erase character.
+      return data.replace(/\x08/g, '\x7f')
+    }
+
+    function isBackspaceKey(event: KeyboardEvent): boolean {
+      return event.code === 'Backspace'
+        || event.key === 'Backspace'
+        || (event.key === 'Delete' && event.location === 0 && event.code !== 'Delete')
+    }
+
     term.attachCustomKeyEventHandler((event) => {
-      if (event.type === 'keydown' && event.key === 'Backspace') {
+      if (event.type === 'keydown' && isBackspaceKey(event)) {
         void resizeAndSendInput('\x7f')
+        return false
+      }
+
+      if (event.type === 'keydown' && event.code === 'Delete') {
+        void resizeAndSendInput('\x1b[3~')
         return false
       }
 
