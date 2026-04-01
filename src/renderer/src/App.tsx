@@ -21,6 +21,7 @@ import {
   checkForAppUpdates,
   chooseAndImportConfig,
   closeAwsTerminal,
+  detectTerraformCli,
   deleteProfile,
   downloadAppUpdate,
   exportDiagnosticsBundle,
@@ -31,7 +32,6 @@ import {
   getEnvironmentHealth,
   getEnterpriseSettings,
   getGovernanceTagDefaults,
-  getTerraformCliInfo,
   invalidateAllPageCaches,
   invalidatePageCache,
   installAppUpdate,
@@ -501,7 +501,7 @@ export function App() {
   const showInitialLoadingScreen = !servicesHydrated || !settingsHydrated
 
   useEffect(() => {
-    void getTerraformCliInfo().then(setToolchainInfo).catch(() => {
+    void detectTerraformCli().then(setToolchainInfo).catch(() => {
       // Ignore toolchain hydration failures until the settings surface is opened.
     })
   }, [])
@@ -1148,14 +1148,10 @@ export function App() {
     try {
       const nextSettings = await updateAppSettings({ toolchain: update })
       setAppSettings(nextSettings)
-
-      if (update.preferredTerraformCliKind) {
-        const cliInfo = await setTerraformCliKind(update.preferredTerraformCliKind)
-        setToolchainInfo(cliInfo)
-      } else {
-        const cliInfo = await getTerraformCliInfo()
-        setToolchainInfo(cliInfo)
-      }
+      const cliInfo = update.preferredTerraformCliKind
+        ? await setTerraformCliKind(update.preferredTerraformCliKind)
+        : await detectTerraformCli()
+      setToolchainInfo(cliInfo)
 
       setSettingsMessage('Toolchain preferences saved.')
     } catch (err) {
@@ -1242,7 +1238,7 @@ export function App() {
     setToolchainBusy(true)
     setSettingsMessage('')
     try {
-      const [report, cliInfo] = await Promise.all([getEnvironmentHealth(), getTerraformCliInfo()])
+      const [report, cliInfo] = await Promise.all([getEnvironmentHealth(), detectTerraformCli()])
       setEnvironmentHealth(report)
       setToolchainInfo(cliInfo)
       setSettingsMessage(report.summary)

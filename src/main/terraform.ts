@@ -52,13 +52,14 @@ import type {
   TerraformVariableDefinition,
   AwsConnection
 } from '@shared/types'
-import { getPreferredTerraformCliKind, getProjects, setPreferredTerraformCliKind, setProjects } from './store'
+import { getProjects, setPreferredTerraformCliKind, setProjects } from './store'
 import { resolveTerraformSecretReference } from './aws/terraformInputs'
 import { executeOperation, OperationTimeoutError } from './operations'
 import { getConnectionEnv } from './sessionHub'
 import { saveRunRecord, updateRunRecord, redactArgs } from './terraformHistoryStore'
 import { invalidateTerraformDriftReports } from './terraformDrift'
 import type { TerraformRunRecord } from '@shared/types'
+import { getPreferredTerraformCliKindSetting, listToolCommandCandidates } from './toolchain'
 
 /* ── Stored project shape (persistence) ───────────────────── */
 
@@ -409,7 +410,7 @@ function cliCandidates(kind: TerraformCliKind): string[] {
     )
   }
 
-  return [...new Set([...names, ...fallbacks])]
+  return listToolCommandCandidates(kind, [...names, ...fallbacks])
 }
 
 function cliKindLabel(kind: TerraformCliKind): string {
@@ -469,7 +470,7 @@ function chooseActiveCli(options: TerraformCliOption[], preferredKind: Terraform
 
 export async function detectTerraformCli(): Promise<TerraformCliInfo> {
   const available = await detectAvailableCliOptions()
-  const selected = chooseActiveCli(available, getPreferredTerraformCliKind())
+  const selected = chooseActiveCli(available, getPreferredTerraformCliKindSetting())
   if (selected) {
     cachedCli = {
       found: true,

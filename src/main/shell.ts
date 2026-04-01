@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 
 import type { AwsConnection } from '@shared/types'
 import { getConnectionEnv } from './sessionHub'
+import { getToolCommand } from './toolchain'
 
 export type ShellKind = 'powershell' | 'posix'
 
@@ -21,6 +22,15 @@ function quotePosix(value: string): string {
 
 export function quoteShellValue(value: string): string {
   return getShellConfig().kind === 'powershell' ? quotePowerShell(value) : quotePosix(value)
+}
+
+function buildShellCommandInvocation(command: string, args: string[]): string {
+  const shell = getShellConfig()
+  if (shell.kind === 'powershell') {
+    return [`& ${quotePowerShell(command)}`, ...args.map((value) => quotePowerShell(value))].join(' ')
+  }
+
+  return [quotePosix(command), ...args.map((value) => quotePosix(value))].join(' ')
 }
 
 function quoteForAppleScript(value: string): string {
@@ -113,12 +123,13 @@ export function buildAwsContextCommand(connection: AwsConnection): string {
 }
 
 export function buildAwsCliCommand(args: string[]): string {
-  return ['aws', ...args.map((value) => quoteShellValue(value))].join(' ')
+  return buildShellCommandInvocation(getToolCommand('aws-cli', 'aws'), args)
 }
 
 function buildKubectlStartupCommand(connection: AwsConnection, clusterName: string): string {
   const shell = getShellConfig()
   const envCommands = buildEnvCommands(connection)
+  const kubectlCommand = buildShellCommandInvocation(getToolCommand('kubectl', 'kubectl'), ['cluster-info'])
 
   if (shell.kind === 'powershell') {
     return [
@@ -126,14 +137,14 @@ function buildKubectlStartupCommand(connection: AwsConnection, clusterName: stri
       ...envCommands,
       `Write-Host ${quotePowerShell(`kubectl context ready for cluster: ${clusterName}`)}`,
       'Write-Host ""',
-      'kubectl cluster-info'
+      kubectlCommand
     ].join('; ')
   }
 
   return [
     ...envCommands,
     `printf "kubectl context ready for cluster: %s\\n\\n" ${quotePosix(clusterName)}`,
-    'kubectl cluster-info'
+    kubectlCommand
   ].join('; ')
 }
 

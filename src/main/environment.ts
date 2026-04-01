@@ -11,11 +11,14 @@ import type {
   EnvironmentToolId
 } from '@shared/types'
 import { detectTerraformCli } from './terraform'
+import type { ToolchainOverrideId } from './toolchain'
+import { listToolCommandCandidates } from './toolchain'
 
 type ToolProbeSpec = {
   id: EnvironmentToolId
   label: string
   required: boolean
+  overrideId?: ToolchainOverrideId
   commands: string[]
   versionArgs: string[]
   versionPattern: RegExp
@@ -28,6 +31,7 @@ const TOOL_SPECS: ToolProbeSpec[] = [
     id: 'aws-cli',
     label: 'AWS CLI',
     required: true,
+    overrideId: 'aws-cli',
     commands: process.platform === 'win32' ? ['aws.exe', 'aws'] : ['aws'],
     versionArgs: ['--version'],
     versionPattern: /aws-cli\/([^\s]+)/i,
@@ -48,6 +52,7 @@ const TOOL_SPECS: ToolProbeSpec[] = [
     id: 'kubectl',
     label: 'kubectl',
     required: false,
+    overrideId: 'kubectl',
     commands: process.platform === 'win32' ? ['kubectl.exe', 'kubectl'] : ['kubectl'],
     versionArgs: ['version', '--client', '--output=json'],
     versionPattern: /"gitVersion"\s*:\s*"v?([^"]+)"/i,
@@ -58,6 +63,7 @@ const TOOL_SPECS: ToolProbeSpec[] = [
     id: 'docker',
     label: 'Docker',
     required: false,
+    overrideId: 'docker',
     commands: process.platform === 'win32' ? ['docker.exe', 'docker'] : ['docker'],
     versionArgs: ['--version'],
     versionPattern: /Docker version\s+([^\s,]+)/i,
@@ -88,7 +94,7 @@ function probeCommand(command: string, args: string[]): Promise<{ found: boolean
 }
 
 async function detectTool(spec: ToolProbeSpec): Promise<EnvironmentToolCheck> {
-  for (const command of spec.commands) {
+  for (const command of listToolCommandCandidates(spec.overrideId, spec.commands)) {
     const result = await probeCommand(command, spec.versionArgs)
     if (!result.found) {
       continue
@@ -251,7 +257,7 @@ function buildSummary(tools: EnvironmentToolCheck[], permissions: EnvironmentPer
   const permissionProblems = permissions.filter((item) => item.status !== 'ok').length
 
   if (missingRequired > 0) {
-    return `${missingRequired} required dependency is missing. Core shell and infrastructure workflows are not fully ready.`
+    return `${missingRequired} required ${missingRequired === 1 ? 'dependency is' : 'dependencies are'} missing. Core shell and infrastructure workflows are not fully ready.`
   }
 
   if (optionalMissing > 0 || permissionProblems > 0) {

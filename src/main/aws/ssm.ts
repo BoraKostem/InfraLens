@@ -28,6 +28,7 @@ import {
 
 import { awsClientConfig, readTags } from './client'
 import { buildAwsCliCommand } from '../shell'
+import { getToolCommand } from '../toolchain'
 import type {
   AwsConnection,
   Ec2SsmStatus,
@@ -451,7 +452,7 @@ export async function startSsmSession(connection: AwsConnection, request: SsmSta
   }
 
   const [hasAwsCli, hasPlugin] = await Promise.all([
-    executableExists('aws'),
+    executableExists(getToolCommand('aws-cli', 'aws')),
     executableExists('session-manager-plugin')
   ])
 

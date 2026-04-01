@@ -1,4 +1,4 @@
-import { exec } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
 import {
@@ -22,8 +22,10 @@ import type {
   EcrRepositorySummary,
   EcrScanResult
 } from '@shared/types'
+import { getToolCommand } from '../toolchain'
 
-const execAsync = promisify(exec)
+const execFileAsync = promisify(execFile)
+const dockerCommand = () => getToolCommand('docker', 'docker')
 
 function createClient(connection: AwsConnection): ECRClient {
   return new ECRClient(awsClientConfig(connection))
@@ -213,14 +215,16 @@ export async function getEcrAuthorizationToken(
 
   const decoded = Buffer.from(token, 'base64').toString('utf-8')
   const [user, password] = decoded.split(':')
-  const loginCommand = `docker login -u ${user} -p ${password} ${proxyEndpoint}`
+  const loginCommand = `${JSON.stringify(dockerCommand())} login -u ${user} -p ${password} ${proxyEndpoint}`
 
   return { proxyEndpoint, token, expiresAt, loginCommand }
 }
 
 export async function dockerLogin(connection: AwsConnection): Promise<string> {
   const auth = await getEcrAuthorizationToken(connection)
-  const { stdout, stderr } = await execAsync(auth.loginCommand)
+  const decoded = Buffer.from(auth.token, 'base64').toString('utf-8')
+  const [user, password] = decoded.split(':')
+  const { stdout, stderr } = await execFileAsync(dockerCommand(), ['login', '-u', user, '-p', password, auth.proxyEndpoint])
   return (stdout || stderr).trim()
 }
 
@@ -229,7 +233,7 @@ export async function dockerPull(
   tag: string
 ): Promise<string> {
   const image = `${repositoryUri}:${tag}`
-  const { stdout, stderr } = await execAsync(`docker pull ${image}`)
+  const { stdout, stderr } = await execFileAsync(dockerCommand(), ['pull', image])
   return (stdout || stderr).trim()
 }
 
@@ -239,7 +243,7 @@ export async function dockerPushLocal(
   tag: string
 ): Promise<string> {
   const target = `${repositoryUri}:${tag}`
-  await execAsync(`docker tag ${localImage} ${target}`)
-  const { stdout, stderr } = await execAsync(`docker push ${target}`)
+  await execFileAsync(dockerCommand(), ['tag', localImage, target])
+  const { stdout, stderr } = await execFileAsync(dockerCommand(), ['push', target])
   return (stdout || stderr).trim()
 }

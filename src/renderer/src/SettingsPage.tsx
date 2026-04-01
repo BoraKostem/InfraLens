@@ -10,7 +10,9 @@ import type {
   EnterpriseAccessMode,
   EnterpriseAuditEvent,
   EnterpriseSettings,
+  EnvironmentPermissionCheck,
   EnvironmentHealthReport,
+  EnvironmentToolCheck,
   GovernanceTagDefaults,
   TerraformCliInfo
 } from '@shared/types'
@@ -94,6 +96,14 @@ function formatRefreshInterval(seconds: number): string {
   if (seconds <= 0) return 'Disabled'
   if (seconds % 60 === 0) return `${seconds / 60}m`
   return `${seconds}s`
+}
+
+function environmentToolTone(status: EnvironmentToolCheck['status']): 'stable' | 'preview' | 'unknown' {
+  return status === 'available' ? 'stable' : status === 'missing' ? 'preview' : 'unknown'
+}
+
+function environmentPermissionTone(status: EnvironmentPermissionCheck['status']): 'stable' | 'preview' | 'unknown' {
+  return status === 'ok' ? 'stable' : status === 'error' ? 'preview' : 'unknown'
 }
 
 function SettingSection({
@@ -482,6 +492,11 @@ export function SettingsPage({
   }
 
   function renderToolchainTab(): JSX.Element {
+    const readyTools = environmentHealth?.tools.filter((tool) => tool.status === 'available') ?? []
+    const attentionTools = environmentHealth?.tools.filter((tool) => tool.status !== 'available') ?? []
+    const readyPermissions = environmentHealth?.permissions.filter((item) => item.status === 'ok') ?? []
+    const attentionPermissions = environmentHealth?.permissions.filter((item) => item.status !== 'ok') ?? []
+
     return (
       <>
         <SettingSection title="CLI Preferences">
@@ -550,6 +565,77 @@ export function SettingsPage({
               {environmentBusy ? 'Refreshing...' : 'Rescan environment'}
             </button>
           </SettingRow>
+          {environmentHealth && (
+            <div className="environment-onboarding-grid">
+              <section className="environment-onboarding-section">
+                <div className="eyebrow">Ready</div>
+                {readyTools.map((tool) => (
+                  <div key={tool.id} className="settings-environment-row">
+                    <div>
+                      <strong>{tool.label}</strong>
+                      <p>{tool.detail}</p>
+                      {tool.path && <small>Path: {tool.path}</small>}
+                    </div>
+                    <div className="settings-environment-meta">
+                      <span className={`settings-status-pill settings-status-pill-${environmentToolTone(tool.status)}`}>{tool.status}</span>
+                      <code>{tool.version || 'available'}</code>
+                    </div>
+                  </div>
+                ))}
+                {readyPermissions.map((item) => (
+                  <div key={item.id} className="settings-environment-row">
+                    <div>
+                      <strong>{item.label}</strong>
+                      <p>{item.detail}</p>
+                    </div>
+                    <div className="settings-environment-meta">
+                      <span className={`settings-status-pill settings-status-pill-${environmentPermissionTone(item.status)}`}>{item.status}</span>
+                    </div>
+                  </div>
+                ))}
+                {readyTools.length === 0 && readyPermissions.length === 0 && (
+                  <div className="settings-static-muted">No checks are marked ready yet.</div>
+                )}
+              </section>
+
+              <section className="environment-onboarding-section">
+                <div className="eyebrow">Needs Attention</div>
+                {attentionTools.map((tool) => (
+                  <div key={tool.id} className="settings-environment-row">
+                    <div>
+                      <strong>{tool.label}</strong>
+                      <p>{tool.detail}</p>
+                      {tool.remediation && <small>{tool.remediation}</small>}
+                    </div>
+                    <div className="settings-environment-meta">
+                      <span className={`settings-status-pill settings-status-pill-${environmentToolTone(tool.status)}`}>{tool.status}</span>
+                      <code>{tool.version || 'not found'}</code>
+                    </div>
+                  </div>
+                ))}
+                {attentionPermissions.map((item) => (
+                  <div key={item.id} className="settings-environment-row">
+                    <div>
+                      <strong>{item.label}</strong>
+                      <p>{item.detail}</p>
+                      {item.remediation && <small>{item.remediation}</small>}
+                    </div>
+                    <div className="settings-environment-meta">
+                      <span className={`settings-status-pill settings-status-pill-${environmentPermissionTone(item.status)}`}>{item.status}</span>
+                    </div>
+                  </div>
+                ))}
+                {attentionTools.length === 0 && attentionPermissions.length === 0 && (
+                  <div className="settings-static-muted">Nothing currently needs attention.</div>
+                )}
+              </section>
+            </div>
+          )}
+          {!environmentHealth && (
+            <div className="settings-static-muted">
+              {environmentBusy ? 'Inspecting installed CLIs and local permissions.' : 'Run a rescan to load detailed environment checks.'}
+            </div>
+          )}
         </SettingSection>
 
         <div className="settings-tab-actions">

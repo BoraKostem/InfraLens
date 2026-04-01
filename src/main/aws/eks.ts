@@ -27,8 +27,11 @@ import type {
 } from '@shared/types'
 import { launchKubectlShell } from '../shell'
 import { getConnectionEnv } from '../sessionHub'
+import { getToolCommand } from '../toolchain'
 
 const execFileAsync = promisify(execFile)
+const awsCliCommand = () => getToolCommand('aws-cli', 'aws')
+const kubectlCommand = () => getToolCommand('kubectl', 'kubectl')
 
 export type EksNodeResourceUsage = {
   name: string
@@ -241,7 +244,7 @@ export async function addEksToKubeconfig(
   if (connection.kind === 'profile') {
     args.push('--profile', connection.profile)
   }
-  const { stdout, stderr } = await execFileAsync('aws', args, {
+  const { stdout, stderr } = await execFileAsync(awsCliCommand(), args, {
     env: {
       ...process.env,
       ...getConnectionEnv(connection)
@@ -291,7 +294,7 @@ async function runKubectlWithKubeconfig(
   kubeconfigPath: string,
   args: string[]
 ): Promise<string> {
-  const { stdout, stderr } = await execFileAsync('kubectl', args, {
+  const { stdout, stderr } = await execFileAsync(kubectlCommand(), args, {
     env: {
       ...process.env,
       ...getConnectionEnv(connection),
@@ -386,7 +389,7 @@ export async function createTempEksKubeconfig(
     args.splice(6, 0, '--profile', connection.profile)
   }
 
-  const { stdout, stderr } = await execFileAsync('aws', args, {
+  const { stdout, stderr } = await execFileAsync(awsCliCommand(), args, {
     env: {
       ...process.env,
       ...getConnectionEnv(connection)
