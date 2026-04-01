@@ -534,6 +534,9 @@ export async function describeDbInstance(connection: AwsConnection, dbInstanceId
     caCertificateIdentifier: item.CACertificateIdentifier ?? '-',
     masterUsername: item.MasterUsername ?? '-',
     databaseName: item.DBName ?? '-',
+    managesMasterUserPassword: item.MasterUserSecret != null,
+    masterUserSecretArn: item.MasterUserSecret?.SecretArn ?? '-',
+    masterUserSecretKmsKeyId: item.MasterUserSecret?.KmsKeyId ?? '-',
     subnetGroup: trimOrDash(item.DBSubnetGroup?.DBSubnetGroupName),
     parameterGroups: posture.parameterGroupReferences,
     vpcSecurityGroupIds: (item.VpcSecurityGroups ?? []).map((group) => group.VpcSecurityGroupId ?? '-'),
@@ -546,7 +549,8 @@ export async function describeDbInstance(connection: AwsConnection, dbInstanceId
       { label: 'Username', value: item.MasterUsername ?? '-' },
       { label: 'Resource ID', value: item.DbiResourceId ?? '-' },
       { label: 'Cluster', value: item.DBClusterIdentifier ?? '-' },
-      { label: 'IAM DB Auth', value: item.IAMDatabaseAuthenticationEnabled ? 'Enabled' : 'Disabled' }
+      { label: 'IAM DB Auth', value: item.IAMDatabaseAuthenticationEnabled ? 'Enabled' : 'Disabled' },
+      { label: 'Managed Secret', value: item.MasterUserSecret?.SecretArn ?? '-' }
     ],
     rawJson: stringify(item)
   }
@@ -608,6 +612,9 @@ export async function describeDbCluster(connection: AwsConnection, dbClusterIden
     backupRetentionPeriod: cluster.BackupRetentionPeriod ?? 0,
     preferredBackupWindow: trimOrDash(cluster.PreferredBackupWindow),
     preferredMaintenanceWindow: trimOrDash(cluster.PreferredMaintenanceWindow),
+    managesMasterUserPassword: cluster.MasterUserSecret != null,
+    masterUserSecretArn: cluster.MasterUserSecret?.SecretArn ?? '-',
+    masterUserSecretKmsKeyId: cluster.MasterUserSecret?.KmsKeyId ?? '-',
     parameterGroups: posture.parameterGroupReferences,
     subnetGroup: trimOrDash(cluster.DBSubnetGroup),
     vpcSecurityGroupIds: (cluster.VpcSecurityGroups ?? []).map((group) => group.VpcSecurityGroupId ?? '-'),
@@ -620,7 +627,8 @@ export async function describeDbCluster(connection: AwsConnection, dbClusterIden
       { label: 'Engine', value: cluster.Engine ?? '-' },
       { label: 'Database', value: cluster.DatabaseName ?? '-' },
       { label: 'Username', value: cluster.MasterUsername ?? '-' },
-      { label: 'Cluster ARN', value: cluster.DBClusterArn ?? '-' }
+      { label: 'Cluster ARN', value: cluster.DBClusterArn ?? '-' },
+      { label: 'Managed Secret', value: cluster.MasterUserSecret?.SecretArn ?? '-' }
     ],
     rawJson: stringify(cluster)
   }

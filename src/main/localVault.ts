@@ -2,9 +2,14 @@ import path from 'node:path'
 
 import { app } from 'electron'
 
+import type {
+  DbConnectionEngine,
+  DbVaultCredentialInput,
+  DbVaultCredentialSummary
+} from '@shared/types'
 import { readSecureJsonFile, writeSecureJsonFile } from './secureJson'
 
-type VaultEntryKind = 'aws-profile' | 'ssh-key' | 'pem' | 'access-key' | 'generic'
+type VaultEntryKind = 'aws-profile' | 'ssh-key' | 'pem' | 'access-key' | 'generic' | 'db-credential'
 
 type VaultEntry = {
   id: string
@@ -23,6 +28,13 @@ type VaultState = {
 export type AwsProfileVaultSecret = {
   accessKeyId: string
   secretAccessKey: string
+}
+
+type DbVaultCredentialSecret = {
+  password: string
+  usernameHint: string
+  engine: DbConnectionEngine
+  notes: string
 }
 
 export function getVaultEntryCounts(): {
@@ -143,4 +155,93 @@ export function setAwsProfileVaultSecret(profileName: string, secret: AwsProfile
 
 export function deleteAwsProfileVaultSecret(profileName: string): void {
   deleteVaultSecret('aws-profile', profileName)
+}
+
+function sanitizeDbEngine(value: unknown): DbConnectionEngine {
+  switch (value) {
+    case 'postgres':
+    case 'mysql':
+    case 'mariadb':
+    case 'sqlserver':
+    case 'oracle':
+    case 'aurora-postgresql':
+    case 'aurora-mysql':
+      return value
+    default:
+      return 'unknown'
+  }
+}
+
+function toDbVaultCredentialSummary(entry: Omit<VaultEntry, 'secret'>): DbVaultCredentialSummary {
+  return {
+    name: entry.name,
+    engine: sanitizeDbEngine(entry.metadata.engine),
+    usernameHint: entry.metadata.usernameHint?.trim() ?? '',
+    notes: entry.metadata.notes?.trim() ?? '',
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt
+  }
+}
+
+export function listDbVaultCredentials(): DbVaultCredentialSummary[] {
+  return listVaultEntries('db-credential').map((entry) => toDbVaultCredentialSummary(entry))
+}
+
+export function getDbVaultCredentialSecret(name: string): DbVaultCredentialSecret | null {
+  const raw = getVaultSecret('db-credential', name)
+  if (!raw) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<DbVaultCredentialSecret>
+    if (typeof parsed.password !== 'string' || !parsed.password.trim()) {
+      return null
+    }
+
+    return {
+      password: parsed.password,
+      usernameHint: typeof parsed.usernameHint === 'string' ? parsed.usernameHint.trim() : '',
+      engine: sanitizeDbEngine(parsed.engine),
+      notes: typeof parsed.notes === 'string' ? parsed.notes.trim() : ''
+    }
+  } catch {
+    return null
+  }
+}
+
+export function setDbVaultCredential(input: DbVaultCredentialInput): DbVaultCredentialSummary {
+  const name = input.name.trim()
+  const password = input.password.trim()
+
+  if (!name) {
+    throw new Error('Vault credential name is required.')
+  }
+  if (!password) {
+    throw new Error('Vault credential password is required.')
+  }
+
+  const secret: DbVaultCredentialSecret = {
+    password,
+    usernameHint: input.usernameHint.trim(),
+    engine: sanitizeDbEngine(input.engine),
+    notes: input.notes.trim()
+  }
+
+  setVaultSecret('db-credential', name, JSON.stringify(secret), {
+    usernameHint: secret.usernameHint,
+    engine: secret.engine,
+    notes: secret.notes
+  })
+
+  const saved = listVaultEntries('db-credential').find((entry) => entry.name === name)
+  if (!saved) {
+    throw new Error('Vault credential could not be saved.')
+  }
+
+  return toDbVaultCredentialSummary(saved)
+}
+
+export function deleteDbVaultCredential(name: string): void {
+  deleteVaultSecret('db-credential', name)
 }

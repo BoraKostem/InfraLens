@@ -4,6 +4,7 @@ import './rds.css'
 import type {
   AwsConnection,
   CloudTrailEventSummary,
+  DbConnectionEngine,
   RdsClusterDetail,
   RdsClusterNodeSummary,
   RdsClusterSummary,
@@ -33,9 +34,10 @@ import {
   stopRdsInstance
 } from './api'
 import { ConfirmButton } from './ConfirmButton'
+import { RdsConnectionHelpers } from './RdsConnectionHelpers'
 
 type MainTab = 'instances' | 'aurora'
-type SideTab = 'overview' | 'timeline'
+type SideTab = 'overview' | 'connect' | 'timeline'
 type InstanceColumnKey = 'identifier' | 'engine' | 'class' | 'status' | 'endpoint' | 'storage'
 type AuroraColumnKey = 'cluster' | 'engine' | 'status' | 'writer' | 'reader' | 'endpoint'
 
@@ -240,10 +242,12 @@ function ClusterNodeMatrix({
 
 export function RdsConsole({
   connection,
-  onNavigateCloudWatch
+  onNavigateCloudWatch,
+  onRunTerminalCommand
 }: {
   connection: AwsConnection
   onNavigateCloudWatch?: (focus: { logGroupNames?: string[]; queryString?: string; sourceLabel?: string; serviceHint?: ServiceId | '' }) => void
+  onRunTerminalCommand?: (command: string) => void
 }) {
   const [mainTab, setMainTab] = useState<MainTab>('instances')
   const [sideTab, setSideTab] = useState<SideTab>('overview')
@@ -761,6 +765,9 @@ export function RdsConsole({
                 <button className={sideTab === 'overview' ? 'active' : ''} type="button" onClick={() => setSideTab('overview')}>
                   Overview
                 </button>
+                <button className={sideTab === 'connect' ? 'active' : ''} type="button" onClick={() => setSideTab('connect')}>
+                  Connect
+                </button>
                 <button className={sideTab === 'timeline' ? 'active' : ''} type="button" onClick={() => setSideTab('timeline')}>
                   Change Timeline
                 </button>
@@ -814,7 +821,9 @@ export function RdsConsole({
                       ['Backup Window', instanceDetail.posture.preferredBackupWindow],
                       ['Public Access', instanceDetail.publiclyAccessible ? 'Yes' : 'No'],
                       ['Encrypted', instanceDetail.storageEncrypted ? 'Yes' : 'No'],
-                      ['CA Certificate', instanceDetail.caCertificateIdentifier]
+                      ['CA Certificate', instanceDetail.caCertificateIdentifier],
+                      ['Managed Secret', instanceDetail.masterUserSecretArn],
+                      ['Managed Password', instanceDetail.managesMasterUserPassword ? 'Yes' : 'No']
                     ]} />
                   </div>
 
@@ -936,7 +945,9 @@ export function RdsConsole({
                       ['Maintenance Window', clusterDetail.posture.preferredMaintenanceWindow],
                       ['Backup Window', clusterDetail.posture.preferredBackupWindow],
                       ['Encrypted', clusterDetail.summary.storageEncrypted ? 'Yes' : 'No'],
-                      ['Multi-AZ', clusterDetail.summary.multiAz ? 'Yes' : 'No']
+                      ['Multi-AZ', clusterDetail.summary.multiAz ? 'Yes' : 'No'],
+                      ['Managed Secret', clusterDetail.masterUserSecretArn],
+                      ['Managed Password', clusterDetail.managesMasterUserPassword ? 'Yes' : 'No']
                     ]} />
                   </div>
 
@@ -1054,6 +1065,38 @@ export function RdsConsole({
                     </>
                   )}
                 </>
+              )}
+
+              {sideTab === 'connect' && mainTab === 'instances' && instanceDetail && (
+                <RdsConnectionHelpers
+                  connection={connection}
+                  resourceKind="rds-instance"
+                  resourceId={instanceDetail.summary.dbInstanceIdentifier}
+                  resourceLabel={instanceDetail.summary.dbInstanceIdentifier}
+                  engine={instanceDetail.summary.engine as DbConnectionEngine}
+                  defaultHost={instanceDetail.summary.endpoint === '-' ? '' : instanceDetail.summary.endpoint}
+                  defaultPort={instanceDetail.summary.port ?? 0}
+                  defaultDatabaseName={instanceDetail.databaseName === '-' ? '' : instanceDetail.databaseName}
+                  defaultUsername={instanceDetail.masterUsername === '-' ? '' : instanceDetail.masterUsername}
+                  managedSecretArn={instanceDetail.masterUserSecretArn}
+                  onRunTerminalCommand={onRunTerminalCommand}
+                />
+              )}
+
+              {sideTab === 'connect' && mainTab === 'aurora' && clusterDetail && (
+                <RdsConnectionHelpers
+                  connection={connection}
+                  resourceKind="aurora-cluster"
+                  resourceId={clusterDetail.summary.dbClusterIdentifier}
+                  resourceLabel={clusterDetail.summary.dbClusterIdentifier}
+                  engine={clusterDetail.summary.engine as DbConnectionEngine}
+                  defaultHost={clusterDetail.summary.endpoint === '-' ? '' : clusterDetail.summary.endpoint}
+                  defaultPort={clusterDetail.summary.port ?? 0}
+                  defaultDatabaseName={clusterDetail.databaseName === '-' ? '' : clusterDetail.databaseName}
+                  defaultUsername={clusterDetail.masterUsername === '-' ? '' : clusterDetail.masterUsername}
+                  managedSecretArn={clusterDetail.masterUserSecretArn}
+                  onRunTerminalCommand={onRunTerminalCommand}
+                />
               )}
 
               {sideTab === 'timeline' && (

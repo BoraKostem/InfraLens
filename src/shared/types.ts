@@ -1079,6 +1079,23 @@ export type DbConnectionResourceKind =
 
 export type DbConnectionCredentialSourceKind = 'local-vault' | 'aws-secrets-manager' | 'manual'
 
+export type DbVaultCredentialSummary = {
+  name: string
+  engine: DbConnectionEngine
+  usernameHint: string
+  notes: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type DbVaultCredentialInput = {
+  name: string
+  engine: DbConnectionEngine
+  usernameHint: string
+  password: string
+  notes: string
+}
+
 export type DbConnectionPresetFilter = {
   profile?: string
   region?: string
@@ -1108,6 +1125,51 @@ export type DbConnectionPreset = {
 
 export type DbConnectionPresetInput = Omit<DbConnectionPreset, 'id' | 'createdAt' | 'updatedAt' | 'lastUsedAt'> & {
   id?: string
+}
+
+export type DbConnectionResolveInput = {
+  presetId?: string
+  resourceKind: DbConnectionResourceKind
+  resourceId: string
+  resourceLabel: string
+  engine: DbConnectionEngine
+  host: string
+  port: number
+  databaseName: string
+  username: string
+  credentialSourceKind: DbConnectionCredentialSourceKind
+  credentialSourceRef: string
+  manualPassword: string
+}
+
+export type DbConnectionHelperSnippet = {
+  id: 'terminal-command' | 'cli-command' | 'masked-uri' | 'connection-uri'
+  label: string
+  value: string
+  sensitive: boolean
+}
+
+export type DbConnectionResolutionResult = {
+  presetId: string
+  displayName: string
+  resourceKind: DbConnectionResourceKind
+  resourceId: string
+  engine: DbConnectionEngine
+  host: string
+  port: number
+  databaseName: string
+  username: string
+  password: string
+  credentialSourceKind: DbConnectionCredentialSourceKind
+  credentialSourceRef: string
+  sourceSummary: string
+  warnings: string[]
+  snippets: DbConnectionHelperSnippet[]
+  terminalCommand: string
+  cliCommand: string
+  maskedConnectionUri: string
+  connectionUri: string
+  resolvedAt: string
 }
 
 export type AwsCapabilitySubject =
@@ -1940,6 +2002,9 @@ export type RdsInstanceDetail = {
   caCertificateIdentifier: string
   masterUsername: string
   databaseName: string
+  managesMasterUserPassword: boolean
+  masterUserSecretArn: string
+  masterUserSecretKmsKeyId: string
   subnetGroup: string
   parameterGroups: string[]
   vpcSecurityGroupIds: string[]
@@ -1955,6 +2020,9 @@ export type RdsClusterDetail = {
   backupRetentionPeriod: number
   preferredBackupWindow: string
   preferredMaintenanceWindow: string
+  managesMasterUserPassword: boolean
+  masterUserSecretArn: string
+  masterUserSecretKmsKeyId: string
   parameterGroups: string[]
   subnetGroup: string
   vpcSecurityGroupIds: string[]

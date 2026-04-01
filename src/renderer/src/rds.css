@@ -464,6 +464,36 @@
   background: linear-gradient(180deg, rgba(18, 25, 35, 0.96), rgba(11, 17, 25, 0.96));
 }
 
+.rds-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.rds-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rds-field span {
+  color: #8fa3ba;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.rds-field input,
+.rds-field .rds-select {
+  width: 100%;
+}
+
+.rds-field-span-2 {
+  grid-column: span 2;
+}
+
 .rds-overview-head {
   display: flex;
   align-items: flex-start;
@@ -484,7 +514,8 @@
 .rds-finding-card,
 .rds-maintenance-card,
 .rds-topology-card,
-.rds-suggestion-item {
+.rds-suggestion-item,
+.rds-code-card {
   border: 1px solid rgba(145, 176, 207, 0.1);
   border-radius: 14px;
   background: linear-gradient(180deg, rgba(20, 29, 40, 0.96), rgba(11, 18, 28, 0.96));
@@ -792,6 +823,34 @@
   gap: 8px;
 }
 
+.rds-code-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rds-code-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.rds-code-block {
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  border-radius: 12px;
+  border: 1px solid rgba(145, 176, 207, 0.08);
+  background: rgba(7, 12, 18, 0.94);
+  color: #dce8f5;
+  font-family: "Cascadia Code", "Fira Code", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .rds-suggestion-item {
   color: #d0d8e2;
   line-height: 1.45;
@@ -853,6 +912,7 @@
 
   .rds-summary-tiles,
   .rds-topology-grid,
+  .rds-form-grid,
   .rds-shell-hero-stats,
   .rds-detail-hero-stats,
   .rds-actions-grid {
@@ -887,5 +947,9 @@
   .rds-kv-row {
     grid-template-columns: 1fr;
     gap: 4px;
+  }
+
+  .rds-field-span-2 {
+    grid-column: span 1;
   }
 }

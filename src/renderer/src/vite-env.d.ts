@@ -12,8 +12,10 @@ import type {
   CloudWatchQueryExecutionInput,
   CloudWatchQueryHistoryInput,
   CloudWatchSavedQueryInput,
+  DbConnectionResolveInput,
   DbConnectionPresetFilter,
   DbConnectionPresetInput,
+  DbVaultCredentialInput,
   Ec2BulkInstanceAction,
   Ec2InstanceAction,
   EbsTempInspectionProgress,
@@ -55,6 +57,10 @@ declare global {
       saveDbConnectionPreset: (input: DbConnectionPresetInput) => Promise<unknown>
       deleteDbConnectionPreset: (id: string) => Promise<unknown>
       markDbConnectionPresetUsed: (id: string) => Promise<unknown>
+      listDbVaultCredentials: () => Promise<unknown>
+      saveDbVaultCredential: (input: DbVaultCredentialInput) => Promise<unknown>
+      deleteDbVaultCredential: (name: string) => Promise<unknown>
+      resolveDbConnectionMaterial: (connection: AwsConnection, input: DbConnectionResolveInput) => Promise<unknown>
       getAwsCapabilitySnapshot: (region: string, subjects?: AwsCapabilitySubject[]) => Promise<unknown>
       getReleaseInfo: () => Promise<unknown>
       getAppSettings: () => Promise<unknown>

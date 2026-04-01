@@ -21,9 +21,13 @@ import type {
   CloudWatchQueryHistoryInput,
   CloudWatchSavedQuery,
   CloudWatchSavedQueryInput,
+  DbConnectionResolveInput,
+  DbConnectionResolutionResult,
   DbConnectionPreset,
   DbConnectionPresetFilter,
   DbConnectionPresetInput,
+  DbVaultCredentialInput,
+  DbVaultCredentialSummary,
   GovernanceTagDefaults,
   GovernanceTagDefaultsUpdate,
   AssumeRoleResult,
@@ -256,6 +260,9 @@ const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
   saveDbConnectionPreset: 'phase1-foundations',
   deleteDbConnectionPreset: 'phase1-foundations',
   markDbConnectionPresetUsed: 'phase1-foundations',
+  listDbVaultCredentials: 'phase1-foundations',
+  saveDbVaultCredential: 'phase1-foundations',
+  deleteDbVaultCredential: 'phase1-foundations',
   getAwsCapabilitySnapshot: 'phase1-foundations',
   listProfiles: 'shell',
   deleteProfile: 'shell',
@@ -390,6 +397,8 @@ const MUTATING_METHODS = new Set<keyof AwsLensBridge>([
   'saveDbConnectionPreset',
   'deleteDbConnectionPreset',
   'markDbConnectionPresetUsed',
+  'saveDbVaultCredential',
+  'deleteDbVaultCredential',
   'deleteProfile',
   'chooseAndImportConfig',
   'saveCredentials',
@@ -914,6 +923,25 @@ export async function deleteDbConnectionPreset(id: string): Promise<void> {
 
 export async function markDbConnectionPresetUsed(id: string): Promise<DbConnectionPreset> {
   return unwrap((await awsBridge().markDbConnectionPresetUsed(id)) as Wrapped<DbConnectionPreset>)
+}
+
+export async function listDbVaultCredentials(): Promise<DbVaultCredentialSummary[]> {
+  return unwrap((await awsBridge().listDbVaultCredentials()) as Wrapped<DbVaultCredentialSummary[]>)
+}
+
+export async function saveDbVaultCredential(input: DbVaultCredentialInput): Promise<DbVaultCredentialSummary> {
+  return unwrap((await awsBridge().saveDbVaultCredential(input)) as Wrapped<DbVaultCredentialSummary>)
+}
+
+export async function deleteDbVaultCredential(name: string): Promise<void> {
+  return unwrap((await awsBridge().deleteDbVaultCredential(name)) as Wrapped<void>)
+}
+
+export async function resolveDbConnectionMaterial(
+  connection: AwsConnection,
+  input: DbConnectionResolveInput
+): Promise<DbConnectionResolutionResult> {
+  return unwrap((await rawAwsBridge().resolveDbConnectionMaterial(connection, input)) as Wrapped<DbConnectionResolutionResult>)
 }
 
 export async function getAwsCapabilitySnapshot(region: string, subjects?: AwsCapabilitySubject[]): Promise<AwsCapabilitySnapshot> {

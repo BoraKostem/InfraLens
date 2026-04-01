@@ -5,11 +5,20 @@ import type {
   CloudWatchQueryFilter,
   CloudWatchQueryHistoryInput,
   CloudWatchSavedQueryInput,
+  DbConnectionResolveInput,
   DbConnectionPresetFilter,
   DbConnectionPresetInput,
+  DbVaultCredentialInput,
+  AwsConnection,
   GovernanceTagDefaultsUpdate
 } from '@shared/types'
 import { getAwsCapabilitySnapshot } from './aws/capabilities'
+import { resolveDbConnectionMaterial } from './dbConnectionResolver'
+import {
+  deleteDbVaultCredential,
+  listDbVaultCredentials,
+  setDbVaultCredential
+} from './localVault'
 import { createHandlerWrapper } from './operations'
 import {
   clearCloudWatchQueryHistory,
@@ -66,6 +75,18 @@ export function registerFoundationIpcHandlers(): void {
   )
   ipcMain.handle('phase1:mark-db-connection-preset-used', async (_event, id: string) =>
     wrap(() => markDbConnectionPresetUsed(id))
+  )
+  ipcMain.handle('phase1:list-db-vault-credentials', async () =>
+    wrap(() => listDbVaultCredentials())
+  )
+  ipcMain.handle('phase1:save-db-vault-credential', async (_event, input: DbVaultCredentialInput) =>
+    wrap(() => setDbVaultCredential(input))
+  )
+  ipcMain.handle('phase1:delete-db-vault-credential', async (_event, name: string) =>
+    wrap(() => deleteDbVaultCredential(name))
+  )
+  ipcMain.handle('phase1:resolve-db-connection-material', async (_event, connection: AwsConnection, input: DbConnectionResolveInput) =>
+    wrap(() => resolveDbConnectionMaterial(connection, input))
   )
   ipcMain.handle('phase1:get-aws-capability-snapshot', async (_event, region: string, subjects?: AwsCapabilitySubject[]) =>
     wrap(() => getAwsCapabilitySnapshot(region, subjects))
