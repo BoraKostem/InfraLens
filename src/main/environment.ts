@@ -163,19 +163,14 @@ function isWindowsBatchCommand(command: string): boolean {
   return extension === '.cmd' || extension === '.bat'
 }
 
-function quoteWindowsShellArgument(value: string): string {
-  return `"${value.replace(/"/g, '""')}"`
-}
-
 function buildProbeExecution(command: string, args: string[]): { command: string; args: string[] } {
   if (!isWindowsBatchCommand(command)) {
     return { command, args }
   }
 
-  const invocation = [quoteWindowsShellArgument(command), ...args.map(quoteWindowsShellArgument)].join(' ')
   return {
     command: 'cmd.exe',
-    args: ['/d', '/s', '/c', invocation]
+    args: ['/d', '/c', command, ...args]
   }
 }
 
