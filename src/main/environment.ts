@@ -27,6 +27,45 @@ type ToolProbeSpec = {
   detailWhenMissing: string
 }
 
+function listGoogleCloudCommandCandidates(): string[] {
+  if (process.platform !== 'win32') {
+    return ['gcloud']
+  }
+
+  const localAppData = process.env.LOCALAPPDATA ?? path.join(os.homedir(), 'AppData', 'Local')
+  const programFiles = process.env.ProgramFiles ?? 'C:\\Program Files'
+  const programFilesX86 = process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)'
+
+  return [
+    'gcloud.cmd',
+    'gcloud.exe',
+    'gcloud',
+    path.join(localAppData, 'Google', 'Cloud SDK', 'google-cloud-sdk', 'bin', 'gcloud.cmd'),
+    path.join(programFiles, 'Google', 'Cloud SDK', 'google-cloud-sdk', 'bin', 'gcloud.cmd'),
+    path.join(programFilesX86, 'Google', 'Cloud SDK', 'google-cloud-sdk', 'bin', 'gcloud.cmd'),
+    'C:\\ProgramData\\chocolatey\\lib\\gcloudsdk\\tools\\google-cloud-sdk\\bin\\gcloud.cmd'
+  ]
+}
+
+function listAzureCliCommandCandidates(): string[] {
+  if (process.platform !== 'win32') {
+    return ['az']
+  }
+
+  const localAppData = process.env.LOCALAPPDATA ?? path.join(os.homedir(), 'AppData', 'Local')
+  const programFiles = process.env.ProgramFiles ?? 'C:\\Program Files'
+  const programFilesX86 = process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)'
+
+  return [
+    'az.cmd',
+    'az.exe',
+    'az',
+    path.join(programFiles, 'Microsoft SDKs', 'Azure', 'CLI2', 'wbin', 'az.cmd'),
+    path.join(programFilesX86, 'Microsoft SDKs', 'Azure', 'CLI2', 'wbin', 'az.cmd'),
+    path.join(localAppData, 'Programs', 'Microsoft SDKs', 'Azure', 'CLI2', 'wbin', 'az.cmd')
+  ]
+}
+
 const TOOL_SPECS: ToolProbeSpec[] = [
   {
     id: 'aws-cli',
@@ -44,7 +83,7 @@ const TOOL_SPECS: ToolProbeSpec[] = [
     label: 'Google Cloud CLI',
     required: false,
     overrideId: 'gcloud-cli',
-    commands: process.platform === 'win32' ? ['gcloud.cmd', 'gcloud.exe', 'gcloud'] : ['gcloud'],
+    commands: listGoogleCloudCommandCandidates(),
     versionArgs: ['--version'],
     versionPattern: /Google Cloud SDK\s+([^\s]+)/i,
     remediation: 'Install Google Cloud CLI if you want GCP shell flows, auth inspection, and project-scoped operator actions.',
@@ -55,7 +94,7 @@ const TOOL_SPECS: ToolProbeSpec[] = [
     label: 'Azure CLI',
     required: false,
     overrideId: 'azure-cli',
-    commands: process.platform === 'win32' ? ['az.cmd', 'az.exe', 'az'] : ['az'],
+    commands: listAzureCliCommandCandidates(),
     versionArgs: ['version', '--output', 'json'],
     versionPattern: /"azure-cli"\s*:\s*"([^"]+)"/i,
     remediation: 'Install Azure CLI if you want Azure terminal flows, subscription inspection, and resource-group operator actions.',
@@ -126,8 +165,29 @@ function probeCommand(
 
     try {
       const child = execFile(command, args, { env, timeout: 12000, windowsHide: true }, async (error, stdout, stderr) => {
+        const output = summarizeOutput(stdout, stderr)
+
         if (error) {
-          finish({ found: false, path: '', output: '' })
+          const errorCode = typeof error === 'object' && error && 'code' in error ? String(error.code ?? '') : ''
+          const canTreatAsInstalled = Boolean(output) && errorCode !== 'ENOENT' && errorCode !== 'EINVAL'
+
+          if (!canTreatAsInstalled) {
+            finish({ found: false, path: '', output: '' })
+            return
+          }
+
+          let resolvedPath = command
+          try {
+            resolvedPath = await resolveExecutablePath(command, env)
+          } catch {
+            resolvedPath = command
+          }
+
+          finish({
+            found: true,
+            path: resolvedPath,
+            output
+          })
           return
         }
 
@@ -141,7 +201,7 @@ function probeCommand(
         finish({
           found: true,
           path: resolvedPath,
-          output: summarizeOutput(stdout, stderr)
+          output
         })
       })
 
@@ -165,16 +225,30 @@ async function detectTool(spec: ToolProbeSpec, env: Record<string, string>): Pro
     const versionMatch = result.output.match(spec.versionPattern)
     const version = versionMatch?.[1] ?? result.output.slice(0, 80)
 
+    if (versionMatch) {
+      return {
+        id: spec.id,
+        label: spec.label,
+        status: 'available',
+        found: true,
+        required: spec.required,
+        version,
+        path: result.path,
+        detail: `${spec.label} is available on this machine.`,
+        remediation: ''
+      }
+    }
+
     return {
       id: spec.id,
       label: spec.label,
-      status: 'available',
+      status: 'warning',
       found: true,
       required: spec.required,
-      version,
+      version: version || 'detected',
       path: result.path,
-      detail: `${spec.label} is available on this machine.`,
-      remediation: ''
+      detail: `${spec.label} executable was found, but the version probe did not return the expected output.`,
+      remediation: spec.remediation
     }
   }
 
