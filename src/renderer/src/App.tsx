@@ -544,6 +544,10 @@ function formatScreenLabel(screen: Screen): string {
   }
 }
 
+function isRestorableAwsScreen(screen: Screen): boolean {
+  return screen !== 'profiles' && screen !== 'settings'
+}
+
 function PlaceholderScreen({ service }: { service: ServiceDescriptor }) {
   return (
     <>
@@ -737,6 +741,8 @@ export function App() {
   const [servicesHydrated, setServicesHydrated] = useState(false)
   const [settingsHydrated, setSettingsHydrated] = useState(false)
   const [screen, setScreen] = useState<Screen>('profiles')
+  const [lastAwsScreen, setLastAwsScreen] = useState<Screen>('overview')
+  const [pendingAwsScreenRestore, setPendingAwsScreenRestore] = useState<Screen | null>(null)
   const [navOpen, setNavOpen] = useState(true)
   const [visitedScreens, setVisitedScreens] = useState<Screen[]>(['profiles'])
   const [providers, setProviders] = useState<ProviderDescriptor[]>([])
@@ -799,6 +805,12 @@ export function App() {
       })
       .finally(() => setServicesHydrated(true))
   }, [activeProviderId])
+
+  useEffect(() => {
+    if (activeProviderId === 'aws' && isRestorableAwsScreen(screen)) {
+      setLastAwsScreen(screen)
+    }
+  }, [activeProviderId, screen])
 
   useEffect(() => {
     void getAppReleaseInfo().then(setReleaseInfo).catch(() => {
@@ -1225,6 +1237,7 @@ export function App() {
 
   function handleSelectProvider(providerId: CloudProviderId): void {
     const providerChanged = providerId !== activeProviderId
+    const returningToAws = providerChanged && providerId === 'aws'
 
     setProfileContextMenu(null)
     setProfileSearch('')
@@ -1233,14 +1246,25 @@ export function App() {
     setTerminalOpen(false)
 
     if (providerChanged) {
+      if (activeProviderId === 'aws' && isRestorableAwsScreen(screen)) {
+        setLastAwsScreen(screen)
+      }
       connectionState.clearActiveSession()
       connectionState.setProfile('')
       connectionState.setError('')
       setSelectedPreviewModeIds({})
+      setPendingAwsScreenRestore(returningToAws ? lastAwsScreen : null)
     }
 
     setActiveProviderId(providerId)
     setScreen('profiles')
+  }
+
+  function handleSelectAwsProfile(profileName: string, nextScreen?: Screen): void {
+    connectionState.selectProfile(profileName)
+    const restoreScreen = nextScreen ?? pendingAwsScreenRestore ?? lastAwsScreen ?? 'overview'
+    setPendingAwsScreenRestore(null)
+    setScreen(restoreScreen)
   }
 
   function handleSelectPreviewMode(modeId: string): void {
@@ -2108,7 +2132,7 @@ export function App() {
                         </div>
                       </div>
                       <div className="button-row profile-catalog-actions">
-                        <button type="button" className="accent" onClick={() => { connectionState.selectProfile(entry.name) }}>
+                        <button type="button" className="accent" onClick={() => { handleSelectAwsProfile(entry.name) }}>
                           {connectionState.profile === entry.name ? 'Selected' : 'Select'}
                         </button>
                         <button type="button" className={connectionState.pinnedProfileNames.includes(entry.name) ? 'active' : ''} onClick={() => connectionState.togglePinnedProfile(entry.name)}>
@@ -2404,8 +2428,7 @@ export function App() {
                 className={`rail-avatar ${connectionState.profile === pinnedName ? 'active' : ''}`}
                 onClick={() => {
                   setProfileContextMenu(null)
-                  connectionState.selectProfile(pinnedName)
-                  setScreen('overview')
+                  handleSelectAwsProfile(pinnedName, 'overview')
                 }}
                 onContextMenu={(event) => {
                   event.preventDefault()
@@ -2617,7 +2640,7 @@ export function App() {
                     </div>
                   </div>
                   <div className="button-row">
-                    <button type="button" className="accent" onClick={() => { connectionState.selectProfile(entry.name) }}>
+                    <button type="button" className="accent" onClick={() => { handleSelectAwsProfile(entry.name) }}>
                       {connectionState.profile === entry.name ? 'Selected' : 'Select'}
                     </button>
                     <button type="button" className={connectionState.pinnedProfileNames.includes(entry.name) ? 'active' : ''} onClick={() => connectionState.togglePinnedProfile(entry.name)}>
