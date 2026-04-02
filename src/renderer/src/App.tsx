@@ -548,6 +548,10 @@ function isRestorableAwsScreen(screen: Screen): boolean {
   return screen !== 'profiles' && screen !== 'settings'
 }
 
+function getAwsScreenMemoryKey(profileName: string | null | undefined): string {
+  return (profileName ?? '').trim()
+}
+
 function PlaceholderScreen({ service }: { service: ServiceDescriptor }) {
   return (
     <>
@@ -741,8 +745,7 @@ export function App() {
   const [servicesHydrated, setServicesHydrated] = useState(false)
   const [settingsHydrated, setSettingsHydrated] = useState(false)
   const [screen, setScreen] = useState<Screen>('profiles')
-  const [lastAwsScreen, setLastAwsScreen] = useState<Screen>('overview')
-  const [pendingAwsScreenRestore, setPendingAwsScreenRestore] = useState<Screen | null>(null)
+  const [lastAwsScreenByProfile, setLastAwsScreenByProfile] = useState<Partial<Record<string, Screen>>>({})
   const [navOpen, setNavOpen] = useState(true)
   const [visitedScreens, setVisitedScreens] = useState<Screen[]>(['profiles'])
   const [providers, setProviders] = useState<ProviderDescriptor[]>([])
@@ -805,12 +808,6 @@ export function App() {
       })
       .finally(() => setServicesHydrated(true))
   }, [activeProviderId])
-
-  useEffect(() => {
-    if (activeProviderId === 'aws' && isRestorableAwsScreen(screen)) {
-      setLastAwsScreen(screen)
-    }
-  }, [activeProviderId, screen])
 
   useEffect(() => {
     void getAppReleaseInfo().then(setReleaseInfo).catch(() => {
@@ -1006,7 +1003,6 @@ export function App() {
   const totalProfiles = isAwsProviderActive ? connectionState.profiles.length : activeProviderModes.length
   const totalPinnedProfiles = isAwsProviderActive ? connectionState.pinnedProfileNames.length : providerWorkspaceCount
   const totalVisibleServices = services.length
-  const awsReturnTargetLabel = formatScreenLabel(lastAwsScreen)
   const selectedPreviewModeId = activePreviewProviderId ? selectedPreviewModeIds[activePreviewProviderId] ?? '' : ''
   const selectedPreviewMode = activePreviewProviderId
     ? activeProviderModes.find((mode) => mode.id === selectedPreviewModeId) ?? null
@@ -1128,6 +1124,9 @@ export function App() {
           : `${activeProvider.shortLabel} preview`
 
   const selectedService = (services.find((service) => service.id === screen) ?? null) as ServiceDescriptor | null
+  const activeAwsScreenMemoryKey = getAwsScreenMemoryKey(
+    connectionState.activeSession?.sourceProfile || connectionState.selectedProfile?.name || connectionState.profile
+  )
   const activeCacheTag = screenCacheTag(screen)
   const activePageNonce = pageRefreshNonceByScreen[screen] ?? 0
   const isCurrentScreenRefreshing = refreshState?.screen === screen
@@ -1169,6 +1168,19 @@ export function App() {
   const onboardingStepIndex = ENVIRONMENT_ONBOARDING_STEPS.indexOf(environmentOnboardingStep)
   const onboardingBackEnabled = onboardingStepIndex > 0
   const onboardingNextLabel = onboardingStepIndex === ENVIRONMENT_ONBOARDING_STEPS.length - 1 ? 'Finish onboarding' : 'Next step'
+
+  useEffect(() => {
+    if (activeProviderId !== 'aws' || !activeAwsScreenMemoryKey || !isRestorableAwsScreen(screen)) {
+      return
+    }
+
+    setLastAwsScreenByProfile((current) => (
+      current[activeAwsScreenMemoryKey] === screen
+        ? current
+        : { ...current, [activeAwsScreenMemoryKey]: screen }
+    ))
+  }, [activeAwsScreenMemoryKey, activeProviderId, screen])
+
   function togglePinnedService(serviceId: ServiceId) {
     setPinnedServiceIds((current) =>
       current.includes(serviceId)
@@ -1238,7 +1250,6 @@ export function App() {
 
   function handleSelectProvider(providerId: CloudProviderId): void {
     const providerChanged = providerId !== activeProviderId
-    const returningToAws = providerChanged && providerId === 'aws'
 
     setProfileContextMenu(null)
     setProfileSearch('')
@@ -1247,14 +1258,10 @@ export function App() {
     setTerminalOpen(false)
 
     if (providerChanged) {
-      if (activeProviderId === 'aws' && isRestorableAwsScreen(screen)) {
-        setLastAwsScreen(screen)
-      }
       connectionState.clearActiveSession()
       connectionState.setProfile('')
       connectionState.setError('')
       setSelectedPreviewModeIds({})
-      setPendingAwsScreenRestore(returningToAws ? lastAwsScreen : null)
     }
 
     setActiveProviderId(providerId)
@@ -1263,8 +1270,7 @@ export function App() {
 
   function handleSelectAwsProfile(profileName: string, nextScreen?: Screen): void {
     connectionState.selectProfile(profileName)
-    const restoreScreen = nextScreen ?? pendingAwsScreenRestore ?? lastAwsScreen ?? 'overview'
-    setPendingAwsScreenRestore(null)
+    const restoreScreen = nextScreen ?? lastAwsScreenByProfile[getAwsScreenMemoryKey(profileName)] ?? 'overview'
     setScreen(restoreScreen)
   }
 
@@ -2087,7 +2093,7 @@ export function App() {
                 <h3>{isAwsProviderActive ? 'Choose an AWS profile from the catalog' : `${activeProvider.label} connection modes`}</h3>
                 <p className="hero-path">
                   {isAwsProviderActive
-                    ? `Search by profile name, pin frequent targets, or remove credentials managed by the app. Selecting a profile returns you to ${awsReturnTargetLabel}.`
+                    ? 'Search by profile name, pin frequent targets, or remove credentials managed by the app. Each AWS profile returns to its own last workspace.'
                     : `${activeProvider.label} onboarding is staged here first so the adaptive rail, terminal, and diagnostics can attach to the same provider-aware selector later.`}
                 </p>
               </div>
