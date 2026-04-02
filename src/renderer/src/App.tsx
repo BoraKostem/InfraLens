@@ -112,6 +112,13 @@ type EnvironmentOnboardingState = {
   lastStep: EnvironmentOnboardingStep
 }
 type FocusMap = Partial<Record<NavigationFocus['service'], TokenizedFocus>>
+type ProviderConnectionMode = {
+  id: string
+  label: string
+  detail: string
+  status: 'Live now' | 'Phase 4 preview'
+}
+
 const NAV_HIDDEN_SERVICE_IDS = new Set<ServiceId>(['overview', 'session-hub', 'compare'])
 const ENVIRONMENT_ONBOARDING_STEPS: EnvironmentOnboardingStep[] = ['profile', 'region', 'tooling', 'access']
 const SERVICE_CATEGORY_ORDER = [
@@ -200,6 +207,69 @@ const IMPLEMENTED_SCREENS = new Set<ServiceId>([
 
 const DEFAULT_PROVIDER_ID: CloudProviderId = 'aws'
 
+const PROVIDER_CONNECTION_MODES: Record<CloudProviderId, ProviderConnectionMode[]> = {
+  aws: [
+    {
+      id: 'aws-local-profiles',
+      label: 'Local profile catalog',
+      detail: 'Reuse profiles discovered from local config or credentials files, plus vault-backed profiles created inside the app.',
+      status: 'Live now'
+    },
+    {
+      id: 'aws-assumed-roles',
+      label: 'Assumed role sessions',
+      detail: 'Keep Session Hub handoffs and role activation flows as the AWS source context for shared workspaces.',
+      status: 'Live now'
+    },
+    {
+      id: 'aws-region-binding',
+      label: 'Region-bound shell context',
+      detail: 'Persist a single AWS region across Overview, service consoles, terminal, and direct access flows.',
+      status: 'Live now'
+    }
+  ],
+  gcp: [
+    {
+      id: 'gcp-adc',
+      label: 'Application default credentials',
+      detail: 'Stage a selector for local ADC sessions before GCP services land in thin vertical slices.',
+      status: 'Phase 4 preview'
+    },
+    {
+      id: 'gcp-service-account',
+      label: 'Service account handoff',
+      detail: 'Prepare a secure import path for service account JSON without fragmenting the shared shell.',
+      status: 'Phase 4 preview'
+    },
+    {
+      id: 'gcp-project-context',
+      label: 'Project and location context',
+      detail: 'Reserve project and location slots so the rail, terminal, and diagnostics can pivot cleanly later.',
+      status: 'Phase 4 preview'
+    }
+  ],
+  azure: [
+    {
+      id: 'azure-subscription',
+      label: 'Subscription selector',
+      detail: 'Stage subscription-focused onboarding without breaking the shared workspaces that already exist.',
+      status: 'Phase 4 preview'
+    },
+    {
+      id: 'azure-tenant',
+      label: 'Tenant-aware access flow',
+      detail: 'Prepare room for tenant selection and identity validation before the first Azure provider slices ship.',
+      status: 'Phase 4 preview'
+    },
+    {
+      id: 'azure-cli-assist',
+      label: 'CLI-assisted verification',
+      detail: 'Reserve shell messaging for future device login, `az` validation, and scoped diagnostics.',
+      status: 'Phase 4 preview'
+    }
+  ]
+}
+
 const SOFT_REFRESH_SCREENS = new Set<Screen>([
   'overview',
   'compare',
@@ -280,6 +350,22 @@ function getRoleDisplayName(roleArn?: string | null): string {
   return slashIndex >= 0 ? trimmed.slice(slashIndex + 1) : trimmed
 }
 
+function formatScreenLabel(screen: Screen): string {
+  switch (screen) {
+    case 'profiles':
+      return 'Connection Selector'
+    case 'settings':
+      return 'Settings'
+    case 'direct-access':
+      return 'Direct Resource Access'
+    default:
+      return screen
+        .split('-')
+        .map((part) => part[0]?.toUpperCase() + part.slice(1))
+        .join(' ')
+  }
+}
+
 function PlaceholderScreen({ service }: { service: ServiceDescriptor }) {
   return (
     <>
@@ -312,6 +398,47 @@ function PlaceholderScreen({ service }: { service: ServiceDescriptor }) {
         </div>
       </section>
     </>
+  )
+}
+
+function ProviderPreviewScreen({
+  provider,
+  screen,
+  description
+}: {
+  provider: ProviderDescriptor
+  screen: Screen
+  description: string
+}) {
+  const modes = PROVIDER_CONNECTION_MODES[provider.id]
+
+  return (
+    <section className="panel stack provider-preview-shell">
+      <div className="catalog-page-header">
+        <div>
+          <div className="eyebrow">{provider.label} Preview</div>
+          <h2>{formatScreenLabel(screen)} is staged behind the new provider-aware shell.</h2>
+          <p className="hero-path">{description}</p>
+        </div>
+        <span className="enterprise-mode-pill read-only">Phase 4 preview</span>
+      </div>
+      <div className="provider-preview-grid">
+        {modes.map((mode) => (
+          <article key={mode.id} className="profile-catalog-card provider-mode-card">
+            <div className="profile-catalog-status">
+              <span>{mode.label}</span>
+              <strong>{mode.status}</strong>
+            </div>
+            <p className="hero-path provider-mode-card-copy">{mode.detail}</p>
+          </article>
+        ))}
+      </div>
+      <div className="profile-catalog-empty provider-preview-note">
+        <div className="eyebrow">Shared Shell</div>
+        <h3>{provider.label} can be selected now without leaking AWS state into shared workspaces.</h3>
+        <p className="hero-path">Connection wiring, adaptive rail behavior, terminal context switching, and provider diagnostics continue in the next Phase 4 branches.</p>
+      </div>
+    </section>
   )
 }
 
@@ -435,7 +562,7 @@ export function App() {
   const [navOpen, setNavOpen] = useState(true)
   const [visitedScreens, setVisitedScreens] = useState<Screen[]>(['profiles'])
   const [providers, setProviders] = useState<ProviderDescriptor[]>([])
-  const [activeProviderId] = useState<CloudProviderId>(DEFAULT_PROVIDER_ID)
+  const [activeProviderId, setActiveProviderId] = useState<CloudProviderId>(DEFAULT_PROVIDER_ID)
   const [workspaceCatalog, setWorkspaceCatalog] = useState<WorkspaceCatalog | null>(null)
   const [services, setServices] = useState<ServiceDescriptor[]>([])
   const [pinnedServiceIds, setPinnedServiceIds] = useState<ServiceId[]>([])
@@ -663,9 +790,6 @@ export function App() {
       .filter((service): service is ServiceDescriptor => service !== null && !NAV_HIDDEN_SERVICE_IDS.has(service.id))
   }, [pinnedServiceIds, services])
 
-  const totalProfiles = connectionState.profiles.length
-  const totalPinnedProfiles = connectionState.pinnedProfileNames.length
-  const totalVisibleServices = services.filter((service) => !NAV_HIDDEN_SERVICE_IDS.has(service.id)).length
   const activeProvider =
     providers.find((provider) => provider.id === activeProviderId) ?? {
       id: DEFAULT_PROVIDER_ID,
@@ -676,6 +800,18 @@ export function App() {
       locationLabel: 'Region',
       connectionLabel: 'Provider profile or active session'
     }
+  const isAwsProviderActive = activeProviderId === 'aws'
+  const activeShellConnected = isAwsProviderActive && connectionState.connected
+  const activeShellConnection = isAwsProviderActive ? connectionState.connection : null
+  const activeProviderModes = PROVIDER_CONNECTION_MODES[activeProviderId]
+  const sharedWorkspaceCount = workspaceCatalog?.sharedWorkspaces.reduce((total, section) => total + section.items.length, 0) ?? 0
+  const providerWorkspaceCount = workspaceCatalog?.providerWorkspaces.reduce((total, section) => total + section.items.length, 0) ?? 0
+  const totalProfiles = isAwsProviderActive ? connectionState.profiles.length : activeProviderModes.length
+  const totalPinnedProfiles = isAwsProviderActive ? connectionState.pinnedProfileNames.length : providerWorkspaceCount
+  const totalVisibleServices = services.filter((service) => !NAV_HIDDEN_SERVICE_IDS.has(service.id)).length
+  const serviceNavEnabled = activeProvider.availability === 'available' && connectionState.connected
+  const selectorPrimaryStatLabel = isAwsProviderActive ? 'Profiles' : 'Connection modes'
+  const selectorSecondaryStatLabel = isAwsProviderActive ? 'Pinned' : 'Provider workspaces'
   const providerProfileLabel = activeProvider.profileLabel.toLowerCase()
   const providerLocationLabel = activeProvider.locationLabel.toLowerCase()
   const auditSummary = useMemo<AuditSummary>(() => ({
@@ -736,37 +872,41 @@ export function App() {
     return connectionState.profiles.filter((entry) => entry.name.toLowerCase().includes(query))
   }, [connectionState.profiles, profileSearch])
 
-  const sidebarProfileLabel = connectionState.selectedProfile?.name || connectionState.profile || ''
-  const profileBadge = getProfileBadge(sidebarProfileLabel)
-  const primaryProfileLabel = connectionState.activeSession?.sourceProfile || connectionState.selectedProfile?.name || connectionState.profile || 'No profile selected'
-  const assumedRoleLabel = connectionState.activeSession
+  const primaryProfileLabel = isAwsProviderActive
+    ? connectionState.activeSession?.sourceProfile || connectionState.selectedProfile?.name || connectionState.profile || 'No profile selected'
+    : `${activeProvider.label} preview`
+  const assumedRoleLabel = isAwsProviderActive && connectionState.activeSession
     ? `Assumed role: ${getRoleDisplayName(connectionState.activeSession.roleArn) || connectionState.activeSession.label}`
     : ''
-  const profileMetaLabel = connectionState.activeSession
-    ? assumedRoleLabel
-    : connectionState.selectedProfile
-      ? `${connectionState.selectedProfile.source} profile`
-      : 'Click to select a profile'
-  const providerMetaLabel = connectionState.providerConnection
+  const profileMetaLabel = !isAwsProviderActive
+    ? activeProvider.connectionLabel
+    : connectionState.activeSession
+      ? assumedRoleLabel
+      : connectionState.selectedProfile
+        ? `${connectionState.selectedProfile.source} profile`
+        : 'Click to select a profile'
+  const providerMetaLabel = isAwsProviderActive && connectionState.providerConnection
     ? `${activeProvider.locationLabel}: ${connectionState.providerConnection.locationLabel}`
     : activeProvider.connectionLabel
   const overviewService = services.find((service) => service.id === 'overview')
   const sessionHubService = services.find((service) => service.id === 'session-hub')
   const activityLabel = awsActivity.pendingCount > 0
     ? `Fetching ${awsActivity.pendingCount} ${activeProvider.shortLabel} request${awsActivity.pendingCount === 1 ? '' : 's'}`
-    : connectionState.connection
+    : activeShellConnection
       ? `Ready${awsActivity.lastCompletedAt ? ` · last response ${new Date(awsActivity.lastCompletedAt).toLocaleTimeString()}` : ''}`
-      : 'Idle'
+      : isAwsProviderActive
+        ? 'Idle'
+        : `${activeProvider.shortLabel} preview`
 
   const selectedService = (services.find((service) => service.id === screen) ?? null) as ServiceDescriptor | null
   const activeCacheTag = screenCacheTag(screen)
   const activePageNonce = pageRefreshNonceByScreen[screen] ?? 0
   const isCurrentScreenRefreshing = refreshState?.screen === screen
   const prefersSoftRefresh = SOFT_REFRESH_SCREENS.has(screen)
-  const showCatalogFab = screen === 'profiles' && !showEnvironmentOnboarding
-  const connectionScopeKey = connectionState.connection
-    ? `${activeProviderId}:${connectionState.connection.sessionId}:${connectionState.connection.region}`
-    : 'disconnected'
+  const showCatalogFab = screen === 'profiles' && !showEnvironmentOnboarding && isAwsProviderActive
+  const connectionScopeKey = activeShellConnection
+    ? `${activeProviderId}:${activeShellConnection.sessionId}:${activeShellConnection.region}`
+    : `provider:${activeProviderId}:disconnected`
   const versionLabel = releaseInfo?.currentVersion ?? ''
   const releaseStateLabel = !releaseInfo?.supportsAutoUpdate
     ? 'Unavailable in dev build'
@@ -807,7 +947,7 @@ export function App() {
   }
 
   function navigateToService(serviceId: ServiceId, region?: string): void {
-    if (region) {
+    if (isAwsProviderActive && region) {
       connectionState.setRegion(region)
     }
     setFocusMap((current) => {
@@ -865,6 +1005,25 @@ export function App() {
     navigateToService(serviceId, region)
   }
 
+  function handleSelectProvider(providerId: CloudProviderId): void {
+    const providerChanged = providerId !== activeProviderId
+
+    setProfileContextMenu(null)
+    setProfileSearch('')
+    setFabMode('closed')
+    setPendingTerminalCommand(null)
+    setTerminalOpen(false)
+
+    if (providerChanged) {
+      connectionState.clearActiveSession()
+      connectionState.setProfile('')
+      connectionState.setError('')
+    }
+
+    setActiveProviderId(providerId)
+    setScreen('profiles')
+  }
+
   function renderServiceLink(service: ServiceDescriptor, options?: { pinned?: boolean }) {
     const isPinned = pinnedServiceIds.includes(service.id)
     return (
@@ -872,7 +1031,7 @@ export function App() {
         <button
           type="button"
           className={`service-link ${options?.pinned ? 'service-link-pinned' : ''} ${screen === service.id ? 'active' : ''}`}
-          disabled={!connectionState.connected}
+          disabled={!serviceNavEnabled}
           onClick={() => navigateToService(service.id)}
         >
           <span className="service-link-copy">
@@ -886,7 +1045,7 @@ export function App() {
           className={`pin-toggle ${isPinned ? 'active' : ''}`}
           aria-label={isPinned ? `Unpin ${service.label}` : `Pin ${service.label}`}
           title={isPinned ? `Unpin ${service.label}` : `Pin ${service.label}`}
-          disabled={!connectionState.connected}
+          disabled={!serviceNavEnabled}
           onClick={() => togglePinnedService(service.id)}
         >
           {isPinned ? '★' : '☆'}
@@ -932,17 +1091,17 @@ export function App() {
   }, [fabMode, showCatalogFab])
 
   useEffect(() => {
-    if (enterpriseSettings.accessMode !== 'operator' && terminalOpen) {
+    if ((enterpriseSettings.accessMode !== 'operator' || !isAwsProviderActive) && terminalOpen) {
       setTerminalOpen(false)
     }
-  }, [enterpriseSettings.accessMode, terminalOpen])
+  }, [enterpriseSettings.accessMode, isAwsProviderActive, terminalOpen])
 
   useEffect(() => {
     if (!appSettings?.terminal.autoOpen || enterpriseSettings.accessMode !== 'operator') {
       return
     }
 
-    if (!connectionState.connected || !connectionState.connection) {
+    if (!activeShellConnected || !activeShellConnection) {
       return
     }
 
@@ -952,7 +1111,7 @@ export function App() {
 
     terminalAutoOpenedScopeRef.current = connectionScopeKey
     setTerminalOpen(true)
-  }, [appSettings?.terminal.autoOpen, connectionScopeKey, connectionState.connected, connectionState.connection, enterpriseSettings.accessMode])
+  }, [activeShellConnected, activeShellConnection, appSettings?.terminal.autoOpen, connectionScopeKey, enterpriseSettings.accessMode])
 
   useEffect(() => {
     function handleBlockedAction(event: Event): void {
@@ -978,10 +1137,10 @@ export function App() {
 
   // Redirect to profiles when connection fails (e.g. SSO session expired)
   useEffect(() => {
-    if (connectionState.error && !connectionState.connected && connectionState.connection) {
+    if (isAwsProviderActive && connectionState.error && !connectionState.connected && connectionState.connection) {
       setScreen(connectionState.activeSession ? 'session-hub' : 'profiles')
     }
-  }, [connectionState.activeSession, connectionState.connected, connectionState.connection, connectionState.error])
+  }, [connectionState.activeSession, connectionState.connected, connectionState.connection, connectionState.error, isAwsProviderActive])
 
   useEffect(() => {
     setRefreshState((current) => {
@@ -1003,7 +1162,7 @@ export function App() {
       return
     }
 
-    if (!connectionState.connected || !connectionState.connection || !activeCacheTag) {
+    if (!activeShellConnected || !activeShellConnection || !activeCacheTag) {
       return
     }
 
@@ -1034,13 +1193,17 @@ export function App() {
     return () => window.clearInterval(timerId)
   }, [
     activeCacheTag,
+    activeShellConnected,
+    activeShellConnection,
     appSettings?.refresh,
-    connectionState.connected,
-    connectionState.connection,
     screen
   ])
 
   function handlePageRefresh(): void {
+    if (!activeShellConnected || !activeShellConnection) {
+      return
+    }
+
     const refreshTags = refreshTagsForScreen(screen)
 
     if (refreshTags.length === 0) {
@@ -1058,6 +1221,10 @@ export function App() {
   }
 
   function handleOpenTerminalCommand(command: string): void {
+    if (!isAwsProviderActive) {
+      return
+    }
+
     setTerminalOpen(true)
     setPendingTerminalCommand({
       id: Date.now(),
@@ -1377,7 +1544,7 @@ export function App() {
     onboardingPrimaryActionLabel = 'Open settings'
     onboardingPrimaryAction = () => dismissEnvironmentOnboarding('settings')
     onboardingSecondaryActionLabel = 'Go to overview'
-    onboardingSecondaryAction = connectionState.connected ? () => setScreen('overview') : null
+    onboardingSecondaryAction = activeShellConnected ? () => setScreen('overview') : null
     onboardingDetailContent = (
       <div className="environment-onboarding-grid">
         <section className="environment-onboarding-section environment-onboarding-section-wide">
@@ -1466,7 +1633,7 @@ export function App() {
     onboardingPrimaryActionLabel = 'Review security settings'
     onboardingPrimaryAction = () => dismissEnvironmentOnboarding('settings')
     onboardingSecondaryActionLabel = 'Open session hub'
-    onboardingSecondaryAction = connectionState.connected ? () => setScreen('session-hub') : null
+    onboardingSecondaryAction = activeShellConnected ? () => setScreen('session-hub') : null
     onboardingDetailContent = (
       <div className="environment-onboarding-grid">
         <section className="environment-onboarding-section">
@@ -1550,20 +1717,25 @@ export function App() {
         <section className="profile-catalog-shell">
           <div className="profile-catalog-hero">
             <div className="profile-catalog-hero-copy">
-              <div className="eyebrow">Profile Catalog</div>
-              <h2>Switch accounts without losing context.</h2>
+              <div className="eyebrow">Connection Selector</div>
+              <h2>{isAwsProviderActive ? 'Switch accounts without losing context.' : `Stage ${activeProvider.label} inside the shared multicloud shell.`}</h2>
               <p className="hero-path">
-                Pinned profiles stay in the rail, region stays global, and every workspace uses the same active provider context.
-                Security posture, audit history, and support exports now live in Settings.
+                {isAwsProviderActive
+                  ? 'Pinned AWS profiles stay in the rail, region stays global, and every workspace uses the same provider context. Security posture, audit history, and support exports now live in Settings.'
+                  : `${activeProvider.label} now has a provider-aware selector surface. The shell can switch providers without leaking AWS state into shared workspaces while deeper onboarding lands in the next branches.`}
               </p>
             </div>
             <div className="profile-catalog-stats" aria-label="Profile catalog summary">
               <div className="profile-catalog-stat">
-                <span>Profiles</span>
+                <span>Providers</span>
+                <strong>{providers.length || 1}</strong>
+              </div>
+              <div className="profile-catalog-stat">
+                <span>{selectorPrimaryStatLabel}</span>
                 <strong>{totalProfiles}</strong>
               </div>
               <div className="profile-catalog-stat">
-                <span>Pinned</span>
+                <span>{selectorSecondaryStatLabel}</span>
                 <strong>{totalPinnedProfiles}</strong>
               </div>
               <div className="profile-catalog-stat">
@@ -1573,73 +1745,138 @@ export function App() {
             </div>
           </div>
           <div className="panel stack profile-catalog-panel">
+            <div className="provider-selector-grid">
+              {providers.map((provider) => (
+                <button
+                  key={provider.id}
+                  type="button"
+                  className={`provider-selector-card ${provider.id === activeProviderId ? 'active' : ''}`}
+                  onClick={() => handleSelectProvider(provider.id)}
+                >
+                  <div className="provider-selector-card-header">
+                    <div>
+                      <strong>{provider.label}</strong>
+                      <small>{provider.connectionLabel}</small>
+                    </div>
+                    <span className={`enterprise-mode-pill ${provider.availability === 'available' ? 'operator' : 'read-only'}`}>
+                      {provider.availability === 'available' ? 'Live' : 'Preview'}
+                    </span>
+                  </div>
+                  <div className="provider-selector-card-meta">
+                    <span>{provider.profileLabel}</span>
+                    <span>{provider.locationLabel}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
             <div className="catalog-page-header profile-catalog-toolbar">
               <div>
                 <div className="eyebrow">Workspace Access</div>
-                <h3>Choose a profile from the catalog</h3>
-                <p className="hero-path">Search by profile name, pin frequent targets, or remove credentials managed by the app.</p>
+                <h3>{isAwsProviderActive ? 'Choose an AWS profile from the catalog' : `${activeProvider.label} connection modes`}</h3>
+                <p className="hero-path">
+                  {isAwsProviderActive
+                    ? 'Search by profile name, pin frequent targets, or remove credentials managed by the app.'
+                    : `${activeProvider.label} onboarding is staged here first so the adaptive rail, terminal, and diagnostics can attach to the same provider-aware selector later.`}
+                </p>
               </div>
-              <label className="profile-search-field">
-                <span>Search profiles</span>
-                <input
-                  value={profileSearch}
-                  onChange={(event) => setProfileSearch(event.target.value)}
-                  placeholder="Search profiles"
-                />
-              </label>
+              {isAwsProviderActive ? (
+                <label className="profile-search-field">
+                  <span>Search AWS profiles</span>
+                  <input
+                    value={profileSearch}
+                    onChange={(event) => setProfileSearch(event.target.value)}
+                    placeholder="Search AWS profiles"
+                  />
+                </label>
+              ) : (
+                <div className="provider-selector-summary">
+                  <span>Shared workspaces</span>
+                  <strong>{sharedWorkspaceCount}</strong>
+                  <small>{providerWorkspaceCount} provider-specific entries will populate as rollout branches land.</small>
+                </div>
+              )}
             </div>
-          <div className="profile-catalog-grid">
-            {filteredProfiles.length > 0 ? (
-              filteredProfiles.map((entry) => (
-                <div key={entry.name} className={`profile-catalog-card ${connectionState.profile === entry.name ? 'active' : ''}`}>
-                  <div className="profile-catalog-card-header">
-                    <div className="profile-catalog-card-badge">{getProfileBadge(entry.name)}</div>
-                    <div>
-                      <div className="project-card-title">{entry.name}</div>
-                      <div className="project-card-meta">
-                        <span>{entry.source}</span>
-                        <span>{entry.region}</span>
+            <div className="profile-catalog-grid">
+              {isAwsProviderActive ? (
+                filteredProfiles.length > 0 ? (
+                  filteredProfiles.map((entry) => (
+                    <div key={entry.name} className={`profile-catalog-card ${connectionState.profile === entry.name ? 'active' : ''}`}>
+                      <div className="profile-catalog-card-header">
+                        <div className="profile-catalog-card-badge">{getProfileBadge(entry.name)}</div>
+                        <div>
+                          <div className="project-card-title">{entry.name}</div>
+                          <div className="project-card-meta">
+                            <span>{entry.source}</span>
+                            <span>{entry.region}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="profile-catalog-status">
+                        <span>{connectionState.profile === entry.name ? 'Active context' : 'Available'}</span>
+                        <div className="enterprise-card-status">
+                          <span className={`enterprise-mode-pill ${entry.managedByApp ? 'operator' : 'read-only'}`}>
+                            {entry.managedByApp ? 'Vault' : 'External'}
+                          </span>
+                          {connectionState.pinnedProfileNames.includes(entry.name) && <strong>Pinned</strong>}
+                        </div>
+                      </div>
+                      <div className="button-row profile-catalog-actions">
+                        <button type="button" className="accent" onClick={() => { connectionState.selectProfile(entry.name) }}>
+                          {connectionState.profile === entry.name ? 'Selected' : 'Select'}
+                        </button>
+                        <button type="button" className={connectionState.pinnedProfileNames.includes(entry.name) ? 'active' : ''} onClick={() => connectionState.togglePinnedProfile(entry.name)}>
+                          {connectionState.pinnedProfileNames.includes(entry.name) ? 'Unpin' : 'Pin'}
+                        </button>
+                        {entry.managedByApp && (
+                          <button
+                            type="button"
+                            disabled={enterpriseSettings.accessMode !== 'operator'}
+                            onClick={() => void handleDeleteProfile(entry.name)}
+                          >
+                            Delete
+                          </button>
+                        )}
                       </div>
                     </div>
+                  ))
+                ) : (
+                  <div className="profile-catalog-empty">
+                    <div className="eyebrow">No Matches</div>
+                    <h3>No profiles match "{profileSearch.trim()}"</h3>
+                    <p className="hero-path">Try a different search or add a new profile from the floating action button.</p>
                   </div>
-                  <div className="profile-catalog-status">
-                    <span>{connectionState.profile === entry.name ? 'Active context' : 'Available'}</span>
-                    <div className="enterprise-card-status">
-                      <span className={`enterprise-mode-pill ${entry.managedByApp ? 'operator' : 'read-only'}`}>
-                        {entry.managedByApp ? 'Vault' : 'External'}
-                      </span>
-                      {connectionState.pinnedProfileNames.includes(entry.name) && <strong>Pinned</strong>}
+                )
+              ) : (
+                activeProviderModes.map((mode) => (
+                  <article key={mode.id} className="profile-catalog-card provider-mode-card">
+                    <div className="profile-catalog-status">
+                      <span>{mode.label}</span>
+                      <strong>{mode.status}</strong>
                     </div>
-                  </div>
-                  <div className="button-row profile-catalog-actions">
-                    <button type="button" className="accent" onClick={() => { connectionState.selectProfile(entry.name) }}>
-                      {connectionState.profile === entry.name ? 'Selected' : 'Select'}
-                    </button>
-                    <button type="button" className={connectionState.pinnedProfileNames.includes(entry.name) ? 'active' : ''} onClick={() => connectionState.togglePinnedProfile(entry.name)}>
-                      {connectionState.pinnedProfileNames.includes(entry.name) ? 'Unpin' : 'Pin'}
-                    </button>
-                    {entry.managedByApp && (
-                      <button
-                        type="button"
-                        disabled={enterpriseSettings.accessMode !== 'operator'}
-                        onClick={() => void handleDeleteProfile(entry.name)}
-                      >
-                        Delete
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="profile-catalog-empty">
-                <div className="eyebrow">No Matches</div>
-                <h3>No profiles match "{profileSearch.trim()}"</h3>
-                <p className="hero-path">Try a different search or add a new profile from the floating action button.</p>
-              </div>
-            )}
-          </div>
+                    <p className="hero-path provider-mode-card-copy">{mode.detail}</p>
+                  </article>
+                ))
+              )}
+            </div>
           </div>
         </section>
+      )
+    }
+
+    if (activeProviderId !== 'aws' && targetScreen !== 'settings') {
+      const previewDescription =
+        targetScreen === 'direct-access'
+          ? 'Direct Resource Access stays in the shared shell, but provider-specific lookup, permission context, and diagnostics are still being wired for this provider.'
+          : targetService
+            ? SERVICE_DESCRIPTIONS[targetService.id]
+            : 'This workspace will attach to the provider-aware shell after the current preview sequence finishes.'
+
+      return (
+        <ProviderPreviewScreen
+          provider={activeProvider}
+          screen={targetScreen}
+          description={previewDescription}
+        />
       )
     }
 
@@ -1857,32 +2094,36 @@ export function App() {
         <button type="button" className={`rail-logo ${screen === 'settings' ? 'active' : ''}`} onClick={() => setScreen('settings')} aria-label="Open settings">
           <img src={appLogoUrl} alt={PRODUCT_BRAND_NAME} style={{ width: 28, height: 28, borderRadius: 6 }} />
         </button>
-        <div className="rail-divider" />
-        {connectionState.pinnedProfileNames.map((pinnedName) => (
-          <button
-            key={pinnedName}
-            type="button"
-            className={`rail-avatar ${connectionState.profile === pinnedName ? 'active' : ''}`}
-            onClick={() => {
-              setProfileContextMenu(null)
-              connectionState.selectProfile(pinnedName)
-              setScreen('overview')
-            }}
-            onContextMenu={(event) => {
-              event.preventDefault()
-              setProfileContextMenu({
-                profileName: pinnedName,
-                x: event.clientX,
-                y: event.clientY
-              })
-            }}
-            title={pinnedName}
-          >
-            {getProfileBadge(pinnedName)}
-          </button>
-        ))}
+        {isAwsProviderActive && (
+          <>
+            <div className="rail-divider" />
+            {connectionState.pinnedProfileNames.map((pinnedName) => (
+              <button
+                key={pinnedName}
+                type="button"
+                className={`rail-avatar ${connectionState.profile === pinnedName ? 'active' : ''}`}
+                onClick={() => {
+                  setProfileContextMenu(null)
+                  connectionState.selectProfile(pinnedName)
+                  setScreen('overview')
+                }}
+                onContextMenu={(event) => {
+                  event.preventDefault()
+                  setProfileContextMenu({
+                    profileName: pinnedName,
+                    x: event.clientX,
+                    y: event.clientY
+                  })
+                }}
+                title={pinnedName}
+              >
+                {getProfileBadge(pinnedName)}
+              </button>
+            ))}
+          </>
+        )}
         <div className="rail-actions">
-          <button type="button" className={screen === 'profiles' ? 'active' : ''} onClick={() => setScreen('profiles')}>ALL</button>
+          <button type="button" className={screen === 'profiles' ? 'active' : ''} onClick={() => setScreen('profiles')}>CNX</button>
         </div>
       </aside>
 
@@ -1926,16 +2167,24 @@ export function App() {
                 <span>{profileMetaLabel}</span>
               </button>
             </div>
-            <label className="field">
-              <span>{activeProvider.locationLabel}</span>
-              <select value={connectionState.region} onChange={(event) => connectionState.setRegion(event.target.value)}>
-                {connectionState.regions.map((entry) => (
-                  <option key={entry.id} value={entry.id}>
-                    {entry.id}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {isAwsProviderActive ? (
+              <label className="field">
+                <span>{activeProvider.locationLabel}</span>
+                <select value={connectionState.region} onChange={(event) => connectionState.setRegion(event.target.value)}>
+                  {connectionState.regions.map((entry) => (
+                    <option key={entry.id} value={entry.id}>
+                      {entry.id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <div className="enterprise-sidebar-note">
+                <span>{activeProvider.locationLabel}</span>
+                <strong>Selector staged</strong>
+                <small>{activeProvider.label} will bind location and credential context here in the next Phase 4 steps.</small>
+              </div>
+            )}
             <div className="enterprise-sidebar-note">
               <span>Mode</span>
               <strong>{enterpriseSettings.accessMode === 'operator' ? 'Operator' : 'Read-only'}</strong>
@@ -1949,7 +2198,7 @@ export function App() {
               type="button"
               className="sidebar-refresh-button"
               onClick={handlePageRefresh}
-              disabled={!activeCacheTag || !connectionState.connection || !connectionState.connected || isCurrentScreenRefreshing}
+              disabled={!activeCacheTag || !activeShellConnection || !activeShellConnected || isCurrentScreenRefreshing}
             >
               {isCurrentScreenRefreshing
                 ? 'Refreshing current view...'
@@ -1957,14 +2206,14 @@ export function App() {
                   ? `Refresh ${selectedService.label}`
                   : 'Refresh current page'}
             </button>
-            {connectionState.connected && activeCacheTag && (
+            {activeShellConnected && activeCacheTag && (
               <span className="sidebar-refresh-hint">
                 {prefersSoftRefresh ? 'Refresh keeps your current selection and filters.' : 'Refresh may rebuild the current view.'}
               </span>
             )}
           </div>
 
-          <div className={`service-nav-scroll ${!connectionState.connected ? 'nav-disabled' : ''}`}>
+          <div className={`service-nav-scroll ${!serviceNavEnabled ? 'nav-disabled' : ''}`}>
             <section className="service-group service-group-priority">
               <div className="service-group-title">Workspace</div>
               <div className="service-group-list">
@@ -1984,10 +2233,10 @@ export function App() {
                 <button
                   type="button"
                   className={`service-link overview-link ${screen === 'overview' ? 'active' : ''}`}
-                  disabled={!connectionState.connected}
+                  disabled={!serviceNavEnabled}
                   onClick={() => navigateToService('overview')}
                 >
-                  <span>{overviewService.label} ({connectionState.region})</span>
+                  <span>{isAwsProviderActive ? `${overviewService.label} (${connectionState.region})` : overviewService.label}</span>
                 </button>
                 <div className="pin-toggle pin-toggle-placeholder" aria-hidden="true" />
               </div>
@@ -1996,7 +2245,7 @@ export function App() {
               <button
                 type="button"
                 className={`service-link overview-link ${screen === 'direct-access' ? 'active' : ''}`}
-                disabled={!connectionState.connected}
+                disabled={!serviceNavEnabled}
                 onClick={() => setScreen('direct-access')}
               >
                 <span>Direct Resource Access</span>
@@ -2008,7 +2257,7 @@ export function App() {
                 <button
                   type="button"
                   className={`service-link overview-link ${screen === 'session-hub' ? 'active' : ''}`}
-                  disabled={!connectionState.connected}
+                  disabled={!serviceNavEnabled}
                   onClick={() => navigateToService('session-hub')}
                 >
                   <span>{sessionHubService.label}</span>
@@ -2329,11 +2578,13 @@ export function App() {
         <div className="app-footer-status">
           <strong>{activityLabel}</strong>
           <span>
-            {connectionState.connection
-              ? connectionState.connection.kind === 'profile'
-                ? `${activeProvider.profileLabel}=${connectionState.connection.profile} · ${activeProvider.locationLabel}=${connectionState.connection.region}`
-                : `Session=${connectionState.connection.label} · ${activeProvider.locationLabel}=${connectionState.connection.region}`
-              : `Select a ${providerProfileLabel} and ${providerLocationLabel} to enable CLI context.`}
+            {activeShellConnection
+              ? activeShellConnection.kind === 'profile'
+                ? `${activeProvider.profileLabel}=${activeShellConnection.profile} · ${activeProvider.locationLabel}=${activeShellConnection.region}`
+                : `Session=${activeShellConnection.label} · ${activeProvider.locationLabel}=${activeShellConnection.region}`
+              : isAwsProviderActive
+                ? `Select a ${providerProfileLabel} and ${providerLocationLabel} to enable CLI context.`
+                : `${activeProvider.label} is in preview mode. CLI context switching arrives in a later Phase 4 branch.`}
           </span>
         </div>
         {enterpriseSettings.accessMode === 'operator' && (
@@ -2341,7 +2592,7 @@ export function App() {
             type="button"
             className="accent footer-terminal-toggle"
             onClick={() => setTerminalOpen((current) => !current)}
-            disabled={!connectionState.connected}
+            disabled={!activeShellConnected}
             aria-label={terminalOpen ? 'Hide terminal' : 'Open terminal'}
             title={terminalOpen ? 'Hide terminal' : 'Open terminal'}
           >
@@ -2350,7 +2601,7 @@ export function App() {
         )}
       </footer>
       <AwsTerminalPanel
-        connection={connectionState.connection}
+        connection={activeShellConnection}
         open={terminalOpen}
         onClose={() => setTerminalOpen(false)}
         defaultCommand={appSettings?.terminal.defaultCommand}
