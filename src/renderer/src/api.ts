@@ -4,6 +4,9 @@ import type {
   AwsCapabilitySnapshot,
   AwsCapabilitySubject,
   AppSettings,
+  ComparisonBaseline,
+  ComparisonBaselineInput,
+  ComparisonBaselineSummary,
   ComparisonRequest,
   ComparisonResult,
   AccessKeyOwnership,
@@ -21,6 +24,7 @@ import type {
   CloudWatchQueryHistoryInput,
   CloudWatchSavedQuery,
   CloudWatchSavedQueryInput,
+  DirectAccessResolution,
   DbConnectionResolveInput,
   DbConnectionResolutionResult,
   DbConnectionPreset,
@@ -28,6 +32,8 @@ import type {
   DbConnectionPresetInput,
   DbVaultCredentialInput,
   DbVaultCredentialSummary,
+  EksUpgradePlan,
+  EksUpgradePlannerRequest,
   GovernanceTagDefaults,
   GovernanceTagDefaultsUpdate,
   AssumeRoleResult,
@@ -91,6 +97,7 @@ import type {
   LambdaFunctionDetail,
   LambdaFunctionSummary,
   LambdaInvokeResult,
+  Ec2InstanceDetail,
   Ec2InstanceSummary,
   KeyPairSummary,
   KmsDecryptResult,
@@ -150,12 +157,17 @@ import type {
   RelationshipMap,
   TagSearchResult,
   VpcTopology,
+  SecurityGroupDetail,
   SecurityGroupSummary,
   WafCreateWebAclInput,
   WafRuleInput,
   WafScope,
   WafWebAclDetail,
   WafWebAclSummary,
+  VaultEntryFilter,
+  VaultEntryInput,
+  VaultEntrySummary,
+  VaultEntryUsageInput,
   SsoAccountAssignment,
   SsoGroupSummary,
   SsoInstanceSummary,
@@ -200,6 +212,7 @@ export type AwsActivityState = {
 type AwsLensBridge = Window['awsLens']
 export type CacheTag =
   | 'phase1-foundations'
+  | 'phase2-foundations'
   | 'shell'
   | 'compare'
   | 'overview'
@@ -266,6 +279,16 @@ const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
   saveDbVaultCredential: 'phase1-foundations',
   deleteDbVaultCredential: 'phase1-foundations',
   getAwsCapabilitySnapshot: 'phase1-foundations',
+  listVaultEntries: 'phase2-foundations',
+  saveVaultEntry: 'phase2-foundations',
+  deleteVaultEntry: 'phase2-foundations',
+  recordVaultEntryUse: 'phase2-foundations',
+  listComparisonBaselines: 'phase2-foundations',
+  getComparisonBaseline: 'phase2-foundations',
+  saveComparisonBaseline: 'phase2-foundations',
+  deleteComparisonBaseline: 'phase2-foundations',
+  buildEksUpgradePlan: 'phase2-foundations',
+  resolveDirectAccessInput: 'phase2-foundations',
   listProfiles: 'shell',
   deleteProfile: 'shell',
   chooseAndImportConfig: 'shell',
@@ -366,6 +389,7 @@ const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
   getSqsQueue: 'sqs',
   sqsReceiveMessages: 'sqs',
   sqsTimeline: 'sqs',
+  chooseEc2SshKey: 'phase2-foundations',
   listSsoInstances: 'identity-center',
   listSsoPermissionSets: 'identity-center',
   listSsoUsers: 'identity-center',
@@ -403,6 +427,12 @@ const MUTATING_METHODS = new Set<keyof AwsLensBridge>([
   'markDbConnectionPresetUsed',
   'saveDbVaultCredential',
   'deleteDbVaultCredential',
+  'saveVaultEntry',
+  'deleteVaultEntry',
+  'recordVaultEntryUse',
+  'chooseEc2SshKey',
+  'saveComparisonBaseline',
+  'deleteComparisonBaseline',
   'deleteProfile',
   'chooseAndImportConfig',
   'saveCredentials',
@@ -953,6 +983,53 @@ export async function getAwsCapabilitySnapshot(region: string, subjects?: AwsCap
   return unwrap((await awsBridge().getAwsCapabilitySnapshot(region, subjects)) as Wrapped<AwsCapabilitySnapshot>)
 }
 
+export async function listVaultEntries(filter?: VaultEntryFilter): Promise<VaultEntrySummary[]> {
+  return unwrap((await awsBridge().listVaultEntries(filter)) as Wrapped<VaultEntrySummary[]>)
+}
+
+export async function saveVaultEntry(input: VaultEntryInput): Promise<VaultEntrySummary> {
+  return unwrap((await awsBridge().saveVaultEntry(input)) as Wrapped<VaultEntrySummary>)
+}
+
+export async function deleteVaultEntry(entryId: string): Promise<void> {
+  return unwrap((await awsBridge().deleteVaultEntry(entryId)) as Wrapped<void>)
+}
+
+export async function revealVaultEntrySecret(entryId: string): Promise<string> {
+  return unwrap((await rawAwsBridge().revealVaultEntrySecret(entryId)) as Wrapped<string>)
+}
+
+export async function recordVaultEntryUse(input: VaultEntryUsageInput): Promise<VaultEntrySummary> {
+  return unwrap((await rawAwsBridge().recordVaultEntryUse(input)) as Wrapped<VaultEntrySummary>)
+}
+
+export async function listComparisonBaselines(): Promise<ComparisonBaselineSummary[]> {
+  return unwrap((await awsBridge().listComparisonBaselines()) as Wrapped<ComparisonBaselineSummary[]>)
+}
+
+export async function getComparisonBaseline(baselineId: string): Promise<ComparisonBaseline | null> {
+  return unwrap((await awsBridge().getComparisonBaseline(baselineId)) as Wrapped<ComparisonBaseline | null>)
+}
+
+export async function saveComparisonBaseline(input: ComparisonBaselineInput): Promise<ComparisonBaselineSummary> {
+  return unwrap((await awsBridge().saveComparisonBaseline(input)) as Wrapped<ComparisonBaselineSummary>)
+}
+
+export async function deleteComparisonBaseline(baselineId: string): Promise<void> {
+  return unwrap((await awsBridge().deleteComparisonBaseline(baselineId)) as Wrapped<void>)
+}
+
+export async function buildEksUpgradePlan(
+  connection: AwsConnection,
+  request: EksUpgradePlannerRequest
+): Promise<EksUpgradePlan> {
+  return unwrap((await awsBridge().buildEksUpgradePlan(connection, request)) as Wrapped<EksUpgradePlan>)
+}
+
+export async function resolveDirectAccessInput(input: string): Promise<DirectAccessResolution> {
+  return unwrap((await awsBridge().resolveDirectAccessInput(input)) as Wrapped<DirectAccessResolution>)
+}
+
 export function subscribeToEnterpriseSettings(listener: (settings: EnterpriseSettings) => void): () => void {
   enterpriseListeners.add(listener)
   listener(getEnterpriseSettingsState())
@@ -1037,6 +1114,10 @@ export async function getCallerIdentity(connection: AwsConnection): Promise<Call
 
 export async function listEc2Instances(connection: AwsConnection): Promise<Ec2InstanceSummary[]> {
   return unwrap((await awsBridge().listEc2Instances(connection)) as Wrapped<Ec2InstanceSummary[]>)
+}
+
+export async function describeEc2Instance(connection: AwsConnection, instanceId: string): Promise<Ec2InstanceDetail> {
+  return unwrap((await awsBridge().describeEc2Instance(connection, instanceId)) as Wrapped<Ec2InstanceDetail>)
 }
 
 export async function listSsmManagedInstances(connection: AwsConnection): Promise<SsmManagedInstanceSummary[]> {
@@ -1241,6 +1322,10 @@ export async function listNetworkInterfaces(connection: AwsConnection, vpcId?: s
 
 export async function listSecurityGroupsForVpc(connection: AwsConnection, vpcId?: string): Promise<SecurityGroupSummary[]> {
   return unwrap((await awsBridge().listSecurityGroupsForVpc(connection, vpcId)) as Wrapped<SecurityGroupSummary[]>)
+}
+
+export async function describeSecurityGroup(connection: AwsConnection, groupId: string): Promise<SecurityGroupDetail> {
+  return unwrap((await awsBridge().describeSecurityGroup(connection, groupId)) as Wrapped<SecurityGroupDetail>)
 }
 
 export async function getVpcTopology(connection: AwsConnection, vpcId: string): Promise<VpcTopology> {

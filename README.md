@@ -32,6 +32,14 @@ The current UI is organized around a left-rail workspace shell instead of a sing
 - RDS and Aurora now include connection helpers backed by local vault, Secrets Manager resolution, and terminal-safe snippets
 - Route 53 now covers hosted zone bootstrap, record templates, duplicate/edit flows, and domain or health-check guidance
 
+### Feature `v1.2.0` Highlights
+
+- Vault Manager now turns `Settings > Security` into a real encrypted secret inventory with search, reveal, copy, delete, import, and create flows
+- EC2 PEM browse and local vault-backed DB or AWS credential flows now feed shared vault metadata and usage tracking
+- EKS now includes a read-only upgrade planner with target-version readiness, nodegroup skew checks, add-on compatibility, maintenance guidance, and command handoff
+- Compare now supports saved local baselines plus compliance delta summaries on top of inventory, posture, tag, and cost comparisons
+- Direct Resource Access now supports parser-driven support playbooks for EC2, Security Groups, Load Balancers, IAM targets, and CloudWatch log groups
+
 ### Shared Shell
 
 - Left sidebar with profile and region context, pinned services, grouped AWS workspaces, and utility screens
@@ -193,6 +201,8 @@ The Session Hub is more than a credential switcher. It keeps a local catalog of 
 AWS Lens includes a dedicated compare mode for side-by-side inspection of two AWS contexts. Each side can be a base profile or an active assumed-role session, and each side can target a different region.
 
 - Compare inventory, posture, ownership tags, cost signals, and operational risk
+- Save, reload, and delete local compare baselines for repeat review against the same context pair
+- Track compliance delta summaries alongside the existing detailed posture rows
 - Filter results by focus area: security, compute, networking, storage, drift/compliance, and cost
 - Switch between grouped and flat diff tables
 - Open the relevant service console directly from a selected diff row
@@ -230,18 +240,32 @@ Dedicated consoles for 25+ AWS services with inventory views and targeted operat
 The service catalog is implemented as focused workspaces rather than generic wrappers around AWS APIs. Examples include:
 
 - `EC2`: instance inventory, snapshots, IAM instance profiles, bulk actions, SSH key discovery, bastion-oriented actions, and links into CloudWatch
+- `EKS`: cluster inspection plus a read-only upgrade planner with command handoff and managed add-on readiness checks
 - `VPC` and `Security Groups`: network topology, gateways, interfaces, reachability context, and rule management
 - `EKS` and `ECS`: cluster and service views with helper actions that connect into the embedded terminal
 - `S3`, `ECR`, `Lambda`, and `RDS`: service-native detail views for common operator inspection flows, with RDS and Aurora connection helpers for vault or secret-backed access
 - `IAM`, `Identity Center`, `STS`, `KMS`, `WAF`, `ACM`, and `Secrets Manager`: identity, crypto, perimeter, certificate, and secret-management tasks in the same desktop shell
 - `CloudFormation`, `CloudTrail`, `CloudWatch`, `Route 53`, `SNS`, and `SQS`: deployment, audit, telemetry, DNS, and messaging workflows without leaving the active AWS context, including CloudWatch investigation history and Route 53 bootstrap flows
 
+### Vault Manager
+
+`Settings > Security` now acts as the shared secret control plane for AWS Lens:
+
+- Search encrypted vault entries across AWS profile credentials, PEM keys, DB credentials, and generic connection secrets
+- Create or import secrets into the local encrypted vault without editing `~/.aws/credentials`
+- Reveal, copy, or delete stored secrets from the desktop UI
+- Track last-used context for supported AWS profile, RDS, and EC2 PEM-backed flows
+- Keep app-managed secrets in local encrypted storage under Electron `userData`
+
 ### Direct Resource Access
 
 AWS Lens also includes a direct-access screen for situations where list permissions are restricted but targeted read access is still allowed.
 
 - Open S3 buckets, Lambda functions, RDS instances or clusters, ECR repositories, ECS services, EKS clusters, CloudFormation stacks, Route 53 hosted zones, Secrets Manager secrets, SNS topics, SQS queues, KMS keys, WAF web ACLs, and ACM certificates directly by known identifier
-- Return raw detail payloads in-place so operators can inspect a resource even when the account cannot enumerate the full service
+- Parse incident payloads, ARNs, ids, and common console URLs into direct-access targets automatically
+- Support guided read-only playbooks for EC2 instances, Security Groups, Load Balancers, IAM users, IAM roles, IAM policies, and CloudWatch log groups
+- Return structured detail payloads in-place so operators can inspect a resource even when the account cannot enumerate the full service
+- Show AccessDenied fallback guidance with likely read-only permission gaps and deeper console handoff links
 - Useful for break-glass support flows and tightly scoped IAM policies
 
 ### Observability and Resilience Lab (Beta)
@@ -301,6 +325,7 @@ Also supports:
 Stores app data under Electron `userData`:
 - `local-vault.json` -- encrypted local vault for app-managed credentials and future local secrets
 - `phase1-foundations.json` -- encrypted governance tag defaults, CloudWatch saved queries/history, and DB connection presets
+- `compare-baselines.json` -- encrypted local compare baselines for named side-by-side snapshots
 - `terraform-workspace-state.json` -- encrypted project list, workspace selections, and variable set metadata
 - `terraform-state-backups/` -- automated state backup snapshots
 - `session-hub.json` -- encrypted saved assume-role targets

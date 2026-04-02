@@ -3,6 +3,8 @@ import { SvcState } from './SvcState'
 import './compare.css'
 
 import type {
+  ComparisonBaseline,
+  ComparisonBaselineSummary,
   ComparisonDiffRow,
   ComparisonDiffStatus,
   ComparisonFocusMode,
@@ -10,7 +12,13 @@ import type {
   ComparisonResult,
   ServiceId
 } from '@shared/types'
-import { runComparison } from './api'
+import {
+  deleteComparisonBaseline,
+  getComparisonBaseline,
+  listComparisonBaselines,
+  runComparison,
+  saveComparisonBaseline
+} from './api'
 import type { useAwsPageConnection } from './AwsPage'
 
 type CompareSeed = {
@@ -27,6 +35,13 @@ type SelectorOption = {
 }
 
 type CompareViewMode = 'flat' | 'grouped'
+
+type BaselineDeltaCounts = {
+  added: number
+  changed: number
+  resolved: number
+  unchanged: number
+}
 
 const FOCUS_OPTIONS: Array<{ value: ComparisonFocusMode; label: string }> = [
   { value: 'all', label: 'All' },
@@ -56,6 +71,54 @@ function defaultLeftKey(state: ReturnType<typeof useAwsPageConnection>, options:
 
 function defaultRightKey(leftKey: string, options: SelectorOption[]): string {
   return options.find((option) => option.key !== leftKey)?.key ?? leftKey
+}
+
+function requestKey(request: ComparisonRequest): string {
+  const left = request.left.kind === 'profile'
+    ? `profile:${request.left.profile}:${request.left.region}`
+    : `session:${request.left.sessionId}:${request.left.region}`
+  const right = request.right.kind === 'profile'
+    ? `profile:${request.right.profile}:${request.right.region}`
+    : `session:${request.right.sessionId}:${request.right.region}`
+  return `${left}=>${right}`
+}
+
+function rowSignature(row: ComparisonDiffRow): string {
+  return JSON.stringify({
+    status: row.status,
+    risk: row.risk,
+    left: row.left,
+    right: row.right,
+    detailFields: row.detailFields
+  })
+}
+
+function computeBaselineDelta(result: ComparisonResult | null, baseline: ComparisonBaseline | null): BaselineDeltaCounts | null {
+  if (!result || !baseline) return null
+  const currentRows = result.groups.flatMap((group) => group.rows)
+  const baselineRows = baseline.result.groups.flatMap((group) => group.rows)
+  const currentMap = new Map(currentRows.map((row) => [row.id, rowSignature(row)]))
+  const baselineMap = new Map(baselineRows.map((row) => [row.id, rowSignature(row)]))
+
+  let added = 0
+  let changed = 0
+  let unchanged = 0
+  let resolved = 0
+
+  for (const [id, signature] of currentMap) {
+    if (!baselineMap.has(id)) {
+      added += 1
+      continue
+    }
+    if (baselineMap.get(id) === signature) unchanged += 1
+    else changed += 1
+  }
+
+  for (const id of baselineMap.keys()) {
+    if (!currentMap.has(id)) resolved += 1
+  }
+
+  return { added, changed, resolved, unchanged }
 }
 
 export function CompareWorkspace({
@@ -96,8 +159,18 @@ export function CompareWorkspace({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState<ComparisonResult | null>(null)
+  const [activeRequest, setActiveRequest] = useState<ComparisonRequest | null>(null)
   const [selectedRowId, setSelectedRowId] = useState('')
   const [viewMode, setViewMode] = useState<CompareViewMode>('flat')
+  const [baselines, setBaselines] = useState<ComparisonBaselineSummary[]>([])
+  const [selectedBaselineId, setSelectedBaselineId] = useState('')
+  const [loadedBaseline, setLoadedBaseline] = useState<ComparisonBaseline | null>(null)
+  const [baselineLoading, setBaselineLoading] = useState(false)
+  const [baselineSaving, setBaselineSaving] = useState(false)
+  const [baselineDeleting, setBaselineDeleting] = useState(false)
+  const [baselineName, setBaselineName] = useState('')
+  const [baselineDescription, setBaselineDescription] = useState('')
+  const [baselineMessage, setBaselineMessage] = useState('')
 
   useEffect(() => {
     if (!options.length) {
@@ -135,6 +208,23 @@ export function CompareWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seed?.token])
 
+  async function refreshBaselines(): Promise<void> {
+    try {
+      const next = await listComparisonBaselines()
+      setBaselines(next)
+      setSelectedBaselineId((current) => {
+        if (current && next.some((baseline) => baseline.id === current)) return current
+        return next[0]?.id ?? ''
+      })
+    } catch (baselineError) {
+      setBaselineMessage(baselineError instanceof Error ? baselineError.message : String(baselineError))
+    }
+  }
+
+  useEffect(() => {
+    void refreshBaselines()
+  }, [])
+
   const selectedRow = useMemo(() => {
     return result?.groups.flatMap((group) => group.rows).find((row) => row.id === selectedRowId) ?? null
   }, [result, selectedRowId])
@@ -170,6 +260,11 @@ export function CompareWorkspace({
   const leftOnlyRows = useMemo(() => result?.groups.reduce((sum, group) => sum + group.rows.filter((row) => row.status === 'left-only').length, 0) ?? 0, [result])
   const rightOnlyRows = useMemo(() => result?.groups.reduce((sum, group) => sum + group.rows.filter((row) => row.status === 'right-only').length, 0) ?? 0, [result])
   const sameRows = useMemo(() => result?.groups.reduce((sum, group) => sum + group.rows.filter((row) => row.status === 'same').length, 0) ?? 0, [result])
+  const baselineDelta = useMemo(() => computeBaselineDelta(result, loadedBaseline), [loadedBaseline, result])
+  const baselineMatchesCurrent = useMemo(() => {
+    if (!activeRequest || !loadedBaseline) return false
+    return requestKey(activeRequest) === requestKey(loadedBaseline.request)
+  }, [activeRequest, loadedBaseline])
 
   function buildRequest(): ComparisonRequest | null {
     const left = options.find((option) => option.key === leftKey)
@@ -194,6 +289,7 @@ export function CompareWorkspace({
     try {
       const next = await runComparison(request)
       setResult(next)
+      setActiveRequest(request)
       setSelectedRowId((current) => {
         const rows = next.groups.flatMap((group) => group.rows)
         return rows.some((row) => row.id === current) ? current : (rows[0]?.id ?? '')
@@ -204,6 +300,88 @@ export function CompareWorkspace({
       setError(compareError instanceof Error ? compareError.message : String(compareError))
     } finally {
       setLoading(false)
+    }
+  }
+
+  function applyRequestToSelectors(request: ComparisonRequest): void {
+    setLeftKey(request.left.kind === 'profile' ? `profile:${request.left.profile}` : `session:${request.left.sessionId}`)
+    setRightKey(request.right.kind === 'profile' ? `profile:${request.right.profile}` : `session:${request.right.sessionId}`)
+    setLeftRegion(request.left.region)
+    setRightRegion(request.right.region)
+  }
+
+  async function handleLoadBaseline(): Promise<void> {
+    if (!selectedBaselineId) return
+    setBaselineLoading(true)
+    setBaselineMessage('')
+    try {
+      const baseline = await getComparisonBaseline(selectedBaselineId)
+      if (!baseline) {
+        setLoadedBaseline(null)
+        setBaselineMessage('Selected baseline no longer exists.')
+        await refreshBaselines()
+        return
+      }
+      setLoadedBaseline(baseline)
+      applyRequestToSelectors(baseline.request)
+      setBaselineName(baseline.name)
+      setBaselineDescription(baseline.description)
+      setBaselineMessage(`Loaded baseline "${baseline.name}". Run Diff to compare live state against it.`)
+    } catch (baselineError) {
+      setBaselineMessage(baselineError instanceof Error ? baselineError.message : String(baselineError))
+    } finally {
+      setBaselineLoading(false)
+    }
+  }
+
+  async function handleSaveBaseline(): Promise<void> {
+    const request = activeRequest ?? buildRequest()
+    if (!request || !result) {
+      setBaselineMessage('Run a comparison before saving a baseline.')
+      return
+    }
+    if (!baselineName.trim()) {
+      setBaselineMessage('Enter a baseline name.')
+      return
+    }
+    setBaselineSaving(true)
+    setBaselineMessage('')
+    try {
+      const summary = await saveComparisonBaseline({
+        id: loadedBaseline?.id,
+        name: baselineName.trim(),
+        description: baselineDescription.trim(),
+        request,
+        result
+      })
+      await refreshBaselines()
+      setSelectedBaselineId(summary.id)
+      setLoadedBaseline(await getComparisonBaseline(summary.id))
+      setBaselineMessage(`Saved baseline "${summary.name}".`)
+    } catch (baselineError) {
+      setBaselineMessage(baselineError instanceof Error ? baselineError.message : String(baselineError))
+    } finally {
+      setBaselineSaving(false)
+    }
+  }
+
+  async function handleDeleteBaseline(): Promise<void> {
+    if (!selectedBaselineId) return
+    setBaselineDeleting(true)
+    setBaselineMessage('')
+    try {
+      await deleteComparisonBaseline(selectedBaselineId)
+      if (loadedBaseline?.id === selectedBaselineId) {
+        setLoadedBaseline(null)
+      }
+      setBaselineName('')
+      setBaselineDescription('')
+      await refreshBaselines()
+      setBaselineMessage('Baseline deleted.')
+    } catch (baselineError) {
+      setBaselineMessage(baselineError instanceof Error ? baselineError.message : String(baselineError))
+    } finally {
+      setBaselineDeleting(false)
     }
   }
 
@@ -279,6 +457,10 @@ export function CompareWorkspace({
               <span>View</span>
               <strong>{viewMode === 'flat' ? 'Single table' : 'Grouped tables'}</strong>
             </div>
+            <div className="compare-shell-meta-pill">
+              <span>Baseline</span>
+              <strong>{loadedBaseline?.name ?? 'None loaded'}</strong>
+            </div>
           </div>
         </div>
         <div className="compare-shell-hero-stats">
@@ -311,6 +493,11 @@ export function CompareWorkspace({
             <span>Selected row</span>
             <strong>{selectedRow ? selectedRow.title : 'None'}</strong>
             <small>{selectedRow?.resourceType ?? 'Pick a diff row to inspect'}</small>
+          </div>
+          <div className="compare-shell-stat-card">
+            <span>Baseline delta</span>
+            <strong>{baselineDelta ? `${baselineDelta.added}/${baselineDelta.changed}/${baselineDelta.resolved}` : 'No baseline'}</strong>
+            <small>{baselineDelta ? 'Added / changed / resolved rows against the loaded baseline' : 'Load a baseline to compare current output against a saved snapshot'}</small>
           </div>
         </div>
       </section>
@@ -357,6 +544,75 @@ export function CompareWorkspace({
             <strong>{viewMode === 'flat' ? `${flatRows.length} visible rows` : `${filteredGroups.length} visible groups`}</strong>
           </div>
         </div>
+      </section>
+
+      <section className="compare-baseline-panel">
+        <div className="compare-pane-head">
+          <div>
+            <span className="compare-pane-kicker">Baseline snapshots</span>
+            <h3>Save, load, and inspect local compare baselines</h3>
+          </div>
+          <span className="compare-pane-summary">{baselines.length} saved</span>
+        </div>
+        <div className="compare-baseline-grid">
+          <label className="field">
+            <span>Saved baselines</span>
+            <select value={selectedBaselineId} onChange={(event) => setSelectedBaselineId(event.target.value)}>
+              <option value="">Select a baseline</option>
+              {baselines.map((baseline) => (
+                <option key={baseline.id} value={baseline.id}>
+                  {baseline.name} ({baseline.leftLabel} vs {baseline.rightLabel})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Baseline name</span>
+            <input
+              value={baselineName}
+              onChange={(event) => setBaselineName(event.target.value)}
+              placeholder="Production weekly snapshot"
+            />
+          </label>
+          <label className="field compare-baseline-description">
+            <span>Description</span>
+            <input
+              value={baselineDescription}
+              onChange={(event) => setBaselineDescription(event.target.value)}
+              placeholder="Optional note about why this snapshot was captured"
+            />
+          </label>
+        </div>
+        <div className="compare-baseline-actions">
+          <button type="button" className="tf-toolbar-btn" disabled={!selectedBaselineId || baselineLoading} onClick={() => void handleLoadBaseline()}>
+            {baselineLoading ? 'Loading...' : 'Load baseline'}
+          </button>
+          <button type="button" className="tf-toolbar-btn accent" disabled={baselineSaving || !result} onClick={() => void handleSaveBaseline()}>
+            {baselineSaving ? 'Saving...' : (loadedBaseline ? 'Update baseline' : 'Save current as baseline')}
+          </button>
+          <button type="button" className="tf-toolbar-btn" disabled={!selectedBaselineId || baselineDeleting} onClick={() => void handleDeleteBaseline()}>
+            {baselineDeleting ? 'Deleting...' : 'Delete baseline'}
+          </button>
+        </div>
+        <div className="compare-baseline-meta">
+          <div className="compare-shell-meta-pill">
+            <span>Loaded baseline</span>
+            <strong>{loadedBaseline?.name ?? 'None'}</strong>
+          </div>
+          <div className="compare-shell-meta-pill">
+            <span>Baseline request</span>
+            <strong>{loadedBaseline ? `${loadedBaseline.leftLabel} vs ${loadedBaseline.rightLabel}` : 'No baseline selected'}</strong>
+          </div>
+          <div className="compare-shell-meta-pill">
+            <span>Live match</span>
+            <strong>{loadedBaseline ? (baselineMatchesCurrent ? 'Current selectors match' : 'Selectors differ') : 'Not applicable'}</strong>
+          </div>
+          <div className="compare-shell-meta-pill">
+            <span>Baseline delta</span>
+            <strong>{baselineDelta ? `${baselineDelta.added} added, ${baselineDelta.changed} changed, ${baselineDelta.resolved} resolved` : 'Load baseline and run diff'}</strong>
+          </div>
+        </div>
+        {baselineMessage && <div className="compare-baseline-message">{baselineMessage}</div>}
       </section>
 
       {result ? (
@@ -556,7 +812,7 @@ export function CompareWorkspace({
         </div>
       ) : (
         <section className="compare-detail-section">
-          <SvcState variant="no-selection" message="Choose two contexts, then run the diff to load summary totals, inventory deltas, posture changes, ownership tags, and cost signals." />
+          <SvcState variant="no-selection" message="Choose two contexts, then run the diff to load summary totals, inventory deltas, compliance changes, ownership tags, and cost signals." />
         </section>
       )}
     </div>
