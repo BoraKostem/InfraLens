@@ -1447,10 +1447,13 @@ export function App() {
   }, [screen])
 
   useEffect(() => {
-    invalidateAllPageCaches()
     setRefreshState(null)
-    setConnectionRenderEpoch((current) => current + 1)
   }, [connectionScopeKey])
+
+  useEffect(() => {
+    invalidateAllPageCaches()
+    setConnectionRenderEpoch((current) => current + 1)
+  }, [activeProviderId])
 
   // Redirect to profiles when connection fails (e.g. SSO session expired)
   useEffect(() => {
