@@ -105,18 +105,41 @@ function probeCommand(
   env: Record<string, string>
 ): Promise<{ found: boolean; path: string; output: string }> {
   return new Promise((resolve) => {
-    execFile(command, args, { env, timeout: 12000, windowsHide: true }, async (error, stdout, stderr) => {
-      if (error) {
-        resolve({ found: false, path: '', output: '' })
+    let settled = false
+    const finish = (result: { found: boolean; path: string; output: string }) => {
+      if (settled) {
         return
       }
 
-      resolve({
+      settled = true
+      clearTimeout(safetyTimer)
+      resolve(result)
+    }
+
+    const child = execFile(command, args, { env, timeout: 12000, windowsHide: true }, async (error, stdout, stderr) => {
+      if (error) {
+        finish({ found: false, path: '', output: '' })
+        return
+      }
+
+      let resolvedPath = command
+      try {
+        resolvedPath = await resolveExecutablePath(command, env)
+      } catch {
+        resolvedPath = command
+      }
+
+      finish({
         found: true,
-        path: await resolveExecutablePath(command, env),
+        path: resolvedPath,
         output: summarizeOutput(stdout, stderr)
       })
     })
+
+    const safetyTimer = setTimeout(() => {
+      child.kill()
+      finish({ found: false, path: '', output: '' })
+    }, 15000)
   })
 }
 
