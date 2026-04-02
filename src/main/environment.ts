@@ -40,6 +40,28 @@ const TOOL_SPECS: ToolProbeSpec[] = [
     detailWhenMissing: 'AWS CLI is required for session flows, shell-based integrations, and several operator actions.'
   },
   {
+    id: 'gcloud-cli',
+    label: 'Google Cloud CLI',
+    required: false,
+    overrideId: 'gcloud-cli',
+    commands: process.platform === 'win32' ? ['gcloud.cmd', 'gcloud.exe', 'gcloud'] : ['gcloud'],
+    versionArgs: ['--version'],
+    versionPattern: /Google Cloud SDK\s+([^\s]+)/i,
+    remediation: 'Install Google Cloud CLI if you want GCP shell flows, auth inspection, and project-scoped operator actions.',
+    detailWhenMissing: 'GCP terminal and project-aware operator workflows depend on a local gcloud installation.'
+  },
+  {
+    id: 'azure-cli',
+    label: 'Azure CLI',
+    required: false,
+    overrideId: 'azure-cli',
+    commands: process.platform === 'win32' ? ['az.cmd', 'az.exe', 'az'] : ['az'],
+    versionArgs: ['version', '--output', 'json'],
+    versionPattern: /"azure-cli"\s*:\s*"([^"]+)"/i,
+    remediation: 'Install Azure CLI if you want Azure terminal flows, subscription inspection, and resource-group operator actions.',
+    detailWhenMissing: 'Azure terminal and subscription-scoped operator workflows depend on a local Azure CLI installation.'
+  },
+  {
     id: 'session-manager-plugin',
     label: 'Session Manager Plugin',
     required: false,

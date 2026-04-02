@@ -5,6 +5,8 @@ export type ToolchainOverrideId =
   | 'terraform'
   | 'opentofu'
   | 'aws-cli'
+  | 'gcloud-cli'
+  | 'azure-cli'
   | 'kubectl'
   | 'docker'
 
@@ -12,6 +14,8 @@ const TOOLCHAIN_OVERRIDE_KEYS: Record<ToolchainOverrideId, keyof AppSettingsTool
   terraform: 'terraformPathOverride',
   opentofu: 'opentofuPathOverride',
   'aws-cli': 'awsCliPathOverride',
+  'gcloud-cli': 'gcloudPathOverride',
+  'azure-cli': 'azureCliPathOverride',
   kubectl: 'kubectlPathOverride',
   docker: 'dockerPathOverride'
 }
