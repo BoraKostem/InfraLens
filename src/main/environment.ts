@@ -45,13 +45,13 @@ function listGoogleCloudCommandCandidates(): string[] {
   const programFilesX86 = process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)'
 
   return [
-    'gcloud.cmd',
-    'gcloud.exe',
-    'gcloud',
     path.join(localAppData, 'Google', 'Cloud SDK', 'google-cloud-sdk', 'bin', 'gcloud.cmd'),
     path.join(programFiles, 'Google', 'Cloud SDK', 'google-cloud-sdk', 'bin', 'gcloud.cmd'),
     path.join(programFilesX86, 'Google', 'Cloud SDK', 'google-cloud-sdk', 'bin', 'gcloud.cmd'),
-    'C:\\ProgramData\\chocolatey\\lib\\gcloudsdk\\tools\\google-cloud-sdk\\bin\\gcloud.cmd'
+    'C:\\ProgramData\\chocolatey\\lib\\gcloudsdk\\tools\\google-cloud-sdk\\bin\\gcloud.cmd',
+    'gcloud.cmd',
+    'gcloud.exe',
+    'gcloud'
   ]
 }
 
@@ -73,12 +73,12 @@ function listAzureCliCommandCandidates(): string[] {
   const programFilesX86 = process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)'
 
   return [
-    'az.cmd',
-    'az.exe',
-    'az',
     path.join(programFiles, 'Microsoft SDKs', 'Azure', 'CLI2', 'wbin', 'az.cmd'),
     path.join(programFilesX86, 'Microsoft SDKs', 'Azure', 'CLI2', 'wbin', 'az.cmd'),
-    path.join(localAppData, 'Programs', 'Microsoft SDKs', 'Azure', 'CLI2', 'wbin', 'az.cmd')
+    path.join(localAppData, 'Programs', 'Microsoft SDKs', 'Azure', 'CLI2', 'wbin', 'az.cmd'),
+    'az.cmd',
+    'az.exe',
+    'az'
   ]
 }
 
@@ -154,6 +154,13 @@ function summarizeOutput(stdout: string, stderr: string): string {
   return `${stdout}\n${stderr}`.trim()
 }
 
+function outputIndicatesMissingCommand(output: string): boolean {
+  const normalized = output.toLowerCase()
+  return normalized.includes('is not recognized as an internal or external command')
+    || normalized.includes('not found')
+    || normalized.includes('no such file or directory')
+ }
+
 function isWindowsBatchCommand(command: string): boolean {
   if (process.platform !== 'win32') {
     return false
@@ -206,7 +213,11 @@ function probeCommand(
 
         if (error) {
           const errorCode = typeof error === 'object' && error && 'code' in error ? String(error.code ?? '') : ''
-          const canTreatAsInstalled = Boolean(output) && errorCode !== 'ENOENT' && errorCode !== 'EINVAL'
+          const canTreatAsInstalled =
+            Boolean(output)
+            && errorCode !== 'ENOENT'
+            && errorCode !== 'EINVAL'
+            && !outputIndicatesMissingCommand(output)
 
           if (!canTreatAsInstalled) {
             finish({ found: false, path: '', output: '' })
