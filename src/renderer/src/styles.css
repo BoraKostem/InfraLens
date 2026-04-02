@@ -7606,7 +7606,7 @@ textarea {
 
 .profile-catalog-stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.55rem;
   align-self: center;
 }
@@ -7637,6 +7637,100 @@ textarea {
 
 .profile-catalog-panel {
   padding: 0.85rem;
+}
+
+.provider-selector-grid,
+.provider-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.65rem;
+}
+
+.provider-selector-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  min-height: 132px;
+  padding: 0.8rem;
+  border-radius: 14px;
+  border: 1px solid rgba(145, 176, 207, 0.12);
+  background:
+    radial-gradient(circle at top right, rgba(245, 154, 61, 0.12), transparent 34%),
+    linear-gradient(180deg, rgba(15, 24, 36, 0.98), rgba(9, 16, 25, 0.98));
+  text-align: left;
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.provider-selector-card:hover {
+  border-color: rgba(255, 143, 61, 0.22);
+  transform: translateY(-2px);
+}
+
+.provider-selector-card.active {
+  border-color: rgba(255, 176, 103, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(255, 176, 103, 0.08);
+}
+
+.provider-selector-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.provider-selector-card-header strong {
+  display: block;
+  font-size: 0.95rem;
+  color: #edf4fb;
+}
+
+.provider-selector-card-header small {
+  display: block;
+  margin-top: 0.22rem;
+  color: #8fa3ba;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.provider-selector-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  color: #a6bad0;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.provider-selector-summary {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.18rem;
+  text-align: right;
+}
+
+.provider-selector-summary span,
+.provider-selector-summary small {
+  color: #8fa3ba;
+}
+
+.provider-selector-summary span {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.provider-selector-summary strong {
+  font-size: 1.1rem;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  color: #edf4fb;
+}
+
+.provider-selector-summary small {
+  max-width: 26ch;
+  font-size: 0.72rem;
+  line-height: 1.25;
 }
 
 .enterprise-panel-grid {
@@ -7850,6 +7944,22 @@ textarea {
 
 .provider-sidebar-note small {
   max-width: none;
+}
+
+.provider-preview-shell {
+  gap: 0.8rem;
+}
+
+.provider-mode-card {
+  min-height: 0;
+}
+
+.provider-mode-card-copy {
+  margin: 0;
+}
+
+.provider-preview-note {
+  border-style: solid;
 }
 
 .profile-catalog-toolbar {
