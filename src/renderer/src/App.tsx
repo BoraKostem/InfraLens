@@ -338,6 +338,12 @@ const PROVIDER_PREVIEW_NAV_SECTIONS: Record<Exclude<CloudProviderId, 'aws'>, Pro
   ]
 }
 
+const PROVIDER_AFFORDANCE_LABELS: Record<CloudProviderId, string> = {
+  aws: 'Live shell',
+  gcp: 'Shared preview',
+  azure: 'Shared preview'
+}
+
 const SOFT_REFRESH_SCREENS = new Set<Screen>([
   'overview',
   'compare',
@@ -481,7 +487,7 @@ function ProviderPreviewScreen({
   const modes = PROVIDER_CONNECTION_MODES[provider.id]
 
   return (
-    <section className="panel stack provider-preview-shell">
+    <section className={`panel stack provider-preview-shell provider-preview-shell-${provider.id}`}>
       <div className="catalog-page-header">
         <div>
           <div className="eyebrow">{provider.label} Preview</div>
@@ -492,7 +498,7 @@ function ProviderPreviewScreen({
       </div>
       <div className="provider-preview-grid">
         {modes.map((mode) => (
-          <article key={mode.id} className="profile-catalog-card provider-mode-card">
+          <article key={mode.id} className={`profile-catalog-card provider-mode-card provider-mode-card-${provider.id}`}>
             <div className="profile-catalog-status">
               <span>{mode.label}</span>
               <strong>{mode.status}</strong>
@@ -501,7 +507,7 @@ function ProviderPreviewScreen({
           </article>
         ))}
       </div>
-      <div className="profile-catalog-empty provider-preview-note">
+      <div className={`profile-catalog-empty provider-preview-note provider-preview-note-${provider.id}`}>
         <div className="eyebrow">Shared Shell</div>
         <h3>{provider.label} can be selected now without leaking AWS state into shared workspaces.</h3>
         <p className="hero-path">Connection wiring, adaptive rail behavior, terminal context switching, and provider diagnostics continue in the next Phase 4 branches.</p>
@@ -868,6 +874,7 @@ export function App() {
       locationLabel: 'Region',
       connectionLabel: 'Provider profile or active session'
     }
+  const activeProviderThemeClass = `provider-theme-${activeProviderId}`
   const isAwsProviderActive = activeProviderId === 'aws'
   const activeShellConnected = isAwsProviderActive && connectionState.connected
   const activeShellConnection = isAwsProviderActive ? connectionState.connection : null
@@ -1169,7 +1176,7 @@ export function App() {
             <strong>{item.label}</strong>
             <small>{item.detail}</small>
           </span>
-          <span className="service-link-badge">Preview</span>
+          <span className="service-link-badge service-link-badge-preview">{activeProvider.shortLabel}</span>
         </button>
       </div>
     )
@@ -1871,7 +1878,7 @@ export function App() {
                 <button
                   key={provider.id}
                   type="button"
-                  className={`provider-selector-card ${provider.id === activeProviderId ? 'active' : ''}`}
+                  className={`provider-selector-card provider-selector-card-${provider.id} ${provider.id === activeProviderId ? 'active' : ''}`}
                   onClick={() => handleSelectProvider(provider.id)}
                 >
                   <div className="provider-selector-card-header">
@@ -1884,6 +1891,7 @@ export function App() {
                     </span>
                   </div>
                   <div className="provider-selector-card-meta">
+                    <span className={`provider-selector-chip provider-selector-chip-${provider.id}`}>{provider.shortLabel}</span>
                     <span>{provider.profileLabel}</span>
                     <span>{provider.locationLabel}</span>
                   </div>
@@ -1911,7 +1919,7 @@ export function App() {
                 </label>
               ) : (
                 <div className="provider-selector-summary">
-                  <span>Shared workspaces</span>
+                  <span>{activeProvider.shortLabel} shell</span>
                   <strong>{sharedWorkspaceCount}</strong>
                   <small>{providerWorkspaceCount} provider-specific entries will populate as rollout branches land.</small>
                 </div>
@@ -1969,7 +1977,7 @@ export function App() {
                 )
               ) : (
                 activeProviderModes.map((mode) => (
-                  <article key={mode.id} className="profile-catalog-card provider-mode-card">
+                  <article key={mode.id} className={`profile-catalog-card provider-mode-card provider-mode-card-${activeProviderId}`}>
                     <div className="profile-catalog-status">
                       <span>{mode.label}</span>
                       <strong>{mode.status}</strong>
@@ -2209,7 +2217,7 @@ export function App() {
   return showInitialLoadingScreen ? (
     <InitialLoadingScreen />
   ) : (
-    <div className="catalog-shell-frame">
+    <div className={`catalog-shell-frame ${activeProviderThemeClass}`}>
       <div className={`catalog-shell ${navOpen ? '' : 'nav-collapsed'}`}>
       <aside className="profile-rail">
         <button type="button" className={`rail-logo ${screen === 'settings' ? 'active' : ''}`} onClick={() => setScreen('settings')} aria-label="Open settings">
@@ -2258,7 +2266,7 @@ export function App() {
             </button>
             <div className="service-nav-title">
               <h1>{PRODUCT_BRAND_NAME}</h1>
-              <span className="service-nav-provider-badge">{activeProvider.label}</span>
+              <span className={`service-nav-provider-badge service-nav-provider-badge-${activeProviderId}`}>{activeProvider.label}</span>
             </div>
             <div className="app-version-row service-nav-version-row">
                 {versionLabel && <span className="app-version-badge">v{versionLabel}</span>}
@@ -2276,7 +2284,7 @@ export function App() {
             </div>
           </div>
           <div className="service-nav-controls">
-            <div className="enterprise-sidebar-note provider-sidebar-note">
+            <div className={`enterprise-sidebar-note provider-sidebar-note provider-sidebar-note-${activeProviderId}`}>
               <span>Provider</span>
               <strong>{activeProvider.label}</strong>
               <small>{providerMetaLabel}</small>
@@ -2300,7 +2308,7 @@ export function App() {
                 </select>
               </label>
             ) : (
-              <div className="enterprise-sidebar-note">
+              <div className={`enterprise-sidebar-note provider-sidebar-note provider-sidebar-note-secondary provider-sidebar-note-${activeProviderId}`}>
                 <span>{activeProvider.locationLabel}</span>
                 <strong>Selector staged</strong>
                 <small>{activeProvider.label} will bind location and credential context here in the next Phase 4 steps.</small>
@@ -2372,7 +2380,10 @@ export function App() {
               ))
               : previewProviderSections.map((section) => (
                 <section key={section.id} className="service-group">
-                  <div className="service-group-title">{section.label}</div>
+                  <div className="service-group-title service-group-title-provider">
+                    <span>{section.label}</span>
+                    <small>{PROVIDER_AFFORDANCE_LABELS[activeProviderId]}</small>
+                  </div>
                   <div className="service-group-list">
                     {section.items.map((item) => renderPreviewNavItem(item))}
                   </div>
