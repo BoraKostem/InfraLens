@@ -105,41 +105,53 @@ function probeCommand(
   env: Record<string, string>
 ): Promise<{ found: boolean; path: string; output: string }> {
   return new Promise((resolve) => {
+    if (!command.trim()) {
+      resolve({ found: false, path: '', output: '' })
+      return
+    }
+
     let settled = false
+    let safetyTimer: NodeJS.Timeout | null = null
     const finish = (result: { found: boolean; path: string; output: string }) => {
       if (settled) {
         return
       }
 
       settled = true
-      clearTimeout(safetyTimer)
+      if (safetyTimer) {
+        clearTimeout(safetyTimer)
+      }
       resolve(result)
     }
 
-    const child = execFile(command, args, { env, timeout: 12000, windowsHide: true }, async (error, stdout, stderr) => {
-      if (error) {
-        finish({ found: false, path: '', output: '' })
-        return
-      }
+    try {
+      const child = execFile(command, args, { env, timeout: 12000, windowsHide: true }, async (error, stdout, stderr) => {
+        if (error) {
+          finish({ found: false, path: '', output: '' })
+          return
+        }
 
-      let resolvedPath = command
-      try {
-        resolvedPath = await resolveExecutablePath(command, env)
-      } catch {
-        resolvedPath = command
-      }
+        let resolvedPath = command
+        try {
+          resolvedPath = await resolveExecutablePath(command, env)
+        } catch {
+          resolvedPath = command
+        }
 
-      finish({
-        found: true,
-        path: resolvedPath,
-        output: summarizeOutput(stdout, stderr)
+        finish({
+          found: true,
+          path: resolvedPath,
+          output: summarizeOutput(stdout, stderr)
+        })
       })
-    })
 
-    const safetyTimer = setTimeout(() => {
-      child.kill()
+      safetyTimer = setTimeout(() => {
+        child.kill()
+        finish({ found: false, path: '', output: '' })
+      }, 15000)
+    } catch {
       finish({ found: false, path: '', output: '' })
-    }, 15000)
+    }
   })
 }
 

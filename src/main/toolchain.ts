@@ -21,7 +21,16 @@ const TOOLCHAIN_OVERRIDE_KEYS: Record<ToolchainOverrideId, keyof AppSettingsTool
 }
 
 function normalizeOverridePath(value: string): string {
-  return value.trim()
+  const trimmed = value.trim()
+
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"'))
+    || (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1).trim()
+  }
+
+  return trimmed
 }
 
 export function getToolPathOverride(toolId: ToolchainOverrideId): string {
