@@ -28,6 +28,14 @@ type ToolProbeSpec = {
 }
 
 function listGoogleCloudCommandCandidates(): string[] {
+  if (process.platform === 'darwin') {
+    return [
+      'gcloud',
+      '/opt/homebrew/bin/gcloud',
+      '/usr/local/bin/gcloud'
+    ]
+  }
+
   if (process.platform !== 'win32') {
     return ['gcloud']
   }
@@ -48,6 +56,14 @@ function listGoogleCloudCommandCandidates(): string[] {
 }
 
 function listAzureCliCommandCandidates(): string[] {
+  if (process.platform === 'darwin') {
+    return [
+      'az',
+      '/opt/homebrew/bin/az',
+      '/usr/local/bin/az'
+    ]
+  }
+
   if (process.platform !== 'win32') {
     return ['az']
   }
@@ -138,6 +154,31 @@ function summarizeOutput(stdout: string, stderr: string): string {
   return `${stdout}\n${stderr}`.trim()
 }
 
+function isWindowsBatchCommand(command: string): boolean {
+  if (process.platform !== 'win32') {
+    return false
+  }
+
+  const extension = path.extname(command.trim()).toLowerCase()
+  return extension === '.cmd' || extension === '.bat'
+}
+
+function quoteWindowsShellArgument(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`
+}
+
+function buildProbeExecution(command: string, args: string[]): { command: string; args: string[] } {
+  if (!isWindowsBatchCommand(command)) {
+    return { command, args }
+  }
+
+  const invocation = [quoteWindowsShellArgument(command), ...args.map(quoteWindowsShellArgument)].join(' ')
+  return {
+    command: 'cmd.exe',
+    args: ['/d', '/s', '/c', invocation]
+  }
+}
+
 function probeCommand(
   command: string,
   args: string[],
@@ -164,7 +205,8 @@ function probeCommand(
     }
 
     try {
-      const child = execFile(command, args, { env, timeout: 12000, windowsHide: true }, async (error, stdout, stderr) => {
+      const execution = buildProbeExecution(command, args)
+      const child = execFile(execution.command, execution.args, { env, timeout: 12000, windowsHide: true }, async (error, stdout, stderr) => {
         const output = summarizeOutput(stdout, stderr)
 
         if (error) {
