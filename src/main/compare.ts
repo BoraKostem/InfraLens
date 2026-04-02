@@ -14,6 +14,7 @@ import type {
   ComparisonRiskLevel,
   ComparisonSummary,
   ComplianceFinding,
+  ComplianceReport,
   CostBreakdown,
   Ec2InstanceSummary,
   EcrRepositorySummary,
@@ -67,6 +68,7 @@ type ContextDataset = {
   metrics: OverviewMetrics
   statistics: OverviewStatistics
   costBreakdown: CostBreakdown
+  compliance: ComplianceReport
   findings: ComplianceFinding[]
   inventory: DiffableRecord[]
 }
@@ -460,6 +462,7 @@ async function loadDataset(input: ComparisonContextInput): Promise<ContextDatase
     metrics,
     statistics,
     costBreakdown,
+    compliance,
     findings: compliance.findings,
     inventory: normalizeInventory({
       region: connection.region,
@@ -583,6 +586,167 @@ function buildPostureGroup(left: ContextDataset, right: ContextDataset): Compari
   return {
     id: 'posture',
     label: 'Posture / Findings',
+    layer: 'posture',
+    focusModes: ['security', 'drift-compliance', 'cost'],
+    coverage: 'partial',
+    counts: statusCounts(rows),
+    rows: sortRows(rows)
+  }
+}
+
+function buildComplianceDeltaGroup(left: ContextDataset, right: ContextDataset): ComparisonDiffGroup {
+  const metricRows: ComparisonDiffRow[] = [
+    {
+      id: 'compliance:total',
+      layer: 'posture',
+      section: 'Compliance deltas',
+      title: 'Total compliance findings',
+      subtitle: 'Summary',
+      status: left.compliance.summary.total === right.compliance.summary.total ? 'same' : 'different',
+      risk: left.compliance.summary.total === right.compliance.summary.total ? 'low' : 'medium',
+      serviceId: 'compliance-center',
+      resourceType: 'Compliance Summary',
+      identityKey: 'total-findings',
+      focusModes: ['security', 'drift-compliance', 'cost'],
+      rationale: 'Overall compliance volume differs between the selected contexts.',
+      left: { value: String(left.compliance.summary.total), secondary: `${left.compliance.warnings.length} warnings` },
+      right: { value: String(right.compliance.summary.total), secondary: `${right.compliance.warnings.length} warnings` },
+      detailFields: fieldDetails(
+        {
+          total: String(left.compliance.summary.total),
+          warnings: String(left.compliance.warnings.length),
+          generated_at: left.compliance.generatedAt
+        },
+        {
+          total: String(right.compliance.summary.total),
+          warnings: String(right.compliance.warnings.length),
+          generated_at: right.compliance.generatedAt
+        }
+      ),
+      navigation: { serviceId: 'compliance-center', region: left.descriptor.region, resourceLabel: 'compliance-summary' }
+    },
+    {
+      id: 'compliance:severity:high',
+      layer: 'posture',
+      section: 'Compliance deltas',
+      title: 'High severity findings',
+      subtitle: 'Severity',
+      status: left.compliance.summary.bySeverity.high === right.compliance.summary.bySeverity.high ? 'same' : 'different',
+      risk: (left.compliance.summary.bySeverity.high > 0 || right.compliance.summary.bySeverity.high > 0) ? 'high' : 'low',
+      serviceId: 'compliance-center',
+      resourceType: 'Compliance Severity',
+      identityKey: 'severity-high',
+      focusModes: ['security', 'drift-compliance'],
+      rationale: 'High-severity compliance pressure differs.',
+      left: { value: String(left.compliance.summary.bySeverity.high), secondary: '' },
+      right: { value: String(right.compliance.summary.bySeverity.high), secondary: '' },
+      detailFields: fieldDetails(
+        { high: String(left.compliance.summary.bySeverity.high) },
+        { high: String(right.compliance.summary.bySeverity.high) }
+      ),
+      navigation: { serviceId: 'compliance-center', region: left.descriptor.region, resourceLabel: 'high-severity' }
+    },
+    {
+      id: 'compliance:severity:medium',
+      layer: 'posture',
+      section: 'Compliance deltas',
+      title: 'Medium severity findings',
+      subtitle: 'Severity',
+      status: left.compliance.summary.bySeverity.medium === right.compliance.summary.bySeverity.medium ? 'same' : 'different',
+      risk: 'medium',
+      serviceId: 'compliance-center',
+      resourceType: 'Compliance Severity',
+      identityKey: 'severity-medium',
+      focusModes: ['security', 'drift-compliance'],
+      rationale: 'Medium-severity compliance pressure differs.',
+      left: { value: String(left.compliance.summary.bySeverity.medium), secondary: '' },
+      right: { value: String(right.compliance.summary.bySeverity.medium), secondary: '' },
+      detailFields: fieldDetails(
+        { medium: String(left.compliance.summary.bySeverity.medium) },
+        { medium: String(right.compliance.summary.bySeverity.medium) }
+      ),
+      navigation: { serviceId: 'compliance-center', region: left.descriptor.region, resourceLabel: 'medium-severity' }
+    },
+    {
+      id: 'compliance:category:security',
+      layer: 'posture',
+      section: 'Compliance deltas',
+      title: 'Security findings',
+      subtitle: 'Category',
+      status: left.compliance.summary.byCategory.security === right.compliance.summary.byCategory.security ? 'same' : 'different',
+      risk: 'medium',
+      serviceId: 'compliance-center',
+      resourceType: 'Compliance Category',
+      identityKey: 'category-security',
+      focusModes: ['security', 'drift-compliance'],
+      rationale: 'Security-category compliance findings differ.',
+      left: { value: String(left.compliance.summary.byCategory.security), secondary: '' },
+      right: { value: String(right.compliance.summary.byCategory.security), secondary: '' },
+      detailFields: fieldDetails(
+        { security: String(left.compliance.summary.byCategory.security) },
+        { security: String(right.compliance.summary.byCategory.security) }
+      ),
+      navigation: { serviceId: 'compliance-center', region: left.descriptor.region, resourceLabel: 'security-findings' }
+    },
+    {
+      id: 'compliance:category:cost',
+      layer: 'posture',
+      section: 'Compliance deltas',
+      title: 'Cost findings',
+      subtitle: 'Category',
+      status: left.compliance.summary.byCategory.cost === right.compliance.summary.byCategory.cost ? 'same' : 'different',
+      risk: 'low',
+      serviceId: 'compliance-center',
+      resourceType: 'Compliance Category',
+      identityKey: 'category-cost',
+      focusModes: ['cost', 'drift-compliance'],
+      rationale: 'Cost-oriented compliance findings differ.',
+      left: { value: String(left.compliance.summary.byCategory.cost), secondary: '' },
+      right: { value: String(right.compliance.summary.byCategory.cost), secondary: '' },
+      detailFields: fieldDetails(
+        { cost: String(left.compliance.summary.byCategory.cost) },
+        { cost: String(right.compliance.summary.byCategory.cost) }
+      ),
+      navigation: { serviceId: 'compliance-center', region: left.descriptor.region, resourceLabel: 'cost-findings' }
+    }
+  ]
+
+  const serviceKeys = [...new Set([
+    ...left.findings.map((item) => item.service),
+    ...right.findings.map((item) => item.service)
+  ])].sort((a, b) => a.localeCompare(b))
+
+  const serviceRows = serviceKeys.map((serviceId) => {
+    const leftCount = left.findings.filter((item) => item.service === serviceId).length
+    const rightCount = right.findings.filter((item) => item.service === serviceId).length
+    return {
+      id: `compliance:service:${serviceId}`,
+      layer: 'posture',
+      section: 'Compliance deltas',
+      title: `${serviceId} findings`,
+      subtitle: 'Service',
+      status: toStatus(leftCount > 0, rightCount > 0, leftCount === rightCount),
+      risk: Math.max(leftCount, rightCount) >= 3 ? 'medium' : 'low',
+      serviceId: serviceId as ServiceId,
+      resourceType: 'Compliance Service Delta',
+      identityKey: `service:${serviceId}`,
+      focusModes: ['security', 'drift-compliance', 'cost'],
+      rationale: 'Service-specific compliance volume differs.',
+      left: { value: String(leftCount), secondary: '' },
+      right: { value: String(rightCount), secondary: '' },
+      detailFields: fieldDetails(
+        leftCount > 0 ? { findings: String(leftCount) } : undefined,
+        rightCount > 0 ? { findings: String(rightCount) } : undefined
+      ),
+      navigation: { serviceId: 'compliance-center', region: left.descriptor.region, resourceLabel: String(serviceId) }
+    } satisfies ComparisonDiffRow
+  })
+
+  const rows = [...metricRows, ...serviceRows]
+
+  return {
+    id: 'compliance-deltas',
+    label: 'Compliance deltas',
     layer: 'posture',
     focusModes: ['security', 'drift-compliance', 'cost'],
     coverage: 'partial',
@@ -796,7 +960,7 @@ function buildCoverage(): ComparisonCoverageItem[] {
       label: 'Posture / findings',
       layer: 'posture',
       status: 'partial',
-      detail: 'Uses Compliance Center findings and overview signals. Terraform drift is not yet merged into this workspace.'
+      detail: 'Uses Compliance Center findings plus explicit compliance summary deltas for severity, category, and per-service counts.'
     },
     {
       id: 'tags',
@@ -840,6 +1004,7 @@ export async function runComparison(request: ComparisonRequest): Promise<Compari
   const groups = [
     ...buildInventoryGroups(left, right),
     buildPostureGroup(left, right),
+    buildComplianceDeltaGroup(left, right),
     buildTagGroup(left, right),
     buildCostGroup(left, right)
   ]
