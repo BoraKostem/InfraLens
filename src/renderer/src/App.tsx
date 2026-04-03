@@ -621,11 +621,15 @@ function PlaceholderScreen({ service }: { service: ServiceDescriptor }) {
 function ProviderPreviewScreen({
   provider,
   screen,
-  description
+  description,
+  contextLabel,
+  contextDetail
 }: {
   provider: ProviderDescriptor
   screen: Screen
   description: string
+  contextLabel?: string
+  contextDetail?: string
 }) {
   const modes = PROVIDER_CONNECTION_MODES[provider.id]
 
@@ -637,12 +641,19 @@ function ProviderPreviewScreen({
           <h2>{formatScreenLabel(screen)} is staged behind the new provider-aware shell.</h2>
           <p className="hero-path">{description}</p>
         </div>
-        <span className="enterprise-mode-pill read-only">Phase 4 preview</span>
-      </div>
-      <div className="provider-preview-grid">
-        {modes.map((mode) => (
-          <article key={mode.id} className={`profile-catalog-card provider-mode-card provider-mode-card-${provider.id}`}>
-            <div className="profile-catalog-status">
+          <span className="enterprise-mode-pill read-only">Phase 4 preview</span>
+        </div>
+        {contextLabel ? (
+          <div className="provider-preview-context">
+            <span className="provider-preview-context-label">Current context</span>
+            <strong>{contextLabel}</strong>
+            {contextDetail ? <small>{contextDetail}</small> : null}
+          </div>
+        ) : null}
+        <div className="provider-preview-grid">
+          {modes.map((mode) => (
+            <article key={mode.id} className={`profile-catalog-card provider-mode-card provider-mode-card-${provider.id}`}>
+              <div className="profile-catalog-status">
               <span>{mode.label}</span>
               <strong>{mode.status}</strong>
             </div>
@@ -1757,41 +1768,74 @@ export function App() {
   }
 
   function renderNavPriorityLink(service: ServiceDescriptor) {
-    const isActive = screen === service.id
-    const detail = service.id === 'overview' && isAwsProviderActive
-      ? `${service.label} (${connectionState.region})`
-      : service.label
+      const isActive = screen === service.id
+      const detail = service.id === 'overview' && isAwsProviderActive
+        ? `${service.label} (${connectionState.region})`
+        : service.label
+      const sharedContextDetail = activeProviderId === 'gcp'
+        ? gcpContextReady
+          ? `${activeGcpConnectionDraft?.projectId.trim()} | ${activeGcpConnectionDraft?.location.trim()}`
+          : 'Select a project to enable'
+        : activeProviderId === 'azure'
+          ? selectedPreviewMode
+            ? `${selectedPreviewMode.label} | shared shell`
+            : 'Select a connection mode'
+          : ''
 
-    return (
-      <div key={service.id} className="service-link-row service-link-row-utility">
-        <button
-          type="button"
-          className={`service-link overview-link ${isActive ? 'active' : ''}`}
-          disabled={!serviceNavEnabled}
-          onClick={() => navigateToService(service.id)}
-        >
-          <span>{detail}</span>
-        </button>
-        <div className="pin-toggle pin-toggle-placeholder" aria-hidden="true" />
-      </div>
-    )
-  }
+      return (
+        <div key={service.id} className="service-link-row service-link-row-utility">
+          <button
+            type="button"
+            className={`service-link overview-link ${isActive ? 'active' : ''}`}
+            disabled={!serviceNavEnabled}
+            onClick={() => navigateToService(service.id)}
+          >
+            {isAwsProviderActive ? (
+              <span>{detail}</span>
+            ) : (
+              <span className="service-link-copy">
+                <strong>{detail}</strong>
+                <small>{sharedContextDetail}</small>
+              </span>
+            )}
+          </button>
+          <div className="pin-toggle pin-toggle-placeholder" aria-hidden="true" />
+        </div>
+      )
+    }
 
   function renderDirectAccessLink() {
-    return (
-      <div className="service-link-row service-link-row-utility">
-        <button
-          type="button"
-          className={`service-link overview-link ${screen === 'direct-access' ? 'active' : ''}`}
-          disabled={!serviceNavEnabled}
-          onClick={() => setScreen('direct-access')}
-        >
-          <span>Direct Resource Access</span>
-        </button>
-        <div className="pin-toggle pin-toggle-placeholder" aria-hidden="true" />
-      </div>
-    )
-  }
+      const directAccessDetail = activeProviderId === 'gcp'
+        ? gcpContextReady
+          ? `${activeGcpConnectionDraft?.projectId.trim()} | lookup staged`
+          : 'Select a project to enable'
+        : activeProviderId === 'azure'
+          ? selectedPreviewMode
+            ? `${selectedPreviewMode.label} | lookup staged`
+            : 'Select a connection mode'
+          : ''
+
+      return (
+        <div className="service-link-row service-link-row-utility">
+          <button
+            type="button"
+            className={`service-link overview-link ${screen === 'direct-access' ? 'active' : ''}`}
+            disabled={!serviceNavEnabled}
+            onClick={() => setScreen('direct-access')}
+          >
+            {isAwsProviderActive ? (
+              <span>Direct Resource Access</span>
+            ) : (
+              <span className="service-link-copy">
+                <strong>Direct Resource Access</strong>
+                <small>{directAccessDetail}</small>
+              </span>
+            )}
+          </button>
+          <div className="pin-toggle pin-toggle-placeholder" aria-hidden="true" />
+        </div>
+      )
+    }
 
   function renderPreviewNavItem(item: ProviderPreviewNavItem) {
     return (
@@ -2720,14 +2764,24 @@ export function App() {
             ? SERVICE_DESCRIPTIONS[targetService.id]
             : 'This workspace will attach to the provider-aware shell after the current preview sequence finishes.'
 
-      return (
-        <ProviderPreviewScreen
-          provider={activeProvider}
-          screen={targetScreen}
-          description={previewDescription}
-        />
-      )
-    }
+        return (
+          <ProviderPreviewScreen
+            provider={activeProvider}
+            screen={targetScreen}
+            description={previewDescription}
+            contextLabel={activeProviderId === 'gcp' && gcpContextReady
+              ? activeGcpConnectionDraft?.projectId.trim()
+              : activeProviderId === 'azure' && selectedPreviewMode
+                ? selectedPreviewMode.label
+                : undefined}
+            contextDetail={activeProviderId === 'gcp' && gcpContextReady
+              ? `${activeGcpConnectionDraft?.location.trim()} | ${selectedPreviewMode?.label || 'Google Cloud context'}`
+              : activeProviderId === 'azure' && selectedPreviewMode
+                ? 'Shared shell context selected'
+                : undefined}
+          />
+        )
+      }
 
     if (targetScreen === 'terraform' && targetService?.id === 'terraform') {
       return (
