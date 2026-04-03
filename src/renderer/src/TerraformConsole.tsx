@@ -2590,6 +2590,52 @@ function driftItemKey(item: TerraformDriftItem): string {
   return `${item.terraformAddress}|${item.resourceType}|${item.cloudIdentifier}|${item.logicalName}|${item.status}`
 }
 
+function driftSnapshotIdentity(item: TerraformDriftItem): string {
+  return `${item.terraformAddress}|${item.resourceType}|${item.cloudIdentifier}|${item.logicalName}`
+}
+
+type DriftSnapshotChangeSummary = {
+  newIssues: TerraformDriftItem[]
+  resolvedIssues: TerraformDriftItem[]
+  changedItems: Array<{ latest: TerraformDriftItem; previous: TerraformDriftItem }>
+}
+
+function isActionableDriftStatus(status: TerraformDriftStatus): boolean {
+  return status === 'drifted' || status === 'missing_in_aws' || status === 'unmanaged_in_aws'
+}
+
+function summarizeSnapshotChanges(report: TerraformDriftReport | null): DriftSnapshotChangeSummary | null {
+  const latest = report?.history.snapshots[0]
+  const previous = report?.history.snapshots[1]
+  if (!latest || !previous) return null
+
+  const latestMap = new Map(latest.items.map((item) => [driftSnapshotIdentity(item), item]))
+  const previousMap = new Map(previous.items.map((item) => [driftSnapshotIdentity(item), item]))
+
+  const newIssues = latest.items.filter((item) => {
+    if (!isActionableDriftStatus(item.status)) return false
+    const prior = previousMap.get(driftSnapshotIdentity(item))
+    return !prior || !isActionableDriftStatus(prior.status)
+  })
+
+  const resolvedIssues = previous.items.filter((item) => {
+    if (!isActionableDriftStatus(item.status)) return false
+    const current = latestMap.get(driftSnapshotIdentity(item))
+    return !current || !isActionableDriftStatus(current.status)
+  })
+
+  const changedItems = latest.items.flatMap((item) => {
+    const prior = previousMap.get(driftSnapshotIdentity(item))
+    if (!prior) return []
+    const priorDiff = prior.differences.map((difference) => `${difference.key}:${difference.terraformValue}:${difference.liveValue}`).join('|')
+    const currentDiff = item.differences.map((difference) => `${difference.key}:${difference.terraformValue}:${difference.liveValue}`).join('|')
+    if (prior.status === item.status && priorDiff === currentDiff) return []
+    return [{ latest: item, previous: prior }]
+  })
+
+  return { newIssues, resolvedIssues, changedItems }
+}
+
 function DriftTab({
   report,
   loading,
@@ -2628,6 +2674,7 @@ function DriftTab({
   onNavigateService?: (serviceId: ServiceId, resourceId?: string) => void
 }) {
   const items = report?.items ?? []
+  const snapshotChanges = useMemo(() => summarizeSnapshotChanges(report), [report])
   const resourceTypes = useMemo(
     () => report?.summary.resourceTypeCounts.map((entry) => entry.resourceType) ?? [],
     [report]
@@ -2772,43 +2819,55 @@ function DriftTab({
           </div>
           {selectedItem && (
             <div className="tf-section">
+              {(() => {
+                const isSelectedItemDrifted = selectedItem.status === 'drifted'
+                const navigableService = driftResourceTypeToService(selectedItem.resourceType)
+
+                return (
               <div className="tf-section-head">
                 <h3>Selected Drift Item</h3>
                 <div className="tf-drift-actions">
-                  <button
-                    type="button"
-                    className="tf-toolbar-btn"
-                    onClick={() => onPrepareImport(selectedItem)}
-                    disabled={!selectedItem.cloudIdentifier}
-                  >
-                    Prepare Import
-                  </button>
-                  <button
-                    type="button"
-                    className="tf-toolbar-btn"
-                    onClick={() => onPrepareMove(selectedItem)}
-                    disabled={!selectedItem.terraformAddress || !selectedMoveTarget}
-                  >
-                    Prepare Move
-                  </button>
-                  <button
-                    type="button"
-                    className="tf-toolbar-btn danger"
-                    onClick={() => onPrepareRemove(selectedItem)}
-                    disabled={!selectedItem.terraformAddress}
-                  >
-                    Prepare State Remove
-                  </button>
-                  <button type="button" className="tf-toolbar-btn" onClick={() => onOpenConsole(selectedItem)} disabled={!selectedItem.consoleUrl}>Open In AWS Console</button>
-                  {onNavigateService && driftResourceTypeToService(selectedItem.resourceType) && (
+                  {isSelectedItemDrifted && (
+                    <>
+                      <button
+                        type="button"
+                        className="tf-toolbar-btn"
+                        onClick={() => onPrepareImport(selectedItem)}
+                        disabled={!selectedItem.cloudIdentifier}
+                      >
+                        Prepare Import
+                      </button>
+                      <button
+                        type="button"
+                        className="tf-toolbar-btn"
+                        onClick={() => onPrepareMove(selectedItem)}
+                        disabled={!selectedItem.terraformAddress || !selectedMoveTarget}
+                      >
+                        Prepare Move
+                      </button>
+                      <button
+                        type="button"
+                        className="tf-toolbar-btn danger"
+                        onClick={() => onPrepareRemove(selectedItem)}
+                        disabled={!selectedItem.terraformAddress}
+                      >
+                        Prepare State Remove
+                      </button>
+                      <button type="button" className="tf-toolbar-btn" onClick={() => onOpenConsole(selectedItem)} disabled={!selectedItem.consoleUrl}>Open In AWS Console</button>
+                    </>
+                  )}
+                  {onNavigateService && navigableService && (
                     <button type="button" className="tf-toolbar-btn" onClick={() => {
-                      const svc = driftResourceTypeToService(selectedItem.resourceType)
-                      if (svc) onNavigateService(svc, selectedItem.cloudIdentifier || undefined)
+                      onNavigateService(navigableService, selectedItem.cloudIdentifier || undefined)
                     }}>Open in App</button>
                   )}
-                  <button type="button" className="tf-toolbar-btn" onClick={() => onRunStateShow(selectedItem)} disabled={!selectedItem.terminalCommand}>{cliLabel} state show</button>
+                  {isSelectedItemDrifted && (
+                    <button type="button" className="tf-toolbar-btn" onClick={() => onRunStateShow(selectedItem)} disabled={!selectedItem.terminalCommand}>{cliLabel} state show</button>
+                  )}
                 </div>
               </div>
+                )
+              })()}
               <div className="tf-overview-card-grid">
                 <div className={`tf-overview-card ${selectedItem.status === 'in_sync' ? 'success' : selectedItem.status === 'unsupported' ? 'info' : 'warning'}`}>
                   <span>Status</span>
@@ -2842,6 +2901,85 @@ function DriftTab({
           )}
         </>
       )}
+      {report && snapshotChanges && (
+        <div className="tf-section">
+          <div className="tf-section-head">
+            <div>
+              <h3>Trend Diff</h3>
+              <div className="tf-section-hint">
+                Delta between the latest drift snapshot and the previous scan.
+              </div>
+            </div>
+          </div>
+          <div className="tf-overview-card-grid">
+            <div className="tf-overview-card warning">
+              <span>New Issues</span>
+              <strong>{snapshotChanges.newIssues.length}</strong>
+            </div>
+            <div className="tf-overview-card success">
+              <span>Resolved</span>
+              <strong>{snapshotChanges.resolvedIssues.length}</strong>
+            </div>
+            <div className="tf-overview-card info">
+              <span>Changed</span>
+              <strong>{snapshotChanges.changedItems.length}</strong>
+            </div>
+          </div>
+          <div className="tf-trend-diff-grid">
+            <div className="tf-history-card">
+              <div className="tf-history-card-head">
+                <strong>New Since Last Scan</strong>
+                <span>{formatIsoDate(report.history.latestScanAt)} vs {formatIsoDate(report.history.previousScanAt)}</span>
+              </div>
+              <div className="tf-trend-diff-list">
+                {snapshotChanges.newIssues.length === 0 ? (
+                  <span className="tf-section-hint">No newly introduced actionable drift items.</span>
+                ) : snapshotChanges.newIssues.slice(0, 8).map((item) => (
+                  <div key={`new-${driftSnapshotIdentity(item)}`} className="tf-trend-diff-row">
+                    <code>{item.resourceType}</code>
+                    <span>{item.logicalName || item.terraformAddress}</span>
+                    <strong>{DRIFT_STATUS_LABELS[item.status]}</strong>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="tf-history-card">
+              <div className="tf-history-card-head">
+                <strong>Resolved</strong>
+                <span>Items that are no longer actionable drift findings.</span>
+              </div>
+              <div className="tf-trend-diff-list">
+                {snapshotChanges.resolvedIssues.length === 0 ? (
+                  <span className="tf-section-hint">No resolved actionable drift items.</span>
+                ) : snapshotChanges.resolvedIssues.slice(0, 8).map((item) => (
+                  <div key={`resolved-${driftSnapshotIdentity(item)}`} className="tf-trend-diff-row">
+                    <code>{item.resourceType}</code>
+                    <span>{item.logicalName || item.terraformAddress}</span>
+                    <strong>{DRIFT_STATUS_LABELS[item.status]}</strong>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="tf-history-card">
+              <div className="tf-history-card-head">
+                <strong>Changed Findings</strong>
+                <span>Status or verified differences changed across scans.</span>
+              </div>
+              <div className="tf-trend-diff-list">
+                {snapshotChanges.changedItems.length === 0 ? (
+                  <span className="tf-section-hint">No changed findings between the last two scans.</span>
+                ) : snapshotChanges.changedItems.slice(0, 8).map(({ latest, previous }) => (
+                  <div key={`changed-${driftSnapshotIdentity(latest)}`} className="tf-trend-diff-row">
+                    <code>{latest.resourceType}</code>
+                    <span>{latest.logicalName || latest.terraformAddress}</span>
+                    <strong>{DRIFT_STATUS_LABELS[previous.status]} {'->'} {DRIFT_STATUS_LABELS[latest.status]}</strong>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {report && report.history.snapshots.length > 0 && (
         <div className="tf-section">
           <div className="tf-section-head">
@@ -2852,8 +2990,8 @@ function DriftTab({
               </div>
             </div>
           </div>
-          <div className="tf-history-card-list">
-            {report.history.snapshots.slice(0, 8).map((snapshot, index) => (
+          <div className="tf-history-card-list tf-history-card-list-scroll">
+            {report.history.snapshots.map((snapshot, index) => (
               <div key={snapshot.id} className="tf-history-card">
                 <div className="tf-history-card-head">
                   <strong>{formatIsoDate(snapshot.scannedAt)}</strong>

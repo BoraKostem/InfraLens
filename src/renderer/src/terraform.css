@@ -1027,6 +1027,13 @@
   gap: 10px;
 }
 
+.tf-history-card-list-scroll {
+  max-height: 560px;
+  overflow-y: auto;
+  padding-right: 4px;
+  align-content: start;
+}
+
 .tf-linked-card,
 .tf-history-card,
 .tf-remediation-card {
@@ -2724,6 +2731,51 @@
 .tf-history-card-metrics {
   font-size: 11px;
   color: #9ca7b7;
+}
+
+.tf-trend-diff-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.tf-trend-diff-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.tf-trend-diff-row {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid #2a313c;
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #111820;
+  font-size: 12px;
+}
+
+.tf-trend-diff-row code {
+  color: #9ecbff;
+  font-size: 11px;
+}
+
+.tf-trend-diff-row span {
+  color: #d7dde7;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tf-trend-diff-row strong {
+  font-size: 11px;
+  color: #edf1f6;
+  text-align: right;
 }
 
 .tf-history-detail-actions {
