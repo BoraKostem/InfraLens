@@ -10,6 +10,7 @@ import type {
   EksClusterSummary,
   EksNodegroupSummary,
   EksUpgradePlan,
+  GeneratedArtifact,
   ObservabilityPostureReport,
   ServiceId
 } from '@shared/types'
@@ -48,6 +49,18 @@ const NG_COLUMNS: { key: NgCol; label: string; color: string }[] = [
   { key: 'recommendation', label: 'Recommendation', color: '#d3b46f' },
   { key: 'instanceTypes', label: 'Instance types', color: '#f285b9' }
 ]
+
+function isWindowsShell(): boolean {
+  return /win/i.test(navigator.platform || navigator.userAgent)
+}
+
+function wrapKubectlCommand(kubeconfigPath: string, command: string): string {
+  if (isWindowsShell()) {
+    return `$env:KUBECONFIG = '${kubeconfigPath.replace(/'/g, "''")}'; ${command}`
+  }
+
+  return `export KUBECONFIG='${kubeconfigPath.replace(/'/g, `'\\''`)}' && ${command}`
+}
 
 function getNgValue(ng: EksNodegroupSummary, key: NgCol): string {
   switch (key) {
@@ -364,6 +377,25 @@ export function EksConsole({
         sourceLabel: selectedCluster,
         serviceHint: 'eks'
       })
+    }
+  }
+
+  async function handleLabArtifactRun(artifact: GeneratedArtifact): Promise<void> {
+    setError('')
+    setMsg('')
+
+    try {
+      let command = artifact.content
+
+      if (selectedCluster && /\bkubectl\b/.test(artifact.content)) {
+        const session = await prepareEksKubectlSession(connection, selectedCluster)
+        command = wrapKubectlCommand(session.path, artifact.content)
+      }
+
+      onRunTerminalCommand?.(command)
+      setMsg(`${artifact.title} sent to the app terminal`)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -980,6 +1012,7 @@ export function EksConsole({
                     loading={labLoading}
                     error={labError}
                     onRefresh={() => void loadLab()}
+                    onRunArtifact={handleLabArtifactRun}
                     onNavigateSignal={handleLabSignalNavigate}
                   />
                 </section>

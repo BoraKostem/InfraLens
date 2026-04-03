@@ -12,6 +12,7 @@ import type {
   TerraformDriftReport,
   TerraformProject
 } from '@shared/types'
+import { getShellConfig } from '../shell'
 import { getTerraformDriftReport } from '../terraformDrift'
 import { getProject } from '../terraform'
 import { createTempEksKubeconfig, describeEksCluster, getEksMetricsSnapshot, listEksNodegroups, type EksMetricsSnapshot } from './eks'
@@ -49,7 +50,13 @@ function buildArtifact(
   copyLabel = 'Copy artifact',
   runLabel = 'Run in terminal'
 ): GeneratedArtifact {
-  return { id, title, type, language, summary, content, safety, isRunnable, copyLabel, runLabel }
+  const resolvedRunnable = isRunnable || (type === 'shell-command' && /^read-only\b/i.test(safety.trim()))
+  return { id, title, type, language, summary, content, safety, isRunnable: resolvedRunnable, copyLabel, runLabel }
+}
+
+function joinShellCommands(commands: string[]): string {
+  const separator = getShellConfig().kind === 'powershell' ? '; ' : ' && '
+  return commands.filter((command) => command.trim()).join(separator)
 }
 
 function sortReport(report: ObservabilityPostureReport): ObservabilityPostureReport {
@@ -576,7 +583,10 @@ function buildEksRecommendations(region: string, cluster: EksClusterDetail, find
     'shell-command',
     'bash',
     'Read-only command to verify metrics.k8s.io and current node usage from kubectl.',
-    'kubectl get --raw /apis/metrics.k8s.io/v1beta1/nodes && kubectl top nodes',
+    joinShellCommands([
+      'kubectl get --raw /apis/metrics.k8s.io/v1beta1/nodes',
+      'kubectl top nodes'
+    ]),
     'Read-only. Requires kubectl access and a working Metrics Server deployment.'
   )
 

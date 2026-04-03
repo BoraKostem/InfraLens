@@ -42,6 +42,25 @@ export function ObservabilityResilienceLab({
     window.setTimeout(() => setCopiedId((current) => (current === id ? '' : current)), 1200)
   }
 
+  function renderArtifactActions(artifact: GeneratedArtifact) {
+    return (
+      <>
+        <div className="obs-lab-meta"><strong>Artifact:</strong> {artifact.title} ({artifactBadge(artifact.type)})</div>
+        <div className="obs-lab-meta"><strong>Artifact Safety:</strong> {artifact.safety}</div>
+        <div className="obs-lab-actions">
+          <button type="button" onClick={() => void copyText(artifact.id, artifact.content)}>
+            {copiedId === artifact.id ? 'Copied' : artifact.copyLabel}
+          </button>
+          {artifact.isRunnable && onRunArtifact && (
+            <button type="button" className="accent" onClick={() => onRunArtifact(artifact)}>
+              {artifact.runLabel}
+            </button>
+          )}
+        </div>
+      </>
+    )
+  }
+
   return (
     <div className="obs-lab">
       <div className="obs-lab-header">
@@ -121,6 +140,7 @@ export function ObservabilityResilienceLab({
                     <span className="obs-lab-tag">Prereq: {item.prerequisiteLevel}</span>
                     <span className="obs-lab-tag">Effort: {item.setupEffort}</span>
                   </div>
+                  {item.artifact && renderArtifactActions(item.artifact)}
                 </article>
               ))}
             </div>
@@ -137,17 +157,7 @@ export function ObservabilityResilienceLab({
                   </div>
                   <p>{artifact.summary}</p>
                   <pre className="obs-lab-code"><code>{artifact.content}</code></pre>
-                  <div className="obs-lab-meta"><strong>Safety:</strong> {artifact.safety}</div>
-                  <div className="obs-lab-actions">
-                    <button type="button" onClick={() => void copyText(artifact.id, artifact.content)}>
-                      {copiedId === artifact.id ? 'Copied' : artifact.copyLabel}
-                    </button>
-                    {artifact.isRunnable && onRunArtifact && (
-                      <button type="button" className="accent" onClick={() => onRunArtifact(artifact)}>
-                        {artifact.runLabel}
-                      </button>
-                    )}
-                  </div>
+                  {renderArtifactActions(artifact)}
                 </article>
               ))}
             </div>
