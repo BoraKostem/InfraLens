@@ -2547,9 +2547,12 @@ function WorkspaceControls({
 /* ── Resources Tab ────────────────────────────────────────── */
 
 function ResourcesTab({ project }: { project: TerraformProject }) {
+  const RESOURCE_ROWS_PAGE_SIZE = 150
   const rows = project.resourceRows
   const [categoryFilter, setCategoryFilter] = useState('all')
+  const [groupBy, setGroupBy] = useState<'none' | 'category' | 'type' | 'region'>('category')
   const [query, setQuery] = useState('')
+  const [visibleRowCount, setVisibleRowCount] = useState(RESOURCE_ROWS_PAGE_SIZE)
   const categories = useMemo(
     () => [...new Set(rows.map((row) => row.category).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
     [rows]
@@ -2571,6 +2574,46 @@ function ResourcesTab({ project }: { project: TerraformProject }) {
 
     return haystack.includes(normalizedQuery)
   }), [categoryFilter, normalizedQuery, rows])
+  const groupedRows = useMemo(() => {
+    if (groupBy === 'none') {
+      return [{ key: 'all', label: 'All resources', rows: filteredRows }]
+    }
+
+    const groups = new Map<string, typeof filteredRows>()
+    for (const row of filteredRows) {
+      const key = groupBy === 'category'
+        ? row.category || 'uncategorized'
+        : groupBy === 'type'
+          ? row.type || 'unknown'
+          : row.region || 'global'
+      const existing = groups.get(key)
+      if (existing) {
+        existing.push(row)
+      } else {
+        groups.set(key, [row])
+      }
+    }
+
+    return [...groups.entries()]
+      .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
+      .map(([key, groupRows]) => ({ key, label: key, rows: groupRows }))
+  }, [filteredRows, groupBy])
+  const visibleRows = useMemo(() => {
+    let remaining = visibleRowCount
+    return groupedRows.map((group) => {
+      if (remaining <= 0) {
+        return { ...group, rows: [] }
+      }
+      const nextRows = group.rows.slice(0, remaining)
+      remaining -= nextRows.length
+      return { ...group, rows: nextRows }
+    }).filter((group) => group.rows.length > 0)
+  }, [groupedRows, visibleRowCount])
+  const hasMoreRows = filteredRows.length > visibleRowCount
+
+  useEffect(() => {
+    setVisibleRowCount(RESOURCE_ROWS_PAGE_SIZE)
+  }, [categoryFilter, query, groupBy, rows])
 
   return (
     <>
@@ -2593,6 +2636,15 @@ function ResourcesTab({ project }: { project: TerraformProject }) {
                 ))}
               </select>
             </div>
+            <div className="tf-history-filter-group">
+              <label>Group by</label>
+              <select value={groupBy} onChange={(event) => setGroupBy(event.target.value as 'none' | 'category' | 'type' | 'region')}>
+                <option value="category">Category</option>
+                <option value="type">Type</option>
+                <option value="region">Region</option>
+                <option value="none">None</option>
+              </select>
+            </div>
             <div className="tf-history-filter-group tf-resource-search">
               <label>Search</label>
               <input
@@ -2611,55 +2663,75 @@ function ResourcesTab({ project }: { project: TerraformProject }) {
         <div className="tf-section"><SvcState variant="no-filter-matches" resourceName="resources" /></div>
       ) : (
         <div className="tf-section">
-          <div className="tf-resource-table-wrap">
-            <table className="tf-data-table tf-resource-table">
-              <colgroup>
-                <col className="tf-resource-table__category" />
-                <col className="tf-resource-table__address" />
-                <col className="tf-resource-table__type" />
-                <col className="tf-resource-table__arn" />
-                <col className="tf-resource-table__region" />
-                <col className="tf-resource-table__changed-by" />
-                <col className="tf-resource-table__tags" />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th>Category</th>
-                  <th>Address</th>
-                  <th>Type</th>
-                  <th>Arn</th>
-                  <th>Region</th>
-                  <th>ChangedBy</th>
-                  <th>Tags</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredRows.map((row) => (
-                  <tr key={row.address}>
-                    <td>
-                      <span className="tf-resource-badge">{row.category}</span>
-                    </td>
-                    <td title={row.address}>
-                      <code className="tf-table-code tf-table-code--strong">{truncateMiddle(row.address, { start: 26, end: 18 })}</code>
-                    </td>
-                    <td title={row.type}>
-                      <code className="tf-table-code">{row.type}</code>
-                    </td>
-                    <td title={row.arn || '-'}>
-                      {row.arn ? <code className="tf-table-code">{truncateMiddle(row.arn, { start: 18, end: 22 })}</code> : '-'}
-                    </td>
-                    <td>{row.region || '-'}</td>
-                    <td title={row.changedBy || '-'}>
-                      <span className="tf-table-text">{row.changedBy || '-'}</span>
-                    </td>
-                    <td title={row.tags || '-'}>
-                      <span className="tf-table-text">{formatResourceTagsSummary(row.tags)}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="tf-section-hint">
+            Rendering {Math.min(visibleRowCount, filteredRows.length)} of {filteredRows.length} rows. Large states stay chunked to keep the table responsive.
           </div>
+          <div className="tf-resource-table-wrap">
+            {visibleRows.map((group) => (
+              <div key={group.key} className="tf-resource-group">
+                {groupBy !== 'none' && (
+                  <div className="tf-resource-group-head">
+                    <strong>{group.label}</strong>
+                    <span>{group.rows.length} shown / {groupedRows.find((item) => item.key === group.key)?.rows.length ?? group.rows.length} total</span>
+                  </div>
+                )}
+                <table className="tf-data-table tf-resource-table">
+                  <colgroup>
+                    <col className="tf-resource-table__category" />
+                    <col className="tf-resource-table__address" />
+                    <col className="tf-resource-table__type" />
+                    <col className="tf-resource-table__arn" />
+                    <col className="tf-resource-table__region" />
+                    <col className="tf-resource-table__changed-by" />
+                    <col className="tf-resource-table__tags" />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th>Category</th>
+                      <th>Address</th>
+                      <th>Type</th>
+                      <th>Arn</th>
+                      <th>Region</th>
+                      <th>ChangedBy</th>
+                      <th>Tags</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {group.rows.map((row) => (
+                      <tr key={row.address}>
+                        <td>
+                          <span className="tf-resource-badge">{row.category}</span>
+                        </td>
+                        <td title={row.address}>
+                          <code className="tf-table-code tf-table-code--strong">{truncateMiddle(row.address, { start: 26, end: 18 })}</code>
+                        </td>
+                        <td title={row.type}>
+                          <code className="tf-table-code">{row.type}</code>
+                        </td>
+                        <td title={row.arn || '-'}>
+                          {row.arn ? <code className="tf-table-code">{truncateMiddle(row.arn, { start: 18, end: 22 })}</code> : '-'}
+                        </td>
+                        <td>{row.region || '-'}</td>
+                        <td title={row.changedBy || '-'}>
+                          <span className="tf-table-text">{row.changedBy || '-'}</span>
+                        </td>
+                        <td title={row.tags || '-'}>
+                          <span className="tf-table-text">{formatResourceTagsSummary(row.tags)}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+          </div>
+          {hasMoreRows && (
+            <div className="tf-resource-load-more">
+              <button type="button" className="tf-toolbar-btn" onClick={() => setVisibleRowCount((current) => current + RESOURCE_ROWS_PAGE_SIZE)}>
+                Load More Resources
+              </button>
+            </div>
+          )}
         </div>
       )}
     </>

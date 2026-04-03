@@ -2160,6 +2160,36 @@
   background: linear-gradient(180deg, rgba(13, 20, 30, 0.92), rgba(10, 15, 22, 0.96));
 }
 
+.tf-resource-group {
+  padding: 10px;
+  border-bottom: 1px solid rgba(145, 176, 207, 0.08);
+}
+
+.tf-resource-group:last-child {
+  border-bottom: 0;
+}
+
+.tf-resource-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  color: #9ca7b7;
+  font-size: 11px;
+}
+
+.tf-resource-group-head strong {
+  color: #edf1f6;
+  font-size: 13px;
+}
+
+.tf-resource-load-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}
+
 .tf-resource-table__category {
   width: 120px;
 }
