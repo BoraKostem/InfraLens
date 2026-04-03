@@ -114,6 +114,7 @@ type EnvironmentOnboardingState = {
   lastStep: EnvironmentOnboardingStep
 }
 type FocusMap = Partial<Record<NavigationFocus['service'], TokenizedFocus>>
+type FocusMapByScope = Partial<Record<string, FocusMap>>
 type ProviderConnectionMode = {
   id: string
   label: string
@@ -781,6 +782,7 @@ export function App() {
   const [environmentOnboardingStep, setEnvironmentOnboardingStep] = useState<EnvironmentOnboardingStep>('profile')
   const [globalWarning, setGlobalWarning] = useState('')
   const [focusMap, setFocusMap] = useState<FocusMap>({})
+  const [awsFocusMapByProfile, setAwsFocusMapByProfile] = useState<FocusMapByScope>({})
   const [compareSeed, setCompareSeed] = useState<CompareSeed>(null)
   const [profileContextMenu, setProfileContextMenu] = useState<ProfileContextMenuState>(null)
   const [auditEvents, setAuditEvents] = useState<EnterpriseAuditEvent[]>([])
@@ -1127,6 +1129,7 @@ export function App() {
   const activeAwsScreenMemoryKey = getAwsScreenMemoryKey(
     connectionState.activeSession?.sourceProfile || connectionState.selectedProfile?.name || connectionState.profile
   )
+  const activeAwsFocusMap = activeAwsScreenMemoryKey ? awsFocusMapByProfile[activeAwsScreenMemoryKey] ?? {} : {}
   const activeCacheTag = screenCacheTag(screen)
   const activePageNonce = pageRefreshNonceByScreen[screen] ?? 0
   const isCurrentScreenRefreshing = refreshState?.screen === screen
@@ -1193,31 +1196,56 @@ export function App() {
     if (isAwsProviderActive && region) {
       connectionState.setRegion(region)
     }
-    setFocusMap((current) => {
-      if (!Object.prototype.hasOwnProperty.call(current, serviceId)) return current
-      const next = { ...current }
-      delete next[serviceId as NavigationFocus['service']]
-      return next
-    })
+    if (isAwsProviderActive && activeAwsScreenMemoryKey) {
+      setAwsFocusMapByProfile((current) => {
+        const scoped = current[activeAwsScreenMemoryKey]
+        if (!scoped || !Object.prototype.hasOwnProperty.call(scoped, serviceId)) {
+          return current
+        }
+
+        const nextScoped = { ...scoped }
+        delete nextScoped[serviceId as NavigationFocus['service']]
+        return { ...current, [activeAwsScreenMemoryKey]: nextScoped }
+      })
+    } else {
+      setFocusMap((current) => {
+        if (!Object.prototype.hasOwnProperty.call(current, serviceId)) return current
+        const next = { ...current }
+        delete next[serviceId as NavigationFocus['service']]
+        return next
+      })
+    }
     setScreen(serviceId)
   }
 
   function navigateWithFocus(focus: NavigationFocus, region?: string): void {
     if (region) connectionState.setRegion(region)
-    setFocusMap(prev => ({
-      ...prev,
-      [focus.service]: {
-        ...focus,
-        providerId: focus.providerId ?? activeProviderId,
-        locationId: focus.locationId ?? region ?? connectionState.region,
-        token: Date.now()
-      }
-    }))
+    const nextFocus = {
+      ...focus,
+      providerId: focus.providerId ?? activeProviderId,
+      locationId: focus.locationId ?? region ?? connectionState.region,
+      token: Date.now()
+    }
+
+    if ((focus.providerId ?? activeProviderId) === 'aws' && activeAwsScreenMemoryKey) {
+      setAwsFocusMapByProfile((current) => ({
+        ...current,
+        [activeAwsScreenMemoryKey]: {
+          ...(current[activeAwsScreenMemoryKey] ?? {}),
+          [focus.service]: nextFocus
+        }
+      }))
+    } else {
+      setFocusMap(prev => ({
+        ...prev,
+        [focus.service]: nextFocus
+      }))
+    }
     setScreen(focus.service)
   }
 
   function getFocus<S extends NavigationFocus['service']>(service: S): TokenizedFocus<S> | null {
-    const f = focusMap[service]
+    const f = isAwsProviderActive ? activeAwsFocusMap[service] : focusMap[service]
     if (!f || f.service !== service) return null
     if (f.providerId && f.providerId !== activeProviderId) return null
     return f as TokenizedFocus<S>
