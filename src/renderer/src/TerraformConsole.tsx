@@ -73,7 +73,7 @@ import {
 } from './terraformApi'
 import { ObservabilityResilienceLab } from './ObservabilityResilienceLab'
 
-type DetailTab = 'actions' | 'state' | 'resources' | 'drift' | 'lab' | 'history'
+type DetailTab = 'operations' | 'actions' | 'state' | 'resources' | 'drift' | 'lab' | 'history'
 
 type StateOperationDraft =
   | { mode: 'import'; importAddress: string; importId: string }
@@ -191,6 +191,124 @@ function gitStatusSummary(project: TerraformProject): string {
     return `${formatGitHead(git.branch, git.shortCommitSha, git.isDetached)}${git.isDirty ? ' • dirty' : ' • clean'}`
   }
   return git.error || 'Git metadata unavailable.'
+}
+
+function OperationsCenterTab({
+  project,
+  driftReport,
+  driftLoading,
+  driftError,
+  lastLog,
+  onOpenActions,
+  onOpenDrift,
+  onOpenState,
+  onOpenHistory
+}: {
+  project: TerraformProject
+  driftReport: TerraformDriftReport | null
+  driftLoading: boolean
+  driftError: string
+  lastLog: TerraformCommandLog | null
+  onOpenActions: () => void
+  onOpenDrift: () => void
+  onOpenState: () => void
+  onOpenHistory: () => void
+}) {
+  const plan = project.lastPlanSummary
+  const driftSummary = driftReport?.summary
+  const actionableDriftCount = driftSummary
+    ? driftSummary.statusCounts.drifted + driftSummary.statusCounts.missing_in_aws + driftSummary.statusCounts.unmanaged_in_aws
+    : 0
+
+  return (
+    <>
+      <div className="tf-section">
+        <div className="tf-section-head">
+          <div>
+            <h3>Operations Center</h3>
+            <div className="tf-section-hint">
+              Plan, drift, and state posture for the current project in one operating surface.
+            </div>
+          </div>
+          <div className="tf-drift-actions">
+            <button type="button" className="tf-toolbar-btn" onClick={onOpenActions}>Open Actions</button>
+            <button type="button" className="tf-toolbar-btn" onClick={onOpenDrift}>Open Drift</button>
+            <button type="button" className="tf-toolbar-btn" onClick={onOpenState}>Open State</button>
+            <button type="button" className="tf-toolbar-btn" onClick={onOpenHistory}>Open History</button>
+          </div>
+        </div>
+        <div className="tf-overview-card-grid">
+          <div className={`tf-overview-card ${plan.hasChanges ? (plan.hasDestructiveChanges ? 'warning' : 'info') : 'success'}`}>
+            <span>Plan posture</span>
+            <strong>{plan.hasChanges ? `${plan.affectedResources} affected` : 'No saved changes'}</strong>
+            <span>{plan.create} create · {plan.update} update · {plan.delete} delete · {plan.replace} replace</span>
+          </div>
+          <div className={`tf-overview-card ${driftSummary ? (actionableDriftCount > 0 ? 'warning' : 'success') : 'info'}`}>
+            <span>Drift posture</span>
+            <strong>{driftLoading ? 'Scanning...' : driftSummary ? `${actionableDriftCount} actionable` : 'Not scanned yet'}</strong>
+            <span>{driftError ? driftError : driftSummary ? `${driftSummary.verifiedCount} verified · ${driftSummary.statusCounts.in_sync} in sync` : 'Run a drift re-scan to populate this surface.'}</span>
+          </div>
+          <div className={`tf-overview-card ${project.backendHealth.status === 'healthy' ? 'success' : project.backendHealth.status === 'error' ? 'warning' : 'info'}`}>
+            <span>State posture</span>
+            <strong>{project.backendHealth.summary}</strong>
+            <span>{project.backendHealth.lockSummary}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="tf-state-card-grid">
+        <div className="tf-state-card">
+          <h3>Plan Summary</h3>
+          <div className="tf-kv">
+            <div className="tf-kv-row"><div className="tf-kv-label">Mode</div><div className="tf-kv-value">{plan.request.mode}</div></div>
+            <div className="tf-kv-row"><div className="tf-kv-label">Affected resources</div><div className="tf-kv-value">{plan.affectedResources}</div></div>
+            <div className="tf-kv-row"><div className="tf-kv-label">Destructive</div><div className="tf-kv-value">{plan.hasDestructiveChanges ? 'Yes' : 'No'}</div></div>
+            <div className="tf-kv-row"><div className="tf-kv-label">Delete-heavy</div><div className="tf-kv-value">{plan.isDeleteHeavy ? 'Yes' : 'No'}</div></div>
+          </div>
+          <div className="tf-state-inline-note">
+            {plan.hasChanges ? `Services touched: ${plan.affectedServices.join(', ') || 'n/a'}` : 'No saved plan deltas are currently stored for this project.'}
+          </div>
+        </div>
+
+        <div className="tf-state-card">
+          <h3>Drift Summary</h3>
+          <div className="tf-kv">
+            <div className="tf-kv-row"><div className="tf-kv-label">Last scan</div><div className="tf-kv-value">{driftSummary ? formatIsoDate(driftSummary.scannedAt) : '-'}</div></div>
+            <div className="tf-kv-row"><div className="tf-kv-label">Actionable</div><div className="tf-kv-value">{driftSummary ? actionableDriftCount : '-'}</div></div>
+            <div className="tf-kv-row"><div className="tf-kv-label">Unsupported</div><div className="tf-kv-value">{driftSummary?.statusCounts.unsupported ?? '-'}</div></div>
+            <div className="tf-kv-row"><div className="tf-kv-label">Snapshots</div><div className="tf-kv-value">{driftReport?.history.snapshots.length ?? '-'}</div></div>
+          </div>
+          <div className="tf-state-inline-note">
+            {driftError || (driftSummary ? `${driftSummary.statusCounts.drifted} drifted · ${driftSummary.statusCounts.missing_in_aws} missing · ${driftSummary.statusCounts.unmanaged_in_aws} unmanaged` : 'Drift history is empty until the first re-scan completes.')}
+          </div>
+        </div>
+
+        <div className="tf-state-card">
+          <h3>State Summary</h3>
+          <div className="tf-kv">
+            <div className="tf-kv-row"><div className="tf-kv-label">Backend</div><div className="tf-kv-value">{project.metadata.backend.label}</div></div>
+            <div className="tf-kv-row"><div className="tf-kv-label">State source</div><div className="tf-kv-value">{project.stateSource || '-'}</div></div>
+            <div className="tf-kv-row"><div className="tf-kv-label">State addresses</div><div className="tf-kv-value">{project.stateAddresses.length}</div></div>
+            <div className="tf-kv-row"><div className="tf-kv-label">Backups</div><div className="tf-kv-value">{project.stateBackups.length}</div></div>
+          </div>
+          <div className="tf-state-inline-note">{project.backendHealth.lockSummary}</div>
+        </div>
+      </div>
+
+      <div className="tf-section">
+        <h3>Recent Activity</h3>
+        {lastLog ? (
+          <div className="tf-kv">
+            <div className="tf-kv-row"><div className="tf-kv-label">Last command</div><div className="tf-kv-value">{lastLog.command}</div></div>
+            <div className="tf-kv-row"><div className="tf-kv-label">Started</div><div className="tf-kv-value">{formatIsoDate(lastLog.startedAt)}</div></div>
+            <div className="tf-kv-row"><div className="tf-kv-label">Result</div><div className="tf-kv-value">{lastLog.success == null ? 'Running' : lastLog.success ? 'Success' : 'Failed'}</div></div>
+          </div>
+        ) : (
+          <SvcState variant="empty" message="No command activity recorded yet for this project." />
+        )}
+      </div>
+    </>
+  )
 }
 
 function planCommitMismatchWarning(project: TerraformProject): string {
@@ -3338,7 +3456,7 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
   const [projects, setProjectsList] = useState<TerraformProjectListItem[]>([])
   const [selectedId, setSelectedId] = useState('')
   const [detail, setDetail] = useState<TerraformProject | null>(null)
-  const [detailTab, setDetailTab] = useState<DetailTab>('actions')
+  const [detailTab, setDetailTab] = useState<DetailTab>('operations')
   const [loading, setLoading] = useState(false)
   const [running, setRunning] = useState(false)
   const [msg, setMsg] = useState('')
@@ -3398,7 +3516,7 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
   const contextKey = terraformContextKey(connection)
   const projectConnection = connectionForProject(connection, detail)
   const persistedSelectedId = uiState.selectedProjectByContext[contextKey] ?? ''
-  const persistedDetailTab = uiState.detailTabByContext[contextKey] ?? 'actions'
+  const persistedDetailTab = uiState.detailTabByContext[contextKey] ?? 'operations'
   const persistedHistoryFilters = detail ? uiState.historyFiltersByProject[detail.id] : undefined
   const persistedDriftStatusFilter = detail ? (uiState.driftStatusFilterByProject[detail.id] ?? 'all') : 'all'
   const persistedDriftTypeFilter = detail ? (uiState.driftTypeFilterByProject[detail.id] ?? 'all') : 'all'
@@ -4341,6 +4459,7 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
               </section>
 
               <div className="tf-detail-tabs">
+                <button className={detailTab === 'operations' ? 'active' : ''} onClick={() => setDetailTab('operations')}>Operations</button>
                 <button className={detailTab === 'actions' ? 'active' : ''} onClick={() => setDetailTab('actions')}>Actions</button>
                 <button className={detailTab === 'state' ? 'active' : ''} onClick={() => setDetailTab('state')}>State</button>
                 <button className={detailTab === 'resources' ? 'active' : ''} onClick={() => setDetailTab('resources')}>Resources</button>
@@ -4413,6 +4532,19 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
                 onDeleteWorkspace={() => setShowDeleteWorkspaceDialog(true)}
               />
 
+              {detailTab === 'operations' && (
+                <OperationsCenterTab
+                  project={detail}
+                  driftReport={driftReport}
+                  driftLoading={driftLoading}
+                  driftError={driftError}
+                  lastLog={lastLog}
+                  onOpenActions={() => setDetailTab('actions')}
+                  onOpenDrift={() => setDetailTab('drift')}
+                  onOpenState={() => setDetailTab('state')}
+                  onOpenHistory={() => setDetailTab('history')}
+                />
+              )}
               {detailTab === 'actions' && (
                 <ActionsTab
                   project={detail}
