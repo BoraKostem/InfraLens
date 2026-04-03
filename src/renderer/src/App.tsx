@@ -100,6 +100,7 @@ type PendingTerminalCommand = { id: number; command: string } | null
 type RefreshState = { screen: Screen; sawPending: boolean } | null
 type FabMode = 'closed' | 'menu' | 'credentials'
 type CompareSeed = { token: number; request: ComparisonRequest } | null
+type CompareSeedByScope = Partial<Record<string, NonNullable<CompareSeed>>>
 type ProfileContextMenuState = { profileName: string; x: number; y: number } | null
 type AuditSummary = {
   total: number
@@ -783,7 +784,7 @@ export function App() {
   const [globalWarning, setGlobalWarning] = useState('')
   const [focusMap, setFocusMap] = useState<FocusMap>({})
   const [awsFocusMapByProfile, setAwsFocusMapByProfile] = useState<FocusMapByScope>({})
-  const [compareSeed, setCompareSeed] = useState<CompareSeed>(null)
+  const [compareSeedByProfile, setCompareSeedByProfile] = useState<CompareSeedByScope>({})
   const [profileContextMenu, setProfileContextMenu] = useState<ProfileContextMenuState>(null)
   const [auditEvents, setAuditEvents] = useState<EnterpriseAuditEvent[]>([])
   const [enterpriseBusy, setEnterpriseBusy] = useState(false)
@@ -1130,6 +1131,9 @@ export function App() {
     connectionState.activeSession?.sourceProfile || connectionState.selectedProfile?.name || connectionState.profile
   )
   const activeAwsFocusMap = activeAwsScreenMemoryKey ? awsFocusMapByProfile[activeAwsScreenMemoryKey] ?? {} : {}
+  const activeCompareSeed = isAwsProviderActive && activeAwsScreenMemoryKey
+    ? compareSeedByProfile[activeAwsScreenMemoryKey] ?? null
+    : null
   const activeCacheTag = screenCacheTag(screen)
   const activePageNonce = pageRefreshNonceByScreen[screen] ?? 0
   const isCurrentScreenRefreshing = refreshState?.screen === screen
@@ -1310,6 +1314,20 @@ export function App() {
     setPendingTerminalCommand(null)
     setTerminalOpen(false)
     setSelectedPreviewModeIds((current) => ({ ...current, [activePreviewProviderId]: modeId }))
+  }
+
+  function storeCompareSeed(request: ComparisonRequest): void {
+    if (!isAwsProviderActive || !activeAwsScreenMemoryKey) {
+      return
+    }
+
+    setCompareSeedByProfile((current) => ({
+      ...current,
+      [activeAwsScreenMemoryKey]: {
+        token: Date.now(),
+        request
+      }
+    }))
   }
 
   function renderServiceLink(service: ServiceDescriptor, options?: { pinned?: boolean }) {
@@ -2327,7 +2345,7 @@ export function App() {
         <SessionHub
           connectionState={connectionState}
           onOpenCompare={(request) => {
-            setCompareSeed({ token: Date.now(), request })
+            storeCompareSeed(request)
             setScreen('compare')
           }}
           onOpenTerminal={(connection) => {
@@ -2345,7 +2363,7 @@ export function App() {
       return (
         <CompareWorkspace
           connectionState={connectionState}
-          seed={compareSeed}
+          seed={activeCompareSeed}
           refreshNonce={pageRefreshNonceByScreen['compare'] ?? 0}
           onNavigate={navigateToServiceWithResourceId}
         />
