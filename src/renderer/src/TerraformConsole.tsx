@@ -75,6 +75,11 @@ import { ObservabilityResilienceLab } from './ObservabilityResilienceLab'
 
 type DetailTab = 'actions' | 'state' | 'resources' | 'drift' | 'lab' | 'history'
 
+type StateOperationDraft =
+  | { mode: 'import'; importAddress: string; importId: string }
+  | { mode: 'move'; moveFrom: string; moveTo: string }
+  | { mode: 'remove'; removeAddress: string }
+
 /* ── db_password validation ───────────────────────────────── */
 
 function validateDbPassword(val: unknown): string | null {
@@ -2150,6 +2155,7 @@ function StateTab({
   project,
   running,
   lastLog,
+  draft,
   onImport,
   onMove,
   onRemove,
@@ -2159,6 +2165,7 @@ function StateTab({
   project: TerraformProject
   running: boolean
   lastLog: TerraformCommandLog | null
+  draft: StateOperationDraft | null
   onImport: (address: string, importId: string) => void
   onMove: (fromAddress: string, toAddress: string) => void
   onRemove: (address: string) => void
@@ -2179,6 +2186,21 @@ function StateTab({
   useEffect(() => {
     setUnlockId(project.stateLockInfo?.lockId ?? '')
   }, [project.stateLockInfo?.lockId])
+
+  useEffect(() => {
+    if (!draft) return
+    if (draft.mode === 'import') {
+      setImportAddress(draft.importAddress)
+      setImportId(draft.importId)
+      return
+    }
+    if (draft.mode === 'move') {
+      setMoveFrom(draft.moveFrom)
+      setMoveTo(draft.moveTo)
+      return
+    }
+    setRemoveAddress(draft.removeAddress)
+  }, [draft])
 
   return (
     <>
@@ -2580,6 +2602,9 @@ function DriftTab({
   onTypeFilterChange,
   onSelectItem,
   onRefresh,
+  onPrepareImport,
+  onPrepareMove,
+  onPrepareRemove,
   onOpenConsole,
   onRunStateShow,
   onNavigateService
@@ -2595,6 +2620,9 @@ function DriftTab({
   onTypeFilterChange: (value: string) => void
   onSelectItem: (key: string) => void
   onRefresh: () => void
+  onPrepareImport: (item: TerraformDriftItem) => void
+  onPrepareMove: (item: TerraformDriftItem) => void
+  onPrepareRemove: (item: TerraformDriftItem) => void
   onOpenConsole: (item: TerraformDriftItem) => void
   onRunStateShow: (item: TerraformDriftItem) => void
   onNavigateService?: (serviceId: ServiceId, resourceId?: string) => void
@@ -2615,6 +2643,7 @@ function DriftTab({
     () => filteredItems.find((item) => driftItemKey(item) === selectedKey) ?? filteredItems[0] ?? null,
     [filteredItems, selectedKey]
   )
+  const selectedMoveTarget = selectedItem?.relatedTerraformAddresses[0] ?? ''
   const summaryCards = report ? [
     { label: 'Drifted', value: report.summary.statusCounts.drifted, tone: 'warning' },
     { label: 'Missing', value: report.summary.statusCounts.missing_in_aws, tone: 'danger' },
@@ -2746,6 +2775,30 @@ function DriftTab({
               <div className="tf-section-head">
                 <h3>Selected Drift Item</h3>
                 <div className="tf-drift-actions">
+                  <button
+                    type="button"
+                    className="tf-toolbar-btn"
+                    onClick={() => onPrepareImport(selectedItem)}
+                    disabled={!selectedItem.cloudIdentifier}
+                  >
+                    Prepare Import
+                  </button>
+                  <button
+                    type="button"
+                    className="tf-toolbar-btn"
+                    onClick={() => onPrepareMove(selectedItem)}
+                    disabled={!selectedItem.terraformAddress || !selectedMoveTarget}
+                  >
+                    Prepare Move
+                  </button>
+                  <button
+                    type="button"
+                    className="tf-toolbar-btn danger"
+                    onClick={() => onPrepareRemove(selectedItem)}
+                    disabled={!selectedItem.terraformAddress}
+                  >
+                    Prepare State Remove
+                  </button>
                   <button type="button" className="tf-toolbar-btn" onClick={() => onOpenConsole(selectedItem)} disabled={!selectedItem.consoleUrl}>Open In AWS Console</button>
                   {onNavigateService && driftResourceTypeToService(selectedItem.resourceType) && (
                     <button type="button" className="tf-toolbar-btn" onClick={() => {
@@ -3148,6 +3201,7 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
   const [driftStatusFilter, setDriftStatusFilter] = useState<'all' | TerraformDriftStatus>('all')
   const [driftTypeFilter, setDriftTypeFilter] = useState('all')
   const [selectedDriftKey, setSelectedDriftKey] = useState('')
+  const [stateDraft, setStateDraft] = useState<StateOperationDraft | null>(null)
   const [labReport, setLabReport] = useState<ObservabilityPostureReport | null>(null)
   const [labLoading, setLabLoading] = useState(false)
   const [labError, setLabError] = useState('')
@@ -3876,6 +3930,29 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
     setMsg(`${cliDisplayName(cliInfo)} state command opened in terminal`)
   }
 
+  function handlePrepareDriftImport(item: TerraformDriftItem) {
+    const importAddress = item.relatedTerraformAddresses[0] || item.terraformAddress || ''
+    const importId = item.cloudIdentifier || item.logicalName || ''
+    setStateDraft({ mode: 'import', importAddress, importId })
+    setDetailTab('state')
+    setMsg('Prepared import flow from the selected drift finding.')
+  }
+
+  function handlePrepareDriftMove(item: TerraformDriftItem) {
+    const moveFrom = item.terraformAddress || ''
+    const moveTo = item.relatedTerraformAddresses[0] || ''
+    setStateDraft({ mode: 'move', moveFrom, moveTo })
+    setDetailTab('state')
+    setMsg('Prepared state move flow from the selected drift finding.')
+  }
+
+  function handlePrepareDriftRemove(item: TerraformDriftItem) {
+    const removeAddress = item.terraformAddress || ''
+    setStateDraft({ mode: 'remove', removeAddress })
+    setDetailTab('state')
+    setMsg('Prepared state remove flow from the selected drift finding.')
+  }
+
   function handleLabArtifactRun(artifact: GeneratedArtifact) {
     onRunTerminalCommand?.(artifact.content)
     setMsg(`${cliDisplayName(cliInfo)} artifact opened in terminal`)
@@ -4212,6 +4289,7 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
                   project={detail}
                   running={running}
                   lastLog={lastLog}
+                  draft={stateDraft}
                   onImport={handleStateImport}
                   onMove={handleStateMove}
                   onRemove={handleStateRemove}
@@ -4233,6 +4311,9 @@ export function TerraformConsole({ connection, refreshNonce = 0, onRunTerminalCo
                   onTypeFilterChange={setDriftTypeFilter}
                   onSelectItem={setSelectedDriftKey}
                   onRefresh={() => void loadDrift({ forceRefresh: true })}
+                  onPrepareImport={handlePrepareDriftImport}
+                  onPrepareMove={handlePrepareDriftMove}
+                  onPrepareRemove={handlePrepareDriftRemove}
                   onOpenConsole={handleOpenDriftConsole}
                   onRunStateShow={handleRunDriftStateShow}
                   onNavigateService={onNavigateService}
