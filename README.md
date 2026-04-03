@@ -22,24 +22,6 @@ A desktop AWS operator workspace built on Electron, React, and TypeScript. AWS L
 
 The current UI is organized around a left-rail workspace shell instead of a single-service dashboard. Operators select a profile and region once, then move across overview, Terraform, direct resource access, session workflows, and service-specific consoles without losing context.
 
-### Feature `v1.1.0` Highlights
-
-- Phase 1 workflow upgrades are now integrated into the main shell on `feature/v1.1.0`
-- Overview now includes account posture, billing visibility, linked-account cost context, ownership-tag coverage, and region capability hints
-- EC2 adds multi-select fleet operations, local `.ssh` discovery, and profile-aware SSH suggestions
-- Governance tagging defaults are reusable across supported create and update flows, including first-wave IAM user coverage
-- CloudWatch now supports investigation history, saved queries, reruns, and deeper service handoff flows
-- RDS and Aurora now include connection helpers backed by local vault, Secrets Manager resolution, and terminal-safe snippets
-- Route 53 now covers hosted zone bootstrap, record templates, duplicate/edit flows, and domain or health-check guidance
-
-### Feature `v1.2.0` Highlights
-
-- Vault Manager now turns `Settings > Security` into a real encrypted secret inventory with search, reveal, copy, delete, import, and create flows
-- EC2 PEM browse and local vault-backed DB or AWS credential flows now feed shared vault metadata and usage tracking
-- EKS now includes a read-only upgrade planner with target-version readiness, nodegroup skew checks, add-on compatibility, maintenance guidance, and command handoff
-- Compare now supports saved local baselines plus compliance delta summaries on top of inventory, posture, tag, and cost comparisons
-- Direct Resource Access now supports parser-driven support playbooks for EC2, Security Groups, Load Balancers, IAM targets, and CloudWatch log groups
-
 ### Shared Shell
 
 - Left sidebar with profile and region context, pinned services, grouped AWS workspaces, and utility screens
@@ -113,13 +95,14 @@ AWS Lens treats Terraform as a core operator workflow, not an afterthought. The 
 Drift detection compares Terraform state against live AWS resources across a wide range of resource types:
 
 - **Compute**: EC2 instances, Lambda functions, EKS clusters, ECS (via Terraform state)
-- **Networking**: VPCs, subnets, security groups, route tables, internet gateways, NAT gateways, transit gateways, network interfaces
+- **Networking**: VPCs, subnets, security groups, route tables, internet gateways, NAT gateways, transit gateways, network interfaces, load balancers, listeners, target groups, Route53 records
 - **Storage**: S3 buckets, ECR repositories
 - **Database**: RDS instances and clusters
+- **Operations signals**: CloudWatch alarms, CloudWatch log groups, ECS task definitions
 
-Each resource receives a status classification (`in_sync`, `drifted`, `missing_in_aws`, `unmanaged_in_aws`, `unsupported`) and an assessment level (`verified`, `inferred`, `unsupported`). Drift results include attribute-level diffs, tag drift, and heuristic findings. Snapshot history with trend tracking shows whether drift is improving or worsening over time.
+Each resource receives a status classification (`in_sync`, `drifted`, `missing_in_aws`, `unmanaged_in_aws`, `unsupported`) and an assessment level (`verified`, `inferred`, `unsupported`). Drift results include attribute-level diffs, tag drift, and heuristic findings. Snapshot history with trend tracking shows whether drift is improving or worsening over time, plus a trend-diff view for newly introduced, resolved, and changed findings between the last two scans.
 
-From any drifted resource, shortcuts open the AWS Console or run `terraform state show` directly.
+From any drifted resource, shortcuts can prepare `terraform import`, `state mv`, and `state rm` flows, open the AWS Console, or run `terraform state show` directly. Non-drifted items keep app navigation shortcuts without surfacing irrelevant remediation actions.
 
 ### Governance and Safety Checks
 
@@ -131,10 +114,13 @@ From any drifted resource, shortcuts open the AWS Console or run `terraform stat
 
 ### State Management and Backups
 
+- Unified `Operations` view that combines plan posture, drift posture, and state posture for the selected project
 - View raw Terraform state JSON and parsed resource inventory
 - Browse managed and data resources with type, address, attributes, and tags
+- Resource browsing optimized for large states with grouping, chunked rendering, search filters, and progressive `Load More` expansion
 - Automated state backups (up to 20 per workspace) with size tracking
-- State lock visibility showing lock ID, who holds it, and lock operation
+- Backend health visibility for local and S3 backends, including effective state key context and clearer lock inspection limitations
+- State lock visibility showing lock ID, who holds it, lock operation, and parse/visibility limitations when lock metadata is partial
 - State operations history for audit and troubleshooting
 
 ### Infrastructure Diagram
@@ -280,6 +266,35 @@ Operator-assistant surface for EKS clusters, ECS services, and Terraform workspa
 - Toggled from the footer as a persistent bottom panel
 
 The terminal updates automatically when you change profiles, regions, or assumed-role sessions. Service workspaces can push follow-up commands into it, which makes the terminal a continuation of the GUI instead of a separate tool.
+
+---
+
+### Feature `v1.1.0` Highlights
+
+- Phase 1 workflow upgrades are now integrated into the main shell on `feature/v1.1.0`
+- Overview now includes account posture, billing visibility, linked-account cost context, ownership-tag coverage, and region capability hints
+- EC2 adds multi-select fleet operations, local `.ssh` discovery, and profile-aware SSH suggestions
+- Governance tagging defaults are reusable across supported create and update flows, including first-wave IAM user coverage
+- CloudWatch now supports investigation history, saved queries, reruns, and deeper service handoff flows
+- RDS and Aurora now include connection helpers backed by local vault, Secrets Manager resolution, and terminal-safe snippets
+- Route 53 now covers hosted zone bootstrap, record templates, duplicate/edit flows, and domain or health-check guidance
+
+### Feature `v1.2.0` Highlights
+
+- Vault Manager now turns `Settings > Security` into a real encrypted secret inventory with search, reveal, copy, delete, import, and create flows
+- EC2 PEM browse and local vault-backed DB or AWS credential flows now feed shared vault metadata and usage tracking
+- EKS now includes a read-only upgrade planner with target-version readiness, nodegroup skew checks, add-on compatibility, maintenance guidance, and command handoff
+- Compare now supports saved local baselines plus compliance delta summaries on top of inventory, posture, tag, and cost comparisons
+- Direct Resource Access now supports parser-driven support playbooks for EC2, Security Groups, Load Balancers, IAM targets, and CloudWatch log groups
+
+### Feature `v1.3.0` Highlights
+
+- Terraform now includes a unified `Operations` tab that brings plan posture, drift posture, and state posture into one project-scoped control surface
+- Drift reconciliation coverage expanded across higher-value Terraform resources including load balancers, listeners, target groups, ECS services and task definitions, Route53 records, CloudWatch alarms, and log groups
+- Drift findings now hand off directly into guided state remediation flows for `terraform import`, `state mv`, `state rm`, AWS Console navigation, and terminal-based `terraform state show`
+- Drift history now includes a trend-diff view for new, resolved, and changed findings between the latest two scans
+- State operations now surface backend health and clearer lock visibility for local and S3 backends, including effective state key context and limited-inspection messaging
+- Large Terraform states now render more efficiently with grouped resource browsing, chunked initial rendering, progressive loading, and filtering
 
 ---
 
