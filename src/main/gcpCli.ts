@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
+import { readFile, readdir } from 'node:fs/promises'
 
 import type { GcpCliConfiguration, GcpCliContext, GcpCliProject } from '@shared/types'
 import { getResolvedProcessEnv, resolveExecutablePath } from './shell'
@@ -199,6 +200,116 @@ function normalizeProject(entry: unknown): GcpCliProject | null {
   }
 }
 
+function getGcpConfigRoot(): string {
+  if (process.platform === 'win32') {
+    return path.join(process.env.APPDATA ?? path.join(os.homedir(), 'AppData', 'Roaming'), 'gcloud')
+  }
+
+  return path.join(process.env.HOME ?? os.homedir(), '.config', 'gcloud')
+}
+
+function parseIni(contents: string): Record<string, Record<string, string>> {
+  const sections: Record<string, Record<string, string>> = {}
+  let currentSection = ''
+
+  for (const rawLine of contents.split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (!line || line.startsWith('#') || line.startsWith(';')) {
+      continue
+    }
+
+    if (line.startsWith('[') && line.endsWith(']')) {
+      currentSection = line.slice(1, -1).trim().toLowerCase()
+      sections[currentSection] = sections[currentSection] ?? {}
+      continue
+    }
+
+    const separatorIndex = line.indexOf('=')
+    if (separatorIndex <= 0) {
+      continue
+    }
+
+    const key = line.slice(0, separatorIndex).trim().toLowerCase()
+    const value = line.slice(separatorIndex + 1).trim()
+    sections[currentSection] = sections[currentSection] ?? {}
+    sections[currentSection][key] = value
+  }
+
+  return sections
+}
+
+async function readGcpConfigFallback(): Promise<{ activeConfigurationName: string; configurations: GcpCliConfiguration[] }> {
+  const root = getGcpConfigRoot()
+  const configsDir = path.join(root, 'configurations')
+  const activeConfigurationName = await readFile(path.join(root, 'active_config'), 'utf8')
+    .then((value) => value.trim())
+    .catch(() => '')
+
+  const entries = await readdir(configsDir, { withFileTypes: true }).catch(() => [])
+  const configurations = await Promise.all(entries
+    .filter((entry) => entry.isFile() && entry.name.startsWith('config_'))
+    .map(async (entry) => {
+      const contents = await readFile(path.join(configsDir, entry.name), 'utf8').catch(() => '')
+      if (!contents) {
+        return null
+      }
+
+      const parsed = parseIni(contents)
+      const core = parsed.core ?? {}
+      const compute = parsed.compute ?? {}
+      const name = entry.name.slice('config_'.length)
+
+      return {
+        name,
+        isActive: name === activeConfigurationName,
+        account: core.account ?? '',
+        projectId: core.project ?? '',
+        region: compute.region ?? '',
+        zone: compute.zone ?? ''
+      } satisfies GcpCliConfiguration
+    }))
+
+  return {
+    activeConfigurationName,
+    configurations: configurations.filter((entry): entry is GcpCliConfiguration => entry !== null)
+  }
+}
+
+function deriveProjectsFromConfigurations(configurations: GcpCliConfiguration[]): GcpCliProject[] {
+  const seen = new Set<string>()
+  const projects: GcpCliProject[] = []
+
+  for (const configuration of configurations) {
+    const projectId = configuration.projectId.trim()
+    if (!projectId || seen.has(projectId)) {
+      continue
+    }
+
+    seen.add(projectId)
+    projects.push({
+      projectId,
+      name: '',
+      projectNumber: '',
+      lifecycleState: ''
+    })
+  }
+
+  return projects
+}
+
+function safeParseList<T>(value: string, normalize: (entry: unknown) => T | null): T[] {
+  if (!value.trim()) {
+    return []
+  }
+
+  try {
+    const parsed = parseJson<unknown[]>(value)
+    return parsed.map(normalize).filter((entry): entry is T => entry !== null)
+  } catch {
+    return []
+  }
+}
+
 export async function getGcpCliContext(): Promise<GcpCliContext> {
   const env = await getResolvedProcessEnv({ fresh: true })
   const resolved = await resolveGcloudCommand(env)
@@ -217,18 +328,28 @@ export async function getGcpCliContext(): Promise<GcpCliContext> {
     }
   }
 
+  const fallback = await readGcpConfigFallback().catch(() => ({
+    activeConfigurationName: '',
+    configurations: [] as GcpCliConfiguration[]
+  }))
+
   const [configurationsResult, projectsResult] = await Promise.all([
     runCommand(resolved.command, ['config', 'configurations', 'list', '--format=json'], env),
     runCommand(resolved.command, ['projects', 'list', '--format=json'], env)
   ])
 
-  const configurations = configurationsResult.stdout.trim()
-    ? parseJson<unknown[]>(configurationsResult.stdout).map(normalizeConfiguration).filter((entry): entry is GcpCliConfiguration => entry !== null)
-    : []
-  const activeConfiguration = configurations.find((entry) => entry.isActive) ?? configurations[0] ?? null
-  const projects = projectsResult.stdout.trim()
-    ? parseJson<unknown[]>(projectsResult.stdout).map(normalizeProject).filter((entry): entry is GcpCliProject => entry !== null)
-    : []
+  const cliConfigurations = safeParseList(configurationsResult.stdout, normalizeConfiguration)
+  const configurations = cliConfigurations.length > 0
+    ? cliConfigurations
+    : fallback.configurations
+  const activeConfiguration = configurations.find((entry) => entry.isActive)
+    ?? configurations.find((entry) => entry.name === fallback.activeConfigurationName)
+    ?? configurations[0]
+    ?? null
+  const cliProjects = safeParseList(projectsResult.stdout, normalizeProject)
+  const projects = cliProjects.length > 0
+    ? cliProjects
+    : deriveProjectsFromConfigurations(configurations)
 
   return {
     detected: true,
