@@ -554,6 +554,14 @@ function getAwsScreenMemoryKey(profileName: string | null | undefined): string {
   return (profileName ?? '').trim()
 }
 
+function screenInstanceScopeSuffix(screen: Screen, awsScopeKey: string, providerId: CloudProviderId): string {
+  if (providerId === 'aws' && screen === 'compare' && awsScopeKey) {
+    return `aws:${awsScopeKey}`
+  }
+
+  return providerId
+}
+
 function PlaceholderScreen({ service }: { service: ServiceDescriptor }) {
   return (
     <>
@@ -2648,9 +2656,10 @@ export function App() {
         {screen === 'profiles' && profileActionMsg && <div className="success-banner">{profileActionMsg}</div>}
         {visitedScreens.map((visitedScreen) => {
           const shouldSoftRefresh = SOFT_REFRESH_SCREENS.has(visitedScreen)
+          const instanceScopeSuffix = screenInstanceScopeSuffix(visitedScreen, activeAwsScreenMemoryKey, activeProviderId)
           const sectionKey = shouldSoftRefresh
-            ? `${connectionRenderEpoch}:${visitedScreen}`
-            : `${connectionRenderEpoch}:${visitedScreen}:${pageRefreshNonceByScreen[visitedScreen] ?? 0}`
+            ? `${connectionRenderEpoch}:${instanceScopeSuffix}:${visitedScreen}`
+            : `${connectionRenderEpoch}:${instanceScopeSuffix}:${visitedScreen}:${pageRefreshNonceByScreen[visitedScreen] ?? 0}`
 
           return (
             <section
