@@ -8024,6 +8024,19 @@ textarea {
   text-align: right;
 }
 
+.provider-selector-summary-actions {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.provider-selector-summary-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.18rem;
+}
+
 .provider-selector-summary span,
 .provider-selector-summary small {
   color: #8fa3ba;
