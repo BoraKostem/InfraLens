@@ -8376,6 +8376,36 @@ textarea {
   gap: 0.8rem;
 }
 
+.provider-preview-context {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 14px;
+  border: 1px solid var(--provider-accent-border);
+  background:
+    radial-gradient(circle at top right, var(--provider-accent-glow), transparent 42%),
+    linear-gradient(180deg, rgba(16, 26, 38, 0.98), rgba(10, 17, 27, 0.98));
+}
+
+.provider-preview-context-label {
+  color: var(--provider-accent-text);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.provider-preview-context strong {
+  color: #edf5ff;
+  font-size: 0.92rem;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+}
+
+.provider-preview-context small {
+  color: #a7b8cc;
+  font-size: 0.76rem;
+}
+
 .provider-mode-card {
   min-height: 0;
   background:
