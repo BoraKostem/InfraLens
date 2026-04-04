@@ -7,15 +7,26 @@ import type {
   AwsConnection,
   ComplianceCategory,
   ComplianceFinding,
+  ComplianceFindingStatus,
+  ComplianceFindingWorkflowUpdate,
   ComplianceReport,
   ComplianceSeverity,
   ServiceId
 } from '@shared/types'
-import { getComplianceReport, invalidatePageCache, rotateSecret } from './api'
+import { getComplianceReport, invalidatePageCache, rotateSecret, updateComplianceFindingWorkflow } from './api'
 import { ConfirmButton } from './ConfirmButton'
 
 const SEVERITY_ORDER: ComplianceSeverity[] = ['high', 'medium', 'low']
 const CATEGORY_ORDER: ComplianceCategory[] = ['security', 'compliance', 'operations', 'cost']
+const FINDING_STATUS_OPTIONS: ComplianceFindingStatus[] = ['open', 'in-progress', 'accepted-risk', 'resolved']
+
+type WorkflowDraft = {
+  owner: string
+  status: ComplianceFindingStatus
+  acceptedRisk: string
+  snoozeUntil: string
+  lastReviewedAt: string
+}
 
 const SERVICE_LABELS: Partial<Record<ServiceId, string>> = {
   'compliance-center': 'Compliance Center',
@@ -60,6 +71,9 @@ export function ComplianceCenter({
   const [search, setSearch] = useState('')
   const [policyPacksCollapsed, setPolicyPacksCollapsed] = useState(false)
   const [rotatingSecretId, setRotatingSecretId] = useState('')
+  const [workflowDrafts, setWorkflowDrafts] = useState<Record<string, WorkflowDraft>>({})
+  const [savingWorkflowId, setSavingWorkflowId] = useState('')
+  const [collapsedWorkflows, setCollapsedWorkflows] = useState<Record<string, boolean>>({})
   const { freshness, beginRefresh, completeRefresh, failRefresh } = useFreshnessState()
 
   async function load(reason: Parameters<typeof beginRefresh>[0] = 'manual'): Promise<void> {
@@ -213,6 +227,87 @@ export function ComplianceCenter({
         {rotatingSecretId === remediation.secretId ? 'Rotating...' : remediation.label}
       </ConfirmButton>
     )
+  }
+
+  function workflowDraftFor(finding: ComplianceFinding): WorkflowDraft {
+    return workflowDrafts[finding.id] ?? {
+      owner: finding.workflow.owner,
+      status: finding.workflow.status,
+      acceptedRisk: finding.workflow.acceptedRisk,
+      snoozeUntil: finding.workflow.snoozeUntil ? finding.workflow.snoozeUntil.slice(0, 10) : '',
+      lastReviewedAt: finding.workflow.lastReviewedAt
+    }
+  }
+
+  function patchWorkflowDraft(findingId: string, update: Partial<WorkflowDraft>): void {
+    setWorkflowDrafts((current) => ({
+      ...current,
+      [findingId]: {
+        ...(current[findingId] ?? {
+          owner: '',
+          status: 'open',
+          acceptedRisk: '',
+          snoozeUntil: '',
+          lastReviewedAt: ''
+        }),
+        ...update
+      }
+    }))
+  }
+
+  async function handleSaveWorkflow(finding: ComplianceFinding, update?: Partial<WorkflowDraft>): Promise<void> {
+    const draft = {
+      ...workflowDraftFor(finding),
+      ...(update ?? {})
+    }
+    const payload: ComplianceFindingWorkflowUpdate = {
+      owner: draft.owner,
+      status: draft.status,
+      acceptedRisk: draft.acceptedRisk,
+      snoozeUntil: draft.snoozeUntil,
+      lastReviewedAt: draft.lastReviewedAt
+    }
+
+    setSavingWorkflowId(finding.id)
+    setError('')
+    setMessage('')
+    try {
+      const workflow = await updateComplianceFindingWorkflow(connection, finding.id, payload)
+      setReport((current) => current ? {
+        ...current,
+        findings: current.findings.map((item) => item.id === finding.id ? { ...item, workflow } : item)
+      } : current)
+      setWorkflowDrafts((current) => ({
+        ...current,
+        [finding.id]: {
+          owner: workflow.owner,
+          status: workflow.status,
+          acceptedRisk: workflow.acceptedRisk,
+          snoozeUntil: workflow.snoozeUntil ? workflow.snoozeUntil.slice(0, 10) : '',
+          lastReviewedAt: workflow.lastReviewedAt
+        }
+      }))
+      setMessage('Compliance workflow updated.')
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : String(actionError))
+    } finally {
+      setSavingWorkflowId('')
+    }
+  }
+
+  function formatWorkflowDate(value: string): string {
+    return value ? new Date(value).toLocaleString() : 'Not reviewed'
+  }
+
+  function isWorkflowCollapsed(findingId: string): boolean {
+    return collapsedWorkflows[findingId] ?? true
+  }
+
+  function toggleWorkflowCollapsed(findingId: string): void {
+    setCollapsedWorkflows((current) => ({
+      ...current,
+      [findingId]: !(current[findingId] ?? true)
+    }))
   }
 
   return (
@@ -484,11 +579,19 @@ export function ComplianceCenter({
                   <div className="compliance-finding-list">
                     {items.map((finding) => (
                       <article key={finding.id} className={`compliance-finding-card severity-${finding.severity}`}>
+                        {(() => {
+                          const workflowDraft = workflowDraftFor(finding)
+                          const isSavingWorkflow = savingWorkflowId === finding.id
+                          const workflowCollapsed = isWorkflowCollapsed(finding.id)
+
+                          return (
+                            <>
                         <div className="compliance-finding-header">
                           <div className="compliance-finding-copy">
                             <div className="compliance-finding-badges">
                               <span className={`signal-badge severity-${finding.severity}`}>{finding.severity}</span>
                               <span className="signal-badge">{finding.category}</span>
+                              <span className="signal-badge">{workflowDraft.status.replace(/-/g, ' ')}</span>
                               <span className="signal-badge">{formatService(finding.service)}</span>
                             </div>
                             <h5>{finding.title}</h5>
@@ -506,6 +609,91 @@ export function ComplianceCenter({
                           <span>Recommended action</span>
                           <strong>{finding.recommendedAction}</strong>
                         </div>
+                        <div className="compliance-workflow-shell">
+                          <div className="compliance-workflow-summary">
+                            <div className="compliance-workflow-summary-item">
+                              <span>Owner</span>
+                              <strong>{workflowDraft.owner || 'Unassigned'}</strong>
+                            </div>
+                            <div className="compliance-workflow-summary-item">
+                              <span>Status</span>
+                              <strong>{workflowDraft.status.replace(/-/g, ' ')}</strong>
+                            </div>
+                            <div className="compliance-workflow-summary-item">
+                              <span>Snooze Until</span>
+                              <strong>{workflowDraft.snoozeUntil || 'Active'}</strong>
+                            </div>
+                            <div className="compliance-workflow-summary-item">
+                              <span>Last reviewed</span>
+                              <strong>{formatWorkflowDate(finding.workflow.lastReviewedAt)}</strong>
+                            </div>
+                          </div>
+                          <div className="compliance-workflow-actions">
+                            <button
+                              type="button"
+                              className="compliance-secondary-button"
+                              onClick={() => toggleWorkflowCollapsed(finding.id)}
+                            >
+                              {workflowCollapsed ? 'Show Workflow' : 'Hide Workflow'}
+                            </button>
+                            <button
+                              type="button"
+                              className="compliance-secondary-button"
+                              onClick={() => void handleSaveWorkflow(finding, { lastReviewedAt: new Date().toISOString() })}
+                              disabled={isSavingWorkflow}
+                            >
+                              {isSavingWorkflow ? 'Saving...' : 'Mark Reviewed'}
+                            </button>
+                            <button
+                              type="button"
+                              className="compliance-action-button"
+                              onClick={() => void handleSaveWorkflow(finding)}
+                              disabled={isSavingWorkflow}
+                            >
+                              {isSavingWorkflow ? 'Saving...' : 'Save Workflow'}
+                            </button>
+                          </div>
+                        </div>
+                        {!workflowCollapsed ? (
+                          <div className="compliance-workflow-grid">
+                            <label className="field compliance-workflow-field">
+                              <span>Owner</span>
+                              <input
+                                value={workflowDraft.owner}
+                                onChange={(event) => patchWorkflowDraft(finding.id, { owner: event.target.value })}
+                                placeholder="Owner or team"
+                              />
+                            </label>
+                            <label className="field compliance-workflow-field">
+                              <span>Status</span>
+                              <select
+                                value={workflowDraft.status}
+                                onChange={(event) => patchWorkflowDraft(finding.id, { status: event.target.value as ComplianceFindingStatus })}
+                              >
+                                {FINDING_STATUS_OPTIONS.map((status) => (
+                                  <option key={status} value={status}>{status}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="field compliance-workflow-field">
+                              <span>Snooze Until</span>
+                              <input
+                                type="date"
+                                value={workflowDraft.snoozeUntil}
+                                onChange={(event) => patchWorkflowDraft(finding.id, { snoozeUntil: event.target.value })}
+                              />
+                            </label>
+                            <label className="field compliance-workflow-field compliance-workflow-notes">
+                              <span>Accepted Risk</span>
+                              <textarea
+                                value={workflowDraft.acceptedRisk}
+                                onChange={(event) => patchWorkflowDraft(finding.id, { acceptedRisk: event.target.value })}
+                                placeholder="Document why this finding is tolerated, if applicable"
+                                rows={2}
+                              />
+                            </label>
+                          </div>
+                        ) : null}
                         {finding.policyPackIds?.length ? (
                           <div className="compliance-policy-pack-list">
                             {finding.policyPackIds.map((packId) => (
@@ -513,6 +701,9 @@ export function ComplianceCenter({
                             ))}
                           </div>
                         ) : null}
+                            </>
+                          )
+                        })()}
                       </article>
                     ))}
                   </div>

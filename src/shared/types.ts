@@ -2014,6 +2014,25 @@ export type ComplianceSeverity = 'high' | 'medium' | 'low'
 
 export type ComplianceCategory = 'security' | 'cost' | 'operations' | 'compliance'
 
+export type ComplianceFindingStatus = 'open' | 'in-progress' | 'accepted-risk' | 'resolved'
+
+export type ComplianceFindingWorkflow = {
+  owner: string
+  status: ComplianceFindingStatus
+  acceptedRisk: string
+  snoozeUntil: string
+  lastReviewedAt: string
+  updatedAt: string
+}
+
+export type ComplianceFindingWorkflowUpdate = {
+  owner?: string
+  status?: ComplianceFindingStatus
+  acceptedRisk?: string
+  snoozeUntil?: string
+  lastReviewedAt?: string
+}
+
 export type ComplianceRemediationAction =
   | {
       kind: 'navigate'
@@ -2043,6 +2062,7 @@ export type ComplianceFinding = {
   description: string
   recommendedAction: string
   policyPackIds?: string[]
+  workflow: ComplianceFindingWorkflow
   remediation?: ComplianceRemediationAction
 }
 

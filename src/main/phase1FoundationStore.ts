@@ -5,6 +5,9 @@ import { app } from 'electron'
 
 import type {
   CompliancePolicyPackDefinition,
+  ComplianceFindingStatus,
+  ComplianceFindingWorkflow,
+  ComplianceFindingWorkflowUpdate,
   CloudWatchInvestigationHistoryEntry,
   CloudWatchInvestigationHistoryInput,
   CloudWatchQueryFilter,
@@ -26,6 +29,7 @@ import { readSecureJsonFile, writeSecureJsonFile } from './secureJson'
 type Phase1FoundationState = {
   governanceTagDefaults: GovernanceTagDefaults
   compliancePolicyPacks: CompliancePolicyPackDefinition[]
+  complianceFindingWorkflows: Record<string, ComplianceFindingWorkflow>
   cloudWatchSavedQueries: CloudWatchSavedQuery[]
   cloudWatchQueryHistory: CloudWatchQueryHistoryEntry[]
   cloudWatchInvestigationHistory: CloudWatchInvestigationHistoryEntry[]
@@ -147,6 +151,7 @@ const DEFAULT_COMPLIANCE_POLICY_PACKS: CompliancePolicyPackDefinition[] = [
 const DEFAULT_STATE: Phase1FoundationState = {
   governanceTagDefaults: DEFAULT_GOVERNANCE_TAG_DEFAULTS,
   compliancePolicyPacks: DEFAULT_COMPLIANCE_POLICY_PACKS,
+  complianceFindingWorkflows: {},
   cloudWatchSavedQueries: [],
   cloudWatchQueryHistory: [],
   cloudWatchInvestigationHistory: [],
@@ -241,6 +246,30 @@ function sanitizeCompliancePolicyPackDefinition(value: unknown): CompliancePolic
     description: sanitizeString(raw.description),
     resourceTypes: sanitizeStringArray(raw.resourceTypes),
     expectations: sanitizeStringArray(raw.expectations),
+    updatedAt: sanitizeString(raw.updatedAt)
+  }
+}
+
+function sanitizeComplianceStatus(value: unknown): ComplianceFindingStatus {
+  return value === 'in-progress' ||
+    value === 'accepted-risk' ||
+    value === 'resolved'
+    ? value
+    : 'open'
+}
+
+function sanitizeComplianceFindingWorkflow(value: unknown): ComplianceFindingWorkflow | null {
+  const raw = isRecord(value) ? value : null
+  if (!raw) {
+    return null
+  }
+
+  return {
+    owner: sanitizeString(raw.owner),
+    status: sanitizeComplianceStatus(raw.status),
+    acceptedRisk: sanitizeString(raw.acceptedRisk),
+    snoozeUntil: sanitizeString(raw.snoozeUntil),
+    lastReviewedAt: sanitizeString(raw.lastReviewedAt),
     updatedAt: sanitizeString(raw.updatedAt)
   }
 }
@@ -409,6 +438,15 @@ function sanitizeState(value: unknown): Phase1FoundationState {
         .map((entry) => sanitizeCompliancePolicyPackDefinition(entry))
         .filter((entry): entry is CompliancePolicyPackDefinition => Boolean(entry))
       : DEFAULT_COMPLIANCE_POLICY_PACKS,
+    complianceFindingWorkflows: isRecord(raw.complianceFindingWorkflows)
+      ? Object.entries(raw.complianceFindingWorkflows).reduce<Record<string, ComplianceFindingWorkflow>>((acc, [key, value]) => {
+        const workflow = sanitizeComplianceFindingWorkflow(value)
+        if (workflow) {
+          acc[sanitizeString(key)] = workflow
+        }
+        return acc
+      }, {})
+      : {},
     cloudWatchSavedQueries: Array.isArray(raw.cloudWatchSavedQueries)
       ? raw.cloudWatchSavedQueries
         .map((entry) => sanitizeCloudWatchSavedQuery(entry))
@@ -499,6 +537,50 @@ export function getGovernanceTagDefaults(): GovernanceTagDefaults {
 
 export function getCompliancePolicyPacks(): CompliancePolicyPackDefinition[] {
   return readState().compliancePolicyPacks
+}
+
+function complianceWorkflowKey(scopeKey: string, findingId: string): string {
+  return `${scopeKey}::${findingId}`.trim()
+}
+
+export function getComplianceFindingWorkflow(scopeKey: string, findingId: string): ComplianceFindingWorkflow {
+  const entry = readState().complianceFindingWorkflows[complianceWorkflowKey(scopeKey, findingId)]
+  return entry ?? {
+    owner: '',
+    status: 'open',
+    acceptedRisk: '',
+    snoozeUntil: '',
+    lastReviewedAt: '',
+    updatedAt: ''
+  }
+}
+
+export function updateComplianceFindingWorkflow(
+  scopeKey: string,
+  findingId: string,
+  update: ComplianceFindingWorkflowUpdate
+): ComplianceFindingWorkflow {
+  const state = readState()
+  const key = complianceWorkflowKey(scopeKey, findingId)
+  const current = getComplianceFindingWorkflow(scopeKey, findingId)
+  const nextEntry: ComplianceFindingWorkflow = {
+    owner: typeof update.owner === 'string' ? update.owner.trim() : current.owner,
+    status: update.status ? sanitizeComplianceStatus(update.status) : current.status,
+    acceptedRisk: typeof update.acceptedRisk === 'string' ? update.acceptedRisk.trim() : current.acceptedRisk,
+    snoozeUntil: typeof update.snoozeUntil === 'string' ? update.snoozeUntil.trim() : current.snoozeUntil,
+    lastReviewedAt: typeof update.lastReviewedAt === 'string' ? update.lastReviewedAt.trim() : current.lastReviewedAt,
+    updatedAt: new Date().toISOString()
+  }
+
+  writeState({
+    ...state,
+    complianceFindingWorkflows: {
+      ...state.complianceFindingWorkflows,
+      [key]: sanitizeComplianceFindingWorkflow(nextEntry) ?? nextEntry
+    }
+  })
+
+  return getComplianceFindingWorkflow(scopeKey, findingId)
 }
 
 export function updateGovernanceTagDefaults(update: GovernanceTagDefaultsUpdate): GovernanceTagDefaults {

@@ -27,7 +27,7 @@ import { listBucketGovernance } from './s3'
 import { listSecurityGroups } from './securityGroups'
 import { listVpcs } from './vpc'
 import { describeWebAcl, listWebAcls } from './waf'
-import { getCompliancePolicyPacks, getGovernanceTagDefaults } from '../phase1FoundationStore'
+import { getComplianceFindingWorkflow, getCompliancePolicyPacks, getGovernanceTagDefaults } from '../phase1FoundationStore'
 
 type Ec2InventoryItem = {
   instanceId: string
@@ -47,6 +47,8 @@ type TaggableInventoryItem = {
   name: string
   tags: Record<string, string>
 }
+
+type ComplianceFindingRecord = Omit<ComplianceFinding, 'workflow'>
 
 const STOPPED_INSTANCE_WARNING_THRESHOLD = 3
 const UNUSED_KEY_PAIR_WARNING_THRESHOLD = 5
@@ -68,7 +70,7 @@ function createCloudWatchClient(connection: AwsConnection): CloudWatchClient {
   return new CloudWatchClient(awsClientConfig(connection))
 }
 
-function createSummary(findings: ComplianceFinding[]): ComplianceSummary {
+function createSummary(findings: Array<Pick<ComplianceFinding, 'severity' | 'category'>>): ComplianceSummary {
   const summary: ComplianceSummary = {
     total: findings.length,
     bySeverity: { high: 0, medium: 0, low: 0 },
@@ -244,8 +246,8 @@ function buildTaggingSample(
 }
 
 function addFinding(
-  findings: ComplianceFinding[],
-  finding: Omit<ComplianceFinding, 'id'> & { idParts: Array<string | number | undefined> }
+  findings: ComplianceFindingRecord[],
+  finding: Omit<ComplianceFindingRecord, 'id'> & { idParts: Array<string | number | undefined> }
 ): void {
   findings.push({
     id: findingId(finding.idParts),
@@ -293,10 +295,17 @@ function maxSeverity(left: ComplianceSeverity, right: ComplianceSeverity): Compl
   return severityRank(left) >= severityRank(right) ? left : right
 }
 
+function complianceScopeKey(connection: AwsConnection): string {
+  return connection.kind === 'assumed-role'
+    ? [connection.sourceProfile, connection.roleArn, connection.accountId, connection.region].join('::')
+    : [connection.profile, connection.region].join('::')
+}
+
 export async function getComplianceReport(connection: AwsConnection): Promise<ComplianceReport> {
   const warnings: string[] = []
   const region = connection.region
-  const findings: ComplianceFinding[] = []
+  const findings: ComplianceFindingRecord[] = []
+  const scopeKey = complianceScopeKey(connection)
   const governanceDefaults = getGovernanceTagDefaults()
   const policyPackDefinitions = getCompliancePolicyPacks()
 
@@ -770,11 +779,16 @@ export async function getComplianceReport(connection: AwsConnection): Promise<Co
     return severityRank(rightSeverity) - severityRank(leftSeverity) || right.findingCount - left.findingCount
   })
 
+  const findingsWithWorkflow = findings.map((finding) => ({
+    ...finding,
+    workflow: getComplianceFindingWorkflow(scopeKey, finding.id)
+  }))
+
   return {
     generatedAt: new Date().toISOString(),
-    findings,
+    findings: findingsWithWorkflow,
     policyPacks,
-    summary: createSummary(findings),
+    summary: createSummary(findingsWithWorkflow),
     warnings
   }
 }

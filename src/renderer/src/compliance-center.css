@@ -235,8 +235,9 @@
 }
 
 .compliance-finding-card {
-  gap: 0.8rem;
-  border-radius: 16px;
+  gap: 0.65rem;
+  padding: 16px 18px;
+  border-radius: 14px;
   border-color: rgba(145, 176, 207, 0.14);
   background:
     linear-gradient(180deg, rgba(12, 20, 31, 0.96), rgba(8, 14, 22, 0.98));
@@ -272,8 +273,8 @@
 }
 
 .compliance-finding-copy h5 {
-  margin-top: 0.45rem;
-  font-size: 1.02rem;
+  margin-top: 0.3rem;
+  font-size: 0.94rem;
   letter-spacing: -0.02em;
 }
 
@@ -284,14 +285,13 @@
 }
 
 .compliance-finding-meta {
-  margin-top: 0.45rem;
+  margin-top: 0.25rem;
 }
 
 .compliance-next-step {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding-top: 0.2rem;
+  gap: 3px;
 }
 
 .compliance-next-step span {
@@ -304,13 +304,106 @@
 
 .compliance-next-step strong {
   color: #edf4fb;
-  font-size: 0.92rem;
+  font-size: 0.84rem;
   font-weight: 600;
 }
 
 .compliance-action-button {
   min-width: 154px;
   justify-content: center;
+}
+
+.compliance-workflow-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(145, 176, 207, 0.1);
+  background: rgba(9, 16, 26, 0.44);
+}
+
+.compliance-workflow-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px 12px;
+}
+
+.compliance-workflow-summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.compliance-workflow-summary-item span {
+  color: #8fa3ba;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.compliance-workflow-summary-item strong {
+  color: #edf4fb;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.compliance-workflow-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px 10px;
+}
+
+.compliance-workflow-field {
+  min-width: 0;
+}
+
+.compliance-workflow-field span {
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+}
+
+.compliance-workflow-field input,
+.compliance-workflow-field select,
+.compliance-workflow-field textarea {
+  min-height: 40px;
+  padding: 0.65rem 0.8rem;
+}
+
+.compliance-workflow-notes {
+  grid-column: 1 / 4;
+}
+
+.compliance-workflow-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.compliance-workflow-actions .compliance-action-button {
+  min-width: 132px;
+}
+
+.compliance-secondary-button {
+  min-width: 126px;
+  padding: 0.7rem 0.95rem;
+  border-radius: 10px;
+  border: 1px solid rgba(145, 176, 207, 0.14);
+  background: rgba(20, 31, 45, 0.72);
+  color: #dce8f5;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.compliance-secondary-button:disabled {
+  opacity: 0.6;
 }
 
 .compliance-policy-pack-grid {
@@ -439,6 +532,22 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .compliance-workflow-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .compliance-workflow-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .compliance-workflow-notes {
+    grid-column: 1 / -1;
+  }
+
+  .compliance-workflow-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .compliance-policy-pack-count {
     align-items: flex-start;
     text-align: left;
@@ -468,6 +577,22 @@
 
   .compliance-action-button {
     width: 100%;
+  }
+
+  .compliance-workflow-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .compliance-workflow-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .compliance-workflow-notes {
+    grid-column: 1;
+  }
+
+  .compliance-workflow-actions {
+    justify-content: stretch;
   }
 
   .compliance-category-strip {
