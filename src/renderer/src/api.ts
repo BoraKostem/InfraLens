@@ -738,6 +738,75 @@ export function trackedAwsBridge(): AwsLensBridge {
 function normalizeUserFacingError(rawError: string, operationLabel?: string): AwsLensApiError {
   const normalized = rawError.toLowerCase()
   const requestDetail = operationLabel ? ` Request: ${operationLabel}.` : ''
+  const isAssumeRoleRequest =
+    normalized.includes('assumerole') ||
+    normalized.includes('sts:assumerole') ||
+    operationLabel?.toLowerCase().includes('assume role') === true
+
+  if (isAssumeRoleRequest) {
+    const principalMatch = rawError.match(/(?:user|arn):\s*(arn:aws:[^\s,]+)/i) ?? rawError.match(/(arn:aws:[^\s,]+)/i)
+    const resourceMatch = rawError.match(/on resource:\s*(arn:aws:[^\s,]+)/i)
+    const principalDetail = principalMatch ? ` Active principal: ${principalMatch[1]}.` : ''
+    const roleDetail = resourceMatch ? ` Target role: ${resourceMatch[1]}.` : ''
+
+    if (
+      normalized.includes('externalid') ||
+      normalized.includes('external id') ||
+      normalized.includes('sts:externalid')
+    ) {
+      return new AwsLensApiError(
+        `AWS rejected the assume-role request because the external ID requirement did not match.${requestDetail}${roleDetail} Verify the saved target external ID and the role trust policy condition.`,
+        rawError,
+        'External ID Mismatch'
+      )
+    }
+
+    if (
+      normalized.includes('multi-factor authentication') ||
+      normalized.includes('mfa') ||
+      normalized.includes('serialnumber')
+    ) {
+      return new AwsLensApiError(
+        `AWS rejected the assume-role request because MFA is required for this role.${requestDetail}${roleDetail} Use a source principal with MFA satisfied, or update the trust policy requirements.`,
+        rawError,
+        'MFA Required'
+      )
+    }
+
+    if (
+      normalized.includes('nosuchentity') ||
+      normalized.includes('cannot be found') ||
+      normalized.includes('not found') ||
+      normalized.includes('invalid role')
+    ) {
+      return new AwsLensApiError(
+        `AWS could not find the target role for this assume-role request.${requestDetail}${roleDetail} Confirm the role ARN, account ID, and role name.`,
+        rawError,
+        'Role Not Found'
+      )
+    }
+
+    if (
+      normalized.includes('validationerror') ||
+      normalized.includes('validation error') ||
+      normalized.includes('member must satisfy') ||
+      normalized.includes('failed to satisfy constraint')
+    ) {
+      return new AwsLensApiError(
+        `The assume-role request is malformed.${requestDetail}${roleDetail} Check the role ARN, session name, and optional external ID format.`,
+        rawError,
+        'Invalid AssumeRole Request'
+      )
+    }
+
+    if (normalized.includes('accessdenied') || normalized.includes('access denied') || normalized.includes('not authorized')) {
+      return new AwsLensApiError(
+        `AWS denied the assume-role request.${requestDetail}${principalDetail}${roleDetail} Confirm that the active principal has \`sts:AssumeRole\` permission and that the target role trust policy allows this principal.`,
+        rawError,
+        'AssumeRole Access Denied'
+      )
+    }
+  }
 
   if (normalized.includes('read-only mode')) {
     return new AwsLensApiError(
@@ -918,15 +987,24 @@ export async function deleteAssumedSession(sessionId: string): Promise<void> {
 }
 
 export async function assumeRoleSession(request: AssumeRoleRequest): Promise<AssumeRoleResult> {
-  return unwrap((await awsBridge().assumeRoleSession(request)) as Wrapped<AssumeRoleResult>)
+  return unwrap(
+    (await awsBridge().assumeRoleSession(request)) as Wrapped<AssumeRoleResult>,
+    'Assume role with STS'
+  )
 }
 
 export async function refreshAssumedSession(sessionId: string): Promise<AssumeRoleResult> {
-  return unwrap((await awsBridge().refreshAssumedSession(sessionId)) as Wrapped<AssumeRoleResult>)
+  return unwrap(
+    (await awsBridge().refreshAssumedSession(sessionId)) as Wrapped<AssumeRoleResult>,
+    'Refresh assumed-role session with STS'
+  )
 }
 
 export async function assumeSavedRoleTarget(targetId: string): Promise<AssumeRoleResult> {
-  return unwrap((await awsBridge().assumeSavedRoleTarget(targetId)) as Wrapped<AssumeRoleResult>)
+  return unwrap(
+    (await awsBridge().assumeSavedRoleTarget(targetId)) as Wrapped<AssumeRoleResult>,
+    'Assume saved role target with STS'
+  )
 }
 
 export async function listServices(): Promise<ServiceDescriptor[]> {
@@ -1896,7 +1974,10 @@ export async function lookupAccessKeyOwnership(connection: AwsConnection, access
 }
 
 export async function assumeRole(connection: AwsConnection, roleArn: string, sessionName: string, externalId?: string): Promise<AssumeRoleResult> {
-  return unwrap((await awsBridge().assumeRole(connection, roleArn, sessionName, externalId)) as Wrapped<AssumeRoleResult>)
+  return unwrap(
+    (await awsBridge().assumeRole(connection, roleArn, sessionName, externalId)) as Wrapped<AssumeRoleResult>,
+    'Assume role with STS'
+  )
 }
 
 export async function listKmsKeys(connection: AwsConnection): Promise<KmsKeySummary[]> {

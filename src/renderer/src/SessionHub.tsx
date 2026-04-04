@@ -147,6 +147,10 @@ function getEnvironmentLabel(value: string): string {
   return value.trim() || 'Unspecified env'
 }
 
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`
+}
+
 function formatCountdown(expiration: string): string {
   const remainingMs = new Date(expiration).getTime() - Date.now()
   if (!Number.isFinite(remainingMs)) {
@@ -207,11 +211,13 @@ function buildSessionConnection(session: AwsSessionSummary): AwsConnection {
 export function SessionHub({
   connectionState,
   onOpenCompare,
-  onOpenTerminal
+  onOpenTerminal,
+  onRunTerminalCommand
 }: {
   connectionState: ConnectionState
   onOpenCompare: (request: ComparisonRequest) => void
   onOpenTerminal: (connection: AwsConnection) => void
+  onRunTerminalCommand: (command: string) => void
 }) {
   const [draft, setDraft] = useState<Omit<AwsAssumeRoleTarget, 'id' | 'createdAt' | 'updatedAt'>>(
     emptyDraft(connectionState.selectedProfile?.name ?? connectionState.profile, connectionState.region)
@@ -732,6 +738,51 @@ export function SessionHub({
   const currentContextMeta = connectionState.activeSession
     ? connectionState.activeSession.assumedRoleArn || connectionState.activeSession.roleArn
     : connectionState.selectedProfile?.name || connectionState.profile || 'No profile selected'
+  const terminalCommandTemplates = useMemo(() => {
+    const currentConnection = connectionState.connection
+    if (!currentConnection) {
+      return []
+    }
+
+    const currentRegion = currentConnection.region || connectionState.region || 'us-east-1'
+    const contextLabel = currentConnection.label || currentConnection.profile || 'current-context'
+
+    return [
+      {
+        id: 'aws-identity',
+        label: 'AWS Identity',
+        description: 'Confirm the active caller identity and region before running sensitive actions.',
+        command: `aws sts get-caller-identity; aws configure get region`
+      },
+      {
+        id: 'aws-inventory',
+        label: 'AWS Inventory',
+        description: 'Quickly inspect common account-scoped resources in the active region.',
+        command: `aws eks list-clusters --region ${currentRegion}; aws ec2 describe-instances --max-items 10 --region ${currentRegion}`
+      },
+      {
+        id: 'kubectl',
+        label: 'kubectl Bootstrap',
+        description: 'Prepare or reuse an EKS cluster name, then list nodes and pods from the active AWS context.',
+        command:
+          `$clusterName = '<eks-cluster-name>'; aws eks update-kubeconfig --name $clusterName --region ${currentRegion}; kubectl config current-context; kubectl get nodes; kubectl get pods -A`
+      },
+      {
+        id: 'terraform',
+        label: 'Terraform Plan',
+        description: 'Export the active AWS region, then run a safe Terraform init and plan in the current shell.',
+        command:
+          `$env:AWS_REGION='${currentRegion}'; $env:AWS_DEFAULT_REGION='${currentRegion}'; terraform init; terraform plan -var aws_region=${shellQuote(currentRegion)}`
+      },
+      {
+        id: 'session-debug',
+        label: 'Session Debug',
+        description: 'Capture the current shell AWS variables and identity for support or incident debugging.',
+        command:
+          `Write-Host 'Context: ${contextLabel}'; Get-ChildItem Env:AWS_* | Sort-Object Name; aws sts get-caller-identity`
+      }
+    ]
+  }, [connectionState.connection, connectionState.region])
   void countdownTick
 
   return (
@@ -1156,6 +1207,30 @@ export function SessionHub({
         </div>
         {comparePresetMessage && <div className="empty-state compact">{comparePresetMessage}</div>}
         <div className="empty-state compact">Diff Mode opens a dedicated workspace with inventory, posture, ownership, cost, and risk-focused comparisons.</div>
+      </section>
+
+      <div className="overview-section-title">Command Templates</div>
+      <section className="panel session-hub-compare-panel">
+        {terminalCommandTemplates.length === 0 ? (
+          <div className="empty-state compact">Select or activate a context first to send suggested commands to the terminal.</div>
+        ) : (
+          <div className="info-card-grid info-card-grid-3">
+            {terminalCommandTemplates.map((template) => (
+              <article key={template.id} className="info-card session-hub-command-card">
+                <div className="info-card__copy">
+                  <strong>{template.label}</strong>
+                  <p>{template.description}</p>
+                  <code className="session-hub-command-preview">{template.command}</code>
+                </div>
+                <div className="button-row">
+                  <button type="button" className="accent" onClick={() => onRunTerminalCommand(template.command)}>
+                    Send To Terminal
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
       </section>
 
       <CollapsibleInfoPanel title="Recommended Next Actions" className="panel session-hub-compare-panel">

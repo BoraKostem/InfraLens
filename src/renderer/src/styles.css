@@ -1890,6 +1890,25 @@ button.overview-tile.clickable.active strong {
   background: rgba(224, 82, 82, 0.12);
 }
 
+.session-hub-command-card {
+  min-width: 0;
+}
+
+.session-hub-command-preview {
+  display: block;
+  margin-top: 0.6rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  background: rgba(6, 10, 16, 0.84);
+  border: 1px solid rgba(145, 176, 207, 0.1);
+  color: #cfe0f5;
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .session-hub-session-table {
   gap: 0.45rem;
 }

@@ -1667,6 +1667,7 @@ export function App() {
               connectionState.activateSession(connection.sessionId)
             }
           }}
+          onRunTerminalCommand={handleOpenTerminalCommand}
         />
       )
     }
