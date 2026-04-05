@@ -1202,8 +1202,8 @@ export async function deleteGcpStorageObject(projectId: string, bucketName: stri
   return unwrap((await rawAwsBridge().deleteGcpStorageObject(projectId, bucketName, key)) as Wrapped<void>)
 }
 
-export async function listGcpLogEntries(projectId: string, location: string, query: string): Promise<GcpLogQueryResult> {
-  return unwrap((await rawAwsBridge().listGcpLogEntries(projectId, location, query)) as Wrapped<GcpLogQueryResult>)
+export async function listGcpLogEntries(projectId: string, location: string, query: string, windowHours = 24): Promise<GcpLogQueryResult> {
+  return unwrap((await rawAwsBridge().listGcpLogEntries(projectId, location, query, windowHours)) as Wrapped<GcpLogQueryResult>)
 }
 
 export async function listGcpSqlInstances(projectId: string, location: string): Promise<GcpSqlInstanceSummary[]> {

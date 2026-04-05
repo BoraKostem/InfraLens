@@ -594,10 +594,11 @@ function buildLocationAwareLogFilter(location: string): string {
   return `(${clauses.join(' OR ')})`
 }
 
-function buildGcpLogFilter(location: string, query: string): string {
+function buildGcpLogFilter(location: string, query: string, windowHours: number): string {
   const normalizedQuery = query.trim()
   const normalizedLocationFilter = buildLocationAwareLogFilter(location)
-  const freshnessFilter = `timestamp >= "${new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()}"`
+  const normalizedWindowHours = Number.isFinite(windowHours) && windowHours > 0 ? Math.min(Math.max(windowHours, 1), 168) : 24
+  const freshnessFilter = `timestamp >= "${new Date(Date.now() - normalizedWindowHours * 60 * 60 * 1000).toISOString()}"`
 
   return [freshnessFilter, normalizedLocationFilter, normalizedQuery]
     .filter(Boolean)
@@ -950,7 +951,7 @@ export async function deleteGcpStorageObject(projectId: string, bucketName: stri
   }
 }
 
-export async function listGcpLogEntries(projectId: string, location: string, query: string): Promise<GcpLogQueryResult> {
+export async function listGcpLogEntries(projectId: string, location: string, query: string, windowHours = 24): Promise<GcpLogQueryResult> {
   const normalizedProjectId = projectId.trim()
   if (!normalizedProjectId) {
     return {
@@ -961,7 +962,7 @@ export async function listGcpLogEntries(projectId: string, location: string, que
     }
   }
 
-  const appliedFilter = buildGcpLogFilter(location, query)
+  const appliedFilter = buildGcpLogFilter(location, query, windowHours)
 
   try {
     const auth = getGcpAuth(normalizedProjectId)
