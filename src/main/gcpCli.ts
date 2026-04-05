@@ -70,8 +70,10 @@ function outputIndicatesAuthIssue(output: string): boolean {
     || normalized.includes('credentials')
 }
 
-function summarizeCliFailure(output: string): string {
-  return output
+function summarizeCliFailure(stderr: string, stdout: string): string {
+  const preferredOutput = stderr.trim() || stdout.trim()
+
+  return preferredOutput
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
@@ -81,7 +83,7 @@ function summarizeCliFailure(output: string): string {
 
 function buildGcpCliError(label: string, result: CommandResult): Error {
   const output = summarizeOutput(result.stdout, result.stderr)
-  const detail = summarizeCliFailure(output)
+  const detail = summarizeCliFailure(result.stderr, result.stdout)
 
   if (outputIndicatesAuthIssue(output)) {
     return new Error(
@@ -117,7 +119,7 @@ function buildExecution(command: string, args: string[]): { command: string; arg
 }
 
 function buildGcloudArgs(args: string[]): string[] {
-  return ['--quiet', '--verbosity=error', '--user-output-enabled=false', ...args]
+  return ['--quiet', '--verbosity=error', ...args]
 }
 
 async function runCommand(command: string, args: string[], env: Record<string, string>, timeout = 20000): Promise<CommandResult> {
