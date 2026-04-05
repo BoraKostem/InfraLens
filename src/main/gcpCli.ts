@@ -116,6 +116,10 @@ function buildExecution(command: string, args: string[]): { command: string; arg
   }
 }
 
+function buildGcloudArgs(args: string[]): string[] {
+  return ['--quiet', '--verbosity=error', '--user-output-enabled=false', ...args]
+}
+
 async function runCommand(command: string, args: string[], env: Record<string, string>, timeout = 20000): Promise<CommandResult> {
   return new Promise((resolve) => {
     const execution = buildExecution(command, args)
@@ -375,6 +379,57 @@ function safeParseList<T>(value: string, normalize: (entry: unknown) => T | null
   }
 }
 
+function normalizeValueBoolean(value: string): boolean {
+  const normalized = value.trim().toLowerCase()
+  return normalized === 'true' || normalized === 'yes' || normalized === '1'
+}
+
+function parseGcloudValueRows(value: string): string[][] {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.split('\t').map((column) => column.trim()))
+}
+
+function parseConfigurationValueRows(value: string): GcpCliConfiguration[] {
+  return parseGcloudValueRows(value)
+    .map((columns) => {
+      const [name = '', isActive = '', account = '', projectId = '', region = '', zone = ''] = columns
+      if (!name) {
+        return null
+      }
+
+      return {
+        name,
+        isActive: normalizeValueBoolean(isActive),
+        account,
+        projectId,
+        region,
+        zone
+      } satisfies GcpCliConfiguration
+    })
+    .filter((entry): entry is GcpCliConfiguration => entry !== null)
+}
+
+function parseProjectValueRows(value: string): GcpCliProject[] {
+  return parseGcloudValueRows(value)
+    .map((columns) => {
+      const [projectId = '', name = '', projectNumber = '', lifecycleState = ''] = columns
+      if (!projectId) {
+        return null
+      }
+
+      return {
+        projectId,
+        name,
+        projectNumber,
+        lifecycleState
+      } satisfies GcpCliProject
+    })
+    .filter((entry): entry is GcpCliProject => entry !== null)
+}
+
 function safeParseItem<T>(value: string, normalize: (entry: unknown) => T | null): T | null {
   if (!value.trim()) {
     return null
@@ -410,17 +465,17 @@ export async function getGcpCliContext(): Promise<GcpCliContext> {
     configurations: [] as GcpCliConfiguration[]
   }))
 
-  const configurationsResult = await runCommand(
-    resolved.command,
-    ['config', 'configurations', 'list', '--format=json'],
-    env,
-    5000
-  )
-
-  const cliConfigurations = safeParseList(configurationsResult.stdout, normalizeConfiguration)
-  const configurations = cliConfigurations.length > 0
-    ? cliConfigurations
-    : fallback.configurations
+  let configurations = fallback.configurations
+  if (configurations.length === 0) {
+    const configurationsResult = await runCommand(
+      resolved.command,
+      buildGcloudArgs(['config', 'configurations', 'list', '--format=value(name,is_active,properties.core.account,properties.core.project,properties.compute.region,properties.compute.zone)']),
+      env,
+      4000
+    )
+    const cliConfigurations = parseConfigurationValueRows(configurationsResult.stdout)
+    configurations = cliConfigurations.length > 0 ? cliConfigurations : fallback.configurations
+  }
   const activeConfiguration = configurations.find((entry) => entry.isActive)
     ?? configurations.find((entry) => entry.name === fallback.activeConfigurationName)
     ?? configurations[0]
@@ -430,7 +485,12 @@ export async function getGcpCliContext(): Promise<GcpCliContext> {
 
   const activeProjectResult = await (
     activeProjectId
-      ? runCommand(resolved.command, ['projects', 'describe', activeProjectId, '--format=json'], env, 5000)
+      ? runCommand(
+          resolved.command,
+          buildGcloudArgs(['projects', 'describe', activeProjectId, '--format=json(projectId,name,projectNumber,lifecycleState)']),
+          env,
+          4000
+        )
       : Promise.resolve({
           ok: false,
           stdout: '',
@@ -472,30 +532,14 @@ export async function listGcpProjects(): Promise<GcpCliProject[]> {
     configurations: [] as GcpCliConfiguration[]
   }))
   const derivedProjects = deriveProjectsFromConfigurations(fallback.configurations)
-  const activeProjectId = fallback.configurations.find((entry) => entry.isActive)?.projectId
-    ?? fallback.configurations.find((entry) => entry.name === fallback.activeConfigurationName)?.projectId
-    ?? ''
+  const projectsResult = await runCommand(
+    resolved.command,
+    buildGcloudArgs(['projects', 'list', '--format=value(projectId,name,projectNumber,lifecycleState)', '--page-size=500']),
+    env,
+    20000
+  )
 
-  const [activeProjectResult, projectsResult] = await Promise.all([
-    activeProjectId
-      ? runCommand(resolved.command, ['projects', 'describe', activeProjectId, '--format=json'], env, 8000)
-      : Promise.resolve({
-          ok: false,
-          stdout: '',
-          stderr: '',
-          code: '',
-          path: resolved.path
-        } satisfies CommandResult),
-    runCommand(
-      resolved.command,
-      ['projects', 'list', '--format=json', '--page-size=500'],
-      env,
-      30000
-    )
-  ])
-
-  const activeProject = safeParseItem(activeProjectResult.stdout, normalizeProject)
-  const cliProjects = safeParseList(projectsResult.stdout, normalizeProject)
+  const cliProjects = parseProjectValueRows(projectsResult.stdout)
 
   if (!projectsResult.ok && cliProjects.length === 0) {
     throw buildGcpCliError('loading the project catalog', projectsResult)
@@ -506,7 +550,6 @@ export async function listGcpProjects(): Promise<GcpCliProject[]> {
   }
 
   return mergeProjects(
-    activeProject ? [activeProject] : [],
     cliProjects,
     derivedProjects
   )
