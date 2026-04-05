@@ -13,7 +13,7 @@ import { createHandlerWrapper } from './operations'
 
 type HandlerResult<T> = { ok: true; data: T } | { ok: false; error: string }
 const wrap: <T>(fn: () => Promise<T> | T, label?: string) => Promise<HandlerResult<T>> =
-  createHandlerWrapper('overview-ipc', { timeoutMs: 60000 })
+  createHandlerWrapper('overview-ipc', { timeoutMs: 300000 })
 
 export function registerOverviewIpcHandlers(): void {
   ipcMain.handle('overview:metrics', async (_event, connection: AwsConnection, regions: string[]) =>

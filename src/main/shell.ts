@@ -62,6 +62,54 @@ function parseEnvOutput(output: string): Record<string, string> {
   return parsed
 }
 
+function getPathVariableName(env: Record<string, string>): string {
+  return Object.keys(env).find((key) => key.toLowerCase() === 'path') ?? 'PATH'
+}
+
+function prependPathEntries(env: Record<string, string>, entries: string[]): Record<string, string> {
+  if (!entries.length) {
+    return { ...env }
+  }
+
+  const pathKey = getPathVariableName(env)
+  const current = (env[pathKey] ?? '')
+    .split(path.delimiter)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+  const merged: string[] = []
+  const seen = new Set<string>()
+
+  for (const entry of [...entries, ...current]) {
+    const normalized = process.platform === 'win32' ? entry.toLowerCase() : entry
+    if (seen.has(normalized)) {
+      continue
+    }
+    seen.add(normalized)
+    merged.push(entry)
+  }
+
+  return {
+    ...env,
+    [pathKey]: merged.join(path.delimiter)
+  }
+}
+
+export function applyToolPathOverrides(env: Record<string, string>): Record<string, string> {
+  const overrideDirs = [
+    getToolCommand('aws-cli', 'aws'),
+    getToolCommand('kubectl', 'kubectl'),
+    getToolCommand('docker', 'docker'),
+    getToolCommand('terraform', 'terraform'),
+    getToolCommand('opentofu', 'opentofu')
+  ]
+    .map((command) => command.trim())
+    .filter(looksLikeExplicitPath)
+    .map((command) => path.dirname(command))
+    .filter(Boolean)
+
+  return prependPathEntries(env, overrideDirs)
+}
+
 function execFileText(command: string, args: string[], env: Record<string, string>): Promise<string> {
   return new Promise((resolve) => {
     execFile(
@@ -86,7 +134,7 @@ function execFileText(command: string, args: string[], env: Record<string, strin
 }
 
 async function loadShellEnvironment(): Promise<Record<string, string>> {
-  const baseEnv = { ...process.env as Record<string, string> }
+  const baseEnv = applyToolPathOverrides({ ...process.env as Record<string, string> })
   if (process.platform === 'win32') {
     return baseEnv
   }
@@ -106,10 +154,10 @@ async function loadShellEnvironment(): Promise<Record<string, string>> {
     return baseEnv
   }
 
-  return {
+  return applyToolPathOverrides({
     ...baseEnv,
     ...parsed
-  }
+  })
 }
 
 function shellEnvironmentCacheKey(): string {
@@ -131,7 +179,7 @@ export function invalidateResolvedProcessEnv(): void {
 
 export async function getResolvedProcessEnv(options: { fresh?: boolean } = {}): Promise<Record<string, string>> {
   if (process.platform === 'win32') {
-    return { ...process.env as Record<string, string> }
+    return applyToolPathOverrides({ ...process.env as Record<string, string> })
   }
 
   const key = shellEnvironmentCacheKey()
@@ -277,6 +325,7 @@ function unsetPosix(name: string): string {
 function buildEnvCommands(connection: AwsConnection): string[] {
   const shell = getShellConfig()
   const env = getConnectionEnv(connection)
+  const awsCliCommand = getToolCommand('aws-cli', 'aws').trim()
   const baseCommands = shell.kind === 'powershell'
     ? [
         unsetPowerShell('AWS_PROFILE'),
@@ -297,7 +346,13 @@ function buildEnvCommands(connection: AwsConnection): string[] {
       : `export ${key}=${quotePosix(value)}`
   )
 
-  return [...baseCommands, ...assignments]
+  const toolAlias = looksLikeExplicitPath(awsCliCommand)
+    ? (shell.kind === 'powershell'
+        ? `Set-Alias -Name aws -Value ${quotePowerShell(awsCliCommand)} -Scope Global`
+        : `aws() { ${quotePosix(awsCliCommand)} "$@"; }`)
+    : ''
+
+  return [...baseCommands, ...assignments, ...(toolAlias ? [toolAlias] : [])]
 }
 
 export function buildAwsContextCommand(connection: AwsConnection): string {

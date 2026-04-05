@@ -77,6 +77,27 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function isAccessDeniedError(error: unknown): boolean {
+  return /accessdenied|access denied|not authorized|unauthorized/i.test(errorMessage(error))
+}
+
+function isDescribeInstanceInformationAccessDenied(error: unknown): boolean {
+  return isAccessDeniedError(error) && /describeinstanceinformation/i.test(errorMessage(error))
+}
+
+function describeInstanceInformationDeniedDiagnostic(): SsmConnectionDiagnostic {
+  return {
+    severity: 'warning',
+    code: 'ssm-read-access-denied',
+    summary: 'Session Manager status could not be inspected.',
+    detail: 'The current AWS identity does not allow ssm:DescribeInstanceInformation, so AWS Lens cannot verify whether this instance is managed or online in SSM.'
+  }
+}
+
 function isTempInspectionInstance(instance: Instance | null | undefined): boolean {
   return readTags(instance?.Tags)[TEMP_PURPOSE_TAG] === TEMP_PURPOSE_EBS_INSPECTION
 }
@@ -279,8 +300,10 @@ function connectionDiagnostics(
   instance: Instance | null,
   managedInfo: InstanceInformation | undefined,
   hasPolicy: boolean | null,
-  hasNetworkPath: boolean | null
+  hasNetworkPath: boolean | null,
+  options: { includeManagedStatus?: boolean } = {}
 ): SsmConnectionDiagnostic[] {
+  const includeManagedStatus = options.includeManagedStatus ?? true
   const diagnostics: SsmConnectionDiagnostic[] = []
 
   if ((instance?.State?.Name ?? '') !== 'running') {
@@ -308,20 +331,22 @@ function connectionDiagnostics(
     })
   }
 
-  if (!managedInfo) {
-    diagnostics.push({
-      severity: 'error',
-      code: 'not-managed',
-      summary: 'The instance is not registered as a managed instance.',
-      detail: 'Confirm the SSM agent is installed, the instance role is correct, and the instance can reach SSM endpoints.'
-    })
-  } else if ((managedInfo.PingStatus ?? '') !== 'Online') {
-    diagnostics.push({
-      severity: 'error',
-      code: 'agent-offline',
-      summary: `SSM agent status is ${managedInfo.PingStatus ?? 'unknown'}.`,
-      detail: 'The instance is registered but not currently reachable through Session Manager.'
-    })
+  if (includeManagedStatus) {
+    if (!managedInfo) {
+      diagnostics.push({
+        severity: 'error',
+        code: 'not-managed',
+        summary: 'The instance is not registered as a managed instance.',
+        detail: 'Confirm the SSM agent is installed, the instance role is correct, and the instance can reach SSM endpoints.'
+      })
+    } else if ((managedInfo.PingStatus ?? '') !== 'Online') {
+      diagnostics.push({
+        severity: 'error',
+        code: 'agent-offline',
+        summary: `SSM agent status is ${managedInfo.PingStatus ?? 'unknown'}.`,
+        detail: 'The instance is registered but not currently reachable through Session Manager.'
+      })
+    }
   }
 
   if (hasNetworkPath === false) {
@@ -333,7 +358,7 @@ function connectionDiagnostics(
     })
   }
 
-  if (diagnostics.length === 0 && managedInfo?.PingStatus === 'Online') {
+  if (diagnostics.length === 0 && includeManagedStatus && managedInfo?.PingStatus === 'Online') {
     diagnostics.push({
       severity: 'info',
       code: 'ready',
@@ -387,10 +412,20 @@ function formatCliParameters(parameters: Record<string, string[]>): string {
 export async function listSsmManagedInstances(connection: AwsConnection): Promise<SsmManagedInstanceSummary[]> {
   const ec2Client = createEc2Client(connection)
   const ssmClient = createSsmClient(connection)
-  const [ec2Instances, managedInfos] = await Promise.all([
-    listAllEc2Instances(ec2Client),
-    listManagedInstanceInformation(ssmClient)
-  ])
+  let ec2Instances: Instance[] = []
+  let managedInfos: InstanceInformation[] = []
+
+  try {
+    ;[ec2Instances, managedInfos] = await Promise.all([
+      listAllEc2Instances(ec2Client),
+      listManagedInstanceInformation(ssmClient)
+    ])
+  } catch (error) {
+    if (isDescribeInstanceInformationAccessDenied(error)) {
+      return []
+    }
+    throw error
+  }
 
   const instanceMap = new Map(ec2Instances.map((instance) => [instance.InstanceId ?? '', instance]))
 
@@ -415,15 +450,30 @@ export async function getSsmConnectionTarget(connection: AwsConnection, instance
     throw new Error(`EC2 instance ${instanceId} was not found`)
   }
 
-  const [managedInfo] = await listManagedInstanceInformation(ssmClient, [instanceId])
   const [hasPolicy, hasNetworkPath] = await Promise.all([
     hasAwsManagedSsmPolicy(iamClient, instance),
     hasSsmNetworkPath(ec2Client, instance)
   ])
+  let managedInfo: InstanceInformation | undefined
+  let describeAccessDenied = false
+
+  try {
+    ;[managedInfo] = await listManagedInstanceInformation(ssmClient, [instanceId])
+  } catch (error) {
+    if (!isDescribeInstanceInformationAccessDenied(error)) {
+      throw error
+    }
+    describeAccessDenied = true
+  }
 
   const status = summarizeStatus(managedInfo)
   const managedInstance = managedInfo ? toManagedInstanceSummary(managedInfo, instance) : null
-  const diagnostics = connectionDiagnostics(instance, managedInfo, hasPolicy, hasNetworkPath)
+  const diagnostics = [
+    ...(describeAccessDenied ? [describeInstanceInformationDeniedDiagnostic()] : []),
+    ...connectionDiagnostics(instance, managedInfo, hasPolicy, hasNetworkPath, {
+      includeManagedStatus: !describeAccessDenied
+    })
+  ]
 
   return {
     instanceId,

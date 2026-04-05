@@ -2,7 +2,7 @@ import { BrowserWindow, ipcMain, type WebContents } from 'electron'
 import { spawn, type IPty } from 'node-pty'
 
 import type { AwsConnection } from '@shared/types'
-import { buildAwsContextCommand, getShellConfig, getTerminalCwd } from './shell'
+import { buildAwsContextCommand, getResolvedProcessEnv, getShellConfig, getTerminalCwd } from './shell'
 import { getConnectionEnv } from './sessionHub'
 
 type TerminalEvent =
@@ -80,15 +80,16 @@ function runCommandInSession(targetSession: TerminalSession, command: string, de
   write()
 }
 
-function createSession(sessionId: string, sender: WebContents, connection: AwsConnection): TerminalSession {
+async function createSession(sessionId: string, sender: WebContents, connection: AwsConnection): Promise<TerminalSession> {
   const shell = getShellConfig()
+  const resolvedEnv = await getResolvedProcessEnv()
   const pty = spawn(shell.command, shell.args, {
     name: 'xterm-color',
     cols: 120,
     rows: 24,
     cwd: getTerminalCwd(),
     env: {
-      ...process.env,
+      ...resolvedEnv,
       ...getConnectionEnv(connection),
       LANG: 'en_US.UTF-8',
       LC_ALL: 'en_US.UTF-8',
@@ -120,10 +121,10 @@ function createSession(sessionId: string, sender: WebContents, connection: AwsCo
   return nextSession
 }
 
-function ensureSession(sessionId: string, sender: WebContents, connection: AwsConnection): { session: TerminalSession; created: boolean } {
+async function ensureSession(sessionId: string, sender: WebContents, connection: AwsConnection): Promise<{ session: TerminalSession; created: boolean }> {
   const existing = sessions.get(sessionId)
   if (!existing) {
-    const created = createSession(sessionId, sender, connection)
+    const created = await createSession(sessionId, sender, connection)
     sessions.set(sessionId, created)
     return { session: created, created: true }
   }
@@ -160,7 +161,7 @@ function closeAllSessions(): void {
 
 export function registerTerminalIpcHandlers(): void {
   ipcMain.handle('terminal:open-aws', async (event, sessionId: string, connection: AwsConnection, initialCommand?: string): Promise<TerminalOpenResult> => {
-    const { session: currentSession, created } = ensureSession(sessionId, event.sender, connection)
+    const { session: currentSession, created } = await ensureSession(sessionId, event.sender, connection)
 
     if (created) {
       runCommandInSession(currentSession, initialCommand ?? '', 120)

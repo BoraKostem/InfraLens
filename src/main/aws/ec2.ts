@@ -123,6 +123,15 @@ const TEMP_INSPECTION_AMI_ID = 'ami-096a4fdbcf530d8e0'
 
 type TempProgressReporter = (progress: EbsTempInspectionProgress) => void
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function isDescribeInstanceInformationAccessDenied(error: unknown): boolean {
+  return /accessdenied|access denied|not authorized|unauthorized/i.test(errorMessage(error)) &&
+    /describeinstanceinformation/i.test(errorMessage(error))
+}
+
 function createIamClient(connection: AwsConnection): IAMClient {
   return new IAMClient(awsClientConfig(connection))
 }
@@ -931,7 +940,12 @@ function toInstanceSummary(instance: Instance, managedInfo?: { PingStatus?: stri
 export async function listEc2Instances(connection: AwsConnection): Promise<Ec2InstanceSummary[]> {
   const client = createClient(connection)
   const ssmClient = createSsmClient(connection)
-  const managedInstanceMap = await loadManagedInstanceMap(ssmClient)
+  const managedInstanceMap = await loadManagedInstanceMap(ssmClient).catch((error) => {
+    if (isDescribeInstanceInformationAccessDenied(error)) {
+      return new Map<string, InstanceInformation>()
+    }
+    throw error
+  })
   const instances: Ec2InstanceSummary[] = []
   let nextToken: string | undefined
 
