@@ -172,6 +172,7 @@ const SERVICE_CATEGORY_ORDER = [
   'Infrastructure',
   'Compute',
   'Data',
+  'Operations',
   'Storage',
   'Database',
   'Containers',
@@ -215,7 +216,9 @@ const SERVICE_DESCRIPTIONS: Record<ServiceId, string> = {
   'gcp-compute-engine': 'Project-aware Compute Engine entry point staged for instance inventory and operator actions.',
   'gcp-gke': 'Project-aware GKE entry point staged for cluster posture, upgrades, and shell handoff.',
   'gcp-cloud-storage': 'Project-aware Cloud Storage entry point staged for bucket inventory, object posture, and shell handoff.',
-  'gcp-cloud-sql': 'Project-aware Cloud SQL entry point staged for database posture, instance inventory, and connection helpers.'
+  'gcp-cloud-sql': 'Project-aware Cloud SQL entry point staged for database posture, instance inventory, and connection helpers.',
+  'gcp-logging': 'Project-aware Logging entry point staged for log exploration, query posture, and shell handoff.',
+  'gcp-billing': 'Project-aware Billing Basics entry point staged for project cost posture and shared shell context.'
 }
 
 const SERVICE_MATURITY_LABELS: Record<ServiceMaturity, string> = {
@@ -323,16 +326,7 @@ const PROVIDER_CONNECTION_MODES: Record<CloudProviderId, ProviderConnectionMode[
 }
 
 const PROVIDER_PREVIEW_NAV_SECTIONS: Record<Exclude<CloudProviderId, 'aws'>, ProviderPreviewNavSection[]> = {
-  gcp: [
-    {
-      id: 'gcp-ops',
-      label: 'Operations',
-      items: [
-        { id: 'gcp-logging', label: 'Logging', detail: 'Provider log workflows and presets' },
-        { id: 'gcp-billing', label: 'Billing Basics', detail: 'Project cost posture in shared overview flows' }
-      ]
-    }
-  ],
+  gcp: [],
   azure: [
     {
       id: 'azure-core',
@@ -921,6 +915,8 @@ function screenCacheTag(screen: Screen): CacheTag | null {
     case 'gcp-gke':
     case 'gcp-cloud-storage':
     case 'gcp-cloud-sql':
+    case 'gcp-logging':
+    case 'gcp-billing':
       return 'shell'
     case 'session-hub':
       return null

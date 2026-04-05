@@ -1220,6 +1220,8 @@ export type ServiceId =
   | 'gcp-gke'
   | 'gcp-cloud-storage'
   | 'gcp-cloud-sql'
+  | 'gcp-logging'
+  | 'gcp-billing'
 
 export type GovernanceTagKey = 'Owner' | 'Environment' | 'Project' | 'CostCenter'
 
