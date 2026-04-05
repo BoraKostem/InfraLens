@@ -74,6 +74,7 @@ export function ComplianceCenter({
   const [workflowDrafts, setWorkflowDrafts] = useState<Record<string, WorkflowDraft>>({})
   const [savingWorkflowId, setSavingWorkflowId] = useState('')
   const [collapsedWorkflows, setCollapsedWorkflows] = useState<Record<string, boolean>>({})
+  const [copiedCommandId, setCopiedCommandId] = useState('')
   const { freshness, beginRefresh, completeRefresh, failRefresh } = useFreshnessState()
 
   async function load(reason: Parameters<typeof beginRefresh>[0] = 'manual'): Promise<void> {
@@ -308,6 +309,14 @@ export function ComplianceCenter({
       ...current,
       [findingId]: !(current[findingId] ?? true)
     }))
+  }
+
+  async function copyCommand(id: string, command: string): Promise<void> {
+    await navigator.clipboard.writeText(command)
+    setCopiedCommandId(id)
+    window.setTimeout(() => {
+      setCopiedCommandId((current) => current === id ? '' : current)
+    }, 1200)
   }
 
   return (
@@ -692,6 +701,33 @@ export function ComplianceCenter({
                                 rows={2}
                               />
                             </label>
+                          </div>
+                        ) : null}
+                        {finding.remediationTemplates?.length ? (
+                          <div className="compliance-remediation-template-list">
+                            {finding.remediationTemplates.map((template) => (
+                              <section key={template.id} className="compliance-remediation-template">
+                                <div className="compliance-remediation-template-head">
+                                  <div>
+                                    <span>Remediation template</span>
+                                    <strong>{template.title}</strong>
+                                  </div>
+                                </div>
+                                <p>{template.summary}</p>
+                                <div className="compliance-remediation-command-list">
+                                  {template.commands.map((command) => (
+                                    <button
+                                      key={`${template.id}:${command.label}`}
+                                      type="button"
+                                      className="compliance-secondary-button"
+                                      onClick={() => void copyCommand(`${template.id}:${command.label}`, command.command)}
+                                    >
+                                      {copiedCommandId === `${template.id}:${command.label}` ? 'Copied' : command.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              </section>
+                            ))}
                           </div>
                         ) : null}
                         {finding.policyPackIds?.length ? (

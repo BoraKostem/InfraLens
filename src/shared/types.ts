@@ -2033,6 +2033,18 @@ export type ComplianceFindingWorkflowUpdate = {
   lastReviewedAt?: string
 }
 
+export type ComplianceRemediationTemplateCommand = {
+  label: string
+  command: string
+}
+
+export type ComplianceRemediationTemplate = {
+  id: string
+  title: string
+  summary: string
+  commands: ComplianceRemediationTemplateCommand[]
+}
+
 export type ComplianceRemediationAction =
   | {
       kind: 'navigate'
@@ -2063,6 +2075,7 @@ export type ComplianceFinding = {
   recommendedAction: string
   policyPackIds?: string[]
   workflow: ComplianceFindingWorkflow
+  remediationTemplates?: ComplianceRemediationTemplate[]
   remediation?: ComplianceRemediationAction
 }
 

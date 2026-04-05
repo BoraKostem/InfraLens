@@ -7,6 +7,7 @@ import type {
   ComplianceFinding,
   CompliancePolicyPack,
   ComplianceReport,
+  ComplianceRemediationTemplate,
   ComplianceSeverity,
   ComplianceSummary,
   GovernanceTagKey,
@@ -293,6 +294,150 @@ function severityRank(value: ComplianceSeverity): number {
 
 function maxSeverity(left: ComplianceSeverity, right: ComplianceSeverity): ComplianceSeverity {
   return severityRank(left) >= severityRank(right) ? left : right
+}
+
+function buildRemediationTemplates(finding: ComplianceFindingRecord): ComplianceRemediationTemplate[] {
+  const resourceId = finding.resourceId || '<resource-id>'
+  const region = finding.region
+
+  switch (finding.service) {
+    case 'security-groups':
+      return [{
+        id: `${finding.id}:security-group`,
+        title: 'Restrict public ingress',
+        summary: 'Inspect the security group and remove or narrow internet-facing ingress rules before keeping the finding open.',
+        commands: [
+          {
+            label: 'Inspect group',
+            command: `aws ec2 describe-security-groups --group-ids ${resourceId} --region ${region}`
+          },
+          {
+            label: 'Review attached ENIs',
+            command: `aws ec2 describe-network-interfaces --filters Name=group-id,Values=${resourceId} --region ${region}`
+          },
+          {
+            label: 'Template revoke command',
+            command: `aws ec2 revoke-security-group-ingress --group-id ${resourceId} --protocol tcp --port 22 --cidr 0.0.0.0/0 --region ${region}`
+          }
+        ]
+      }]
+    case 's3':
+      return [{
+        id: `${finding.id}:s3`,
+        title: 'Harden bucket baseline',
+        summary: 'Verify the bucket posture, then apply the matching encryption, public-access, or versioning change in the active region.',
+        commands: [
+          {
+            label: 'Inspect bucket posture',
+            command: `aws s3api get-bucket-encryption --bucket ${resourceId} --region ${region}`
+          },
+          {
+            label: 'Check public access block',
+            command: `aws s3api get-public-access-block --bucket ${resourceId} --region ${region}`
+          },
+          {
+            label: 'Template enable versioning',
+            command: `aws s3api put-bucket-versioning --bucket ${resourceId} --versioning-configuration Status=Enabled --region ${region}`
+          }
+        ]
+      }]
+    case 'rds':
+      return [{
+        id: `${finding.id}:rds`,
+        title: 'Review database posture',
+        summary: 'Inspect the current database posture, then adjust retention or network exposure. Encryption gaps usually require restore-or-replace planning.',
+        commands: [
+          {
+            label: 'Inspect instance',
+            command: `aws rds describe-db-instances --db-instance-identifier ${resourceId} --region ${region}`
+          },
+          {
+            label: 'Inspect cluster',
+            command: `aws rds describe-db-clusters --db-cluster-identifier ${resourceId} --region ${region}`
+          },
+          {
+            label: 'Template raise backup retention',
+            command: `aws rds modify-db-instance --db-instance-identifier ${resourceId} --backup-retention-period 7 --apply-immediately --region ${region}`
+          }
+        ]
+      }]
+    case 'secrets-manager':
+      return [{
+        id: `${finding.id}:secret`,
+        title: 'Rotate or verify secret',
+        summary: 'Review rotation state and dependency context before rotating the secret or attaching an automated rotation workflow.',
+        commands: [
+          {
+            label: 'Inspect secret',
+            command: `aws secretsmanager describe-secret --secret-id ${resourceId} --region ${region}`
+          },
+          {
+            label: 'List current version ids',
+            command: `aws secretsmanager list-secret-version-ids --secret-id ${resourceId} --region ${region}`
+          },
+          {
+            label: 'Template rotate secret',
+            command: `aws secretsmanager rotate-secret --secret-id ${resourceId} --region ${region}`
+          }
+        ]
+      }]
+    case 'cloudtrail':
+      return [{
+        id: `${finding.id}:cloudtrail`,
+        title: 'Restore audit logging',
+        summary: 'Confirm trail coverage, then enable or create a centralized trail with logging turned on.',
+        commands: [
+          {
+            label: 'List trails',
+            command: `aws cloudtrail describe-trails --include-shadow-trails --region ${region}`
+          },
+          {
+            label: 'Check trail status',
+            command: `aws cloudtrail get-trail-status --name <trail-name> --region ${region}`
+          },
+          {
+            label: 'Template start logging',
+            command: `aws cloudtrail start-logging --name <trail-name> --region ${region}`
+          }
+        ]
+      }]
+    case 'waf':
+      return [{
+        id: `${finding.id}:waf`,
+        title: 'Attach a WAF web ACL',
+        summary: 'Inspect current WAF association state, then attach the expected regional web ACL for the exposed load balancer.',
+        commands: [
+          {
+            label: 'Check current association',
+            command: `aws wafv2 get-web-acl-for-resource --resource-arn ${resourceId} --region ${region}`
+          },
+          {
+            label: 'List available ACLs',
+            command: `aws wafv2 list-web-acls --scope REGIONAL --region ${region}`
+          },
+          {
+            label: 'Template associate ACL',
+            command: `aws wafv2 associate-web-acl --web-acl-arn <web-acl-arn> --resource-arn ${resourceId} --region ${region}`
+          }
+        ]
+      }]
+    default:
+      return [{
+        id: `${finding.id}:generic`,
+        title: 'Investigate and remediate',
+        summary: 'Inspect the affected service resource in the active region, then execute the matching remediation in the terminal with the current AWS context.',
+        commands: [
+          {
+            label: 'Describe current state',
+            command: `aws ${finding.service} help`
+          },
+          {
+            label: 'Context check',
+            command: `aws sts get-caller-identity --region ${region}`
+          }
+        ]
+      }]
+  }
 }
 
 function complianceScopeKey(connection: AwsConnection): string {
@@ -781,7 +926,8 @@ export async function getComplianceReport(connection: AwsConnection): Promise<Co
 
   const findingsWithWorkflow = findings.map((finding) => ({
     ...finding,
-    workflow: getComplianceFindingWorkflow(scopeKey, finding.id)
+    workflow: getComplianceFindingWorkflow(scopeKey, finding.id),
+    remediationTemplates: buildRemediationTemplates(finding)
   }))
 
   return {

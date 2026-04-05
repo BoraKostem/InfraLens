@@ -406,6 +406,50 @@
   opacity: 0.6;
 }
 
+.compliance-remediation-template-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.compliance-remediation-template {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(145, 176, 207, 0.1);
+  background: rgba(9, 16, 26, 0.42);
+}
+
+.compliance-remediation-template-head span {
+  display: block;
+  color: #8fa3ba;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.compliance-remediation-template-head strong {
+  color: #edf4fb;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.compliance-remediation-template p {
+  margin: 0;
+  color: #c7d7e8;
+  font-size: 0.83rem;
+  line-height: 1.45;
+}
+
+.compliance-remediation-command-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .compliance-policy-pack-grid {
   display: flex;
   flex-direction: column;
