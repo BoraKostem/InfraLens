@@ -2222,12 +2222,73 @@ function GcpLoggingConsole({
                       <strong>{entry.severity}</strong>
                     </div>
                     <div className="project-card-title">{entry.logName}</div>
-                    <div className="hero-path" style={{ marginTop: 12, whiteSpace: 'pre-line', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
-                      {entry.summary}
-                      <br />
-                      {entry.timestamp ? new Date(entry.timestamp).toLocaleString() : 'Timestamp unavailable'}
-                      <br />
-                      Insert ID: {entry.insertId}
+                    <div style={{ marginTop: 14, display: 'grid', gap: 12 }}>
+                      <div
+                        style={{
+                          padding: '12px 14px',
+                          borderRadius: 16,
+                          background: 'rgba(138,255,181,0.06)',
+                          border: '1px solid rgba(138,255,181,0.14)'
+                        }}
+                      >
+                        <div style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.14em', color: '#8fd6a9', marginBottom: 8 }}>
+                          Parsed Summary
+                        </div>
+                        <div className="hero-path" style={{ margin: 0, whiteSpace: 'pre-line', overflowWrap: 'anywhere', wordBreak: 'break-word', color: '#dce7ef' }}>
+                          {entry.summary}
+                        </div>
+                      </div>
+                      {entry.details.length ? (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+                          {entry.details.map((detail) => (
+                            <div
+                              key={`${entry.insertId}:${detail.label}:${detail.value}`}
+                              style={{
+                                padding: '12px 14px',
+                                borderRadius: 14,
+                                background: 'rgba(17,24,39,0.85)',
+                                border: '1px solid rgba(123,148,178,0.16)',
+                                minHeight: 74
+                              }}
+                            >
+                              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#8fa2b8', marginBottom: 8 }}>
+                                {detail.label}
+                              </div>
+                              <div style={{ fontSize: 15, lineHeight: 1.45, color: '#eef5fb', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                                {detail.value}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                        <div
+                          style={{
+                            padding: '10px 12px',
+                            borderRadius: 999,
+                            background: 'rgba(17,24,39,0.7)',
+                            border: '1px solid rgba(123,148,178,0.16)',
+                            color: '#a7b6c6',
+                            fontSize: 14
+                          }}
+                        >
+                          {entry.timestamp ? new Date(entry.timestamp).toLocaleString() : 'Timestamp unavailable'}
+                        </div>
+                        <div
+                          style={{
+                            padding: '10px 12px',
+                            borderRadius: 999,
+                            background: 'rgba(17,24,39,0.7)',
+                            border: '1px solid rgba(123,148,178,0.16)',
+                            color: '#a7b6c6',
+                            fontSize: 14,
+                            overflowWrap: 'anywhere',
+                            wordBreak: 'break-word'
+                          }}
+                        >
+                          Insert ID: {entry.insertId}
+                        </div>
+                      </div>
                     </div>
                     <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
                       <button

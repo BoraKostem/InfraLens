@@ -618,6 +618,11 @@ export type GcpSqlInstanceSummary = {
   maintenanceWindow: string
 }
 
+export type GcpLogEntryDetail = {
+  label: string
+  value: string
+}
+
 export type GcpLogEntrySummary = {
   insertId: string
   timestamp: string
@@ -625,6 +630,7 @@ export type GcpLogEntrySummary = {
   resourceType: string
   logName: string
   summary: string
+  details: GcpLogEntryDetail[]
 }
 
 export type GcpLogFacetCount = {

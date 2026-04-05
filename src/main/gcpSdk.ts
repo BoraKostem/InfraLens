@@ -6,6 +6,7 @@ import { google } from 'googleapis'
 
 import type {
   GcpComputeInstanceSummary,
+  GcpLogEntryDetail,
   GcpGkeClusterSummary,
   GcpLogEntrySummary,
   GcpLogFacetCount,
@@ -418,39 +419,48 @@ function joinLogSummaryParts(parts: Array<string | undefined | null>): string {
     .join(' | ')
 }
 
-function buildStructuredPayloadSummary(payload: unknown): string {
+function buildLogDetailsFromPayload(payload: unknown): GcpLogEntryDetail[] {
   const record = toRecord(payload)
   if (!Object.keys(record).length) {
-    return ''
+    return []
   }
 
   const authenticationInfo = toRecord(record.authenticationInfo)
   const requestMetadata = toRecord(record.requestMetadata)
   const status = toRecord(record.status)
-
-  const principalEmail = asString(authenticationInfo.principalEmail)
-  const methodName = asString(record.methodName)
-  const resourceName = asString(record.resourceName)
-  const serviceName = asString(record.serviceName)
-  const callerIp = asString(requestMetadata.callerIp)
-  const statusMessage = asString(status.message)
-  const message =
-    asString(record.message)
-    || asString(record.eventMessage)
-    || asString(record.description)
-
-  const auditSummary = joinLogSummaryParts([
-    methodName ? `Method: ${methodName}` : '',
-    principalEmail ? `Actor: ${principalEmail}` : '',
-    resourceName ? `Resource: ${resourceName}` : '',
-    serviceName ? `Service: ${serviceName}` : '',
-    statusMessage ? `Status: ${statusMessage}` : '',
-    callerIp ? `Caller IP: ${callerIp}` : '',
-    message ? `Message: ${message}` : ''
+  const location = joinLogSummaryParts([
+    asString(record.location),
+    asString(record.region),
+    asString(record.zone)
   ])
 
-  if (auditSummary) {
-    return auditSummary
+  return [
+    { label: 'Method', value: asString(record.methodName) },
+    { label: 'Actor', value: asString(authenticationInfo.principalEmail) },
+    { label: 'Resource', value: asString(record.resourceName) },
+    { label: 'Service', value: asString(record.serviceName) },
+    { label: 'Status', value: asString(status.message) },
+    { label: 'Caller IP', value: asString(requestMetadata.callerIp) },
+    { label: 'Location', value: location },
+    { label: 'Agent', value: asString(requestMetadata.callerSuppliedUserAgent) },
+    { label: 'Message', value: asString(record.message) || asString(record.eventMessage) || asString(record.description) }
+  ].filter((detail) => detail.value.trim())
+}
+
+function buildStructuredPayloadSummary(payload: unknown): string {
+  const details = buildLogDetailsFromPayload(payload)
+  if (details.length) {
+    return joinLogSummaryParts(
+      details
+        .filter((detail) => detail.label !== 'Agent')
+        .slice(0, 4)
+        .map((detail) => `${detail.label}: ${detail.value}`)
+    )
+  }
+
+  const record = toRecord(payload)
+  if (!Object.keys(record).length) {
+    return ''
   }
 
   const flattened = Object.entries(record)
@@ -462,6 +472,30 @@ function buildStructuredPayloadSummary(payload: unknown): string {
     .slice(0, 4)
 
   return joinLogSummaryParts(flattened)
+}
+
+function buildLogDetails(entry: Record<string, unknown>): GcpLogEntryDetail[] {
+  const details = [
+    ...buildLogDetailsFromPayload(entry.jsonPayload),
+    ...buildLogDetailsFromPayload(entry.protoPayload)
+  ]
+
+  const seen = new Set<string>()
+  const deduped = details.filter((detail) => {
+    const key = `${detail.label}:${detail.value}`
+    if (seen.has(key)) {
+      return false
+    }
+    seen.add(key)
+    return true
+  })
+
+  if (deduped.length) {
+    return deduped.slice(0, 6)
+  }
+
+  const textPayload = asString(entry.textPayload)
+  return textPayload ? [{ label: 'Text payload', value: textPayload }] : []
 }
 
 function summarizeLogName(value: string): string {
@@ -506,6 +540,7 @@ function normalizeLogEntry(entry: unknown): GcpLogEntrySummary | null {
   const resourceType = asString(resource.type) || 'global'
   const logName = summarizeLogName(asString(record.logName))
   const summary = buildLogSummary(record)
+  const details = buildLogDetails(record)
 
   if (!insertId && !timestamp && !summary) {
     return null
@@ -517,7 +552,8 @@ function normalizeLogEntry(entry: unknown): GcpLogEntrySummary | null {
     severity,
     resourceType,
     logName,
-    summary: summary || 'Structured log entry without preview text.'
+    summary: summary || 'Structured log entry without preview text.',
+    details
   }
 }
 
