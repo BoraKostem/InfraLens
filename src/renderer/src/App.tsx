@@ -703,8 +703,16 @@ function GcpComputeEngineConsole({
           </div>
         </div>
       </section>
-      {error ? <div className="error-banner">{error}</div> : null}
-      {loading ? (
+      {error ? (
+        <section className="panel stack">
+          <div className="error-banner">{error}</div>
+          <div className="profile-catalog-empty">
+            <div className="eyebrow">Compute Engine Access</div>
+            <h3>Instance inventory could not be loaded</h3>
+            <p className="hero-path">Verify the selected project, enabled APIs, and active gcloud account, then retry the refresh.</p>
+          </div>
+        </section>
+      ) : loading ? (
         <section className="panel stack">
           <div className="profile-catalog-empty">
             <div className="eyebrow">Loading</div>

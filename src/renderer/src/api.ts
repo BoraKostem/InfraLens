@@ -810,6 +810,30 @@ function normalizeUserFacingError(rawError: string): AwsLensApiError {
     )
   }
 
+  if (normalized.includes('google cloud api access failed')) {
+    return new AwsLensApiError(
+      'The selected Google Cloud project does not have the required API enabled for this screen. Enable the API in Google Cloud Console, wait a few minutes, and retry.',
+      rawError,
+      'Google Cloud API Disabled'
+    )
+  }
+
+  if (normalized.includes('google cloud cli authorization failed')) {
+    return new AwsLensApiError(
+      'Google Cloud CLI credentials are not valid for this request. Refresh your gcloud login or active account and retry.',
+      rawError,
+      'Google Cloud Authorization Failed'
+    )
+  }
+
+  if (normalized.includes('google cloud cli failed while')) {
+    return new AwsLensApiError(
+      rawError,
+      rawError,
+      'Google Cloud CLI Failed'
+    )
+  }
+
   return new AwsLensApiError(
     'The operation failed. Review the current context and export diagnostics if the problem persists.',
     rawError

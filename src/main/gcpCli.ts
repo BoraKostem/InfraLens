@@ -65,9 +65,16 @@ function outputIndicatesAuthIssue(output: string): boolean {
     || normalized.includes('login required')
     || normalized.includes('invalid_grant')
     || normalized.includes('unauthorized')
-    || normalized.includes('permission_denied')
     || normalized.includes('access token')
     || normalized.includes('credentials')
+}
+
+function outputIndicatesApiDisabled(output: string): boolean {
+  const normalized = output.toLowerCase()
+  return normalized.includes('api has not been used in project')
+    || normalized.includes('it is disabled')
+    || normalized.includes('enable it by visiting')
+    || normalized.includes('google developers console api activation')
 }
 
 function summarizeCliFailure(stderr: string, stdout: string): string {
@@ -84,6 +91,12 @@ function summarizeCliFailure(stderr: string, stdout: string): string {
 function buildGcpCliError(label: string, result: CommandResult): Error {
   const output = summarizeOutput(result.stdout, result.stderr)
   const detail = summarizeCliFailure(result.stderr, result.stdout)
+
+  if (outputIndicatesApiDisabled(output)) {
+    return new Error(
+      `Google Cloud API access failed while ${label}. The required API is disabled for the selected project. Enable it in Google Cloud Console, wait for propagation, and retry.${detail ? ` ${detail}` : ''}`
+    )
+  }
 
   if (outputIndicatesAuthIssue(output)) {
     return new Error(
