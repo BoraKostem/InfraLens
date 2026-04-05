@@ -171,6 +171,7 @@ const ENVIRONMENT_ONBOARDING_STEPS: EnvironmentOnboardingStep[] = ['profile', 'r
 const SERVICE_CATEGORY_ORDER = [
   'Infrastructure',
   'Compute',
+  'Data',
   'Storage',
   'Database',
   'Containers',
@@ -212,7 +213,9 @@ const SERVICE_DESCRIPTIONS: Record<ServiceId, string> = {
   kms: 'Key inventory, key detail panel, and ciphertext blob decryption.',
   waf: 'Web ACL inventory, rule editing, associations, and scope switching.',
   'gcp-compute-engine': 'Project-aware Compute Engine entry point staged for instance inventory and operator actions.',
-  'gcp-gke': 'Project-aware GKE entry point staged for cluster posture, upgrades, and shell handoff.'
+  'gcp-gke': 'Project-aware GKE entry point staged for cluster posture, upgrades, and shell handoff.',
+  'gcp-cloud-storage': 'Project-aware Cloud Storage entry point staged for bucket inventory, object posture, and shell handoff.',
+  'gcp-cloud-sql': 'Project-aware Cloud SQL entry point staged for database posture, instance inventory, and connection helpers.'
 }
 
 const SERVICE_MATURITY_LABELS: Record<ServiceMaturity, string> = {
@@ -321,14 +324,6 @@ const PROVIDER_CONNECTION_MODES: Record<CloudProviderId, ProviderConnectionMode[
 
 const PROVIDER_PREVIEW_NAV_SECTIONS: Record<Exclude<CloudProviderId, 'aws'>, ProviderPreviewNavSection[]> = {
   gcp: [
-    {
-      id: 'gcp-data',
-      label: 'Data',
-      items: [
-        { id: 'gcp-cloud-storage', label: 'Cloud Storage', detail: 'Bucket and object operations' },
-        { id: 'gcp-cloud-sql', label: 'Cloud SQL', detail: 'Database posture and connection helpers' }
-      ]
-    },
     {
       id: 'gcp-ops',
       label: 'Operations',
@@ -934,6 +929,8 @@ function screenCacheTag(screen: Screen): CacheTag | null {
       return screen
     case 'gcp-compute-engine':
     case 'gcp-gke':
+    case 'gcp-cloud-storage':
+    case 'gcp-cloud-sql':
       return 'shell'
     case 'session-hub':
       return null

@@ -98,7 +98,9 @@ const AWS_WORKSPACES: ServiceDescriptor[] = [
 
 const GCP_WORKSPACES: ServiceDescriptor[] = [
   { id: 'gcp-compute-engine', label: 'Compute Engine', category: 'Compute', migrated: true, maturity: 'experimental', providerId: 'gcp', providerLabel: 'GCP', workspaceKind: 'provider', supports: ['gcp'], requiresConnection: true },
-  { id: 'gcp-gke', label: 'GKE', category: 'Compute', migrated: true, maturity: 'experimental', providerId: 'gcp', providerLabel: 'GCP', workspaceKind: 'provider', supports: ['gcp'], requiresConnection: true }
+  { id: 'gcp-gke', label: 'GKE', category: 'Compute', migrated: true, maturity: 'experimental', providerId: 'gcp', providerLabel: 'GCP', workspaceKind: 'provider', supports: ['gcp'], requiresConnection: true },
+  { id: 'gcp-cloud-storage', label: 'Cloud Storage', category: 'Data', migrated: true, maturity: 'experimental', providerId: 'gcp', providerLabel: 'GCP', workspaceKind: 'provider', supports: ['gcp'], requiresConnection: true },
+  { id: 'gcp-cloud-sql', label: 'Cloud SQL', category: 'Data', migrated: true, maturity: 'experimental', providerId: 'gcp', providerLabel: 'GCP', workspaceKind: 'provider', supports: ['gcp'], requiresConnection: true }
 ]
 
 function sortServices(items: ServiceDescriptor[]): ServiceDescriptor[] {

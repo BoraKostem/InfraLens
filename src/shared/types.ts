@@ -1218,6 +1218,8 @@ export type ServiceId =
   | 'waf'
   | 'gcp-compute-engine'
   | 'gcp-gke'
+  | 'gcp-cloud-storage'
+  | 'gcp-cloud-sql'
 
 export type GovernanceTagKey = 'Owner' | 'Environment' | 'Project' | 'CostCenter'
 
