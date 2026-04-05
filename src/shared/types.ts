@@ -1216,6 +1216,8 @@ export type ServiceId =
   | 'sts'
   | 'kms'
   | 'waf'
+  | 'gcp-compute-engine'
+  | 'gcp-gke'
 
 export type GovernanceTagKey = 'Owner' | 'Environment' | 'Project' | 'CostCenter'
 

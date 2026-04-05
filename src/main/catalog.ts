@@ -96,6 +96,11 @@ const AWS_WORKSPACES: ServiceDescriptor[] = [
   { id: 'key-pairs', label: 'Key Pairs', category: 'Security', migrated: false, maturity: 'beta', providerId: 'aws', providerLabel: 'AWS', workspaceKind: 'provider', supports: ['aws'], requiresConnection: true }
 ]
 
+const GCP_WORKSPACES: ServiceDescriptor[] = [
+  { id: 'gcp-compute-engine', label: 'Compute Engine', category: 'Compute', migrated: true, maturity: 'experimental', providerId: 'gcp', providerLabel: 'GCP', workspaceKind: 'provider', supports: ['gcp'], requiresConnection: true },
+  { id: 'gcp-gke', label: 'GKE', category: 'Compute', migrated: true, maturity: 'experimental', providerId: 'gcp', providerLabel: 'GCP', workspaceKind: 'provider', supports: ['gcp'], requiresConnection: true }
+]
+
 function sortServices(items: ServiceDescriptor[]): ServiceDescriptor[] {
   return [...items].sort((left, right) => left.label.localeCompare(right.label))
 }
@@ -124,9 +129,25 @@ function buildAwsProviderSections(): WorkspaceCatalogSection[] {
   ]
 }
 
+function buildGcpProviderSections(): WorkspaceCatalogSection[] {
+  return [
+    {
+      id: 'gcp-workspaces',
+      label: 'GCP Workspaces',
+      providerId: 'gcp',
+      workspaceKind: 'provider',
+      items: sortServices(GCP_WORKSPACES)
+    }
+  ]
+}
+
 export function getWorkspaceCatalog(providerId: CloudProviderId = 'aws'): WorkspaceCatalog {
   const sharedWorkspaces = buildSharedSections()
-  const providerWorkspaces = providerId === 'aws' ? buildAwsProviderSections() : []
+  const providerWorkspaces = providerId === 'aws'
+    ? buildAwsProviderSections()
+    : providerId === 'gcp'
+      ? buildGcpProviderSections()
+      : []
   const allServices = [...sharedWorkspaces.flatMap((section) => section.items), ...providerWorkspaces.flatMap((section) => section.items)]
 
   return {

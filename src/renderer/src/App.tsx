@@ -7,6 +7,7 @@ import {
   PRODUCT_BRAND_NAME
 } from '@shared/branding'
 import type {
+  AwsConnection,
   AppReleaseInfo,
   AppSecuritySummary,
   AppSettings,
@@ -208,7 +209,9 @@ const SERVICE_DESCRIPTIONS: Record<ServiceId, string> = {
   'key-pairs': 'EC2 key pair inventory with private key download on create.',
   sts: 'Caller identity, auth decoding, access key lookup, and assume-role credentials.',
   kms: 'Key inventory, key detail panel, and ciphertext blob decryption.',
-  waf: 'Web ACL inventory, rule editing, associations, and scope switching.'
+  waf: 'Web ACL inventory, rule editing, associations, and scope switching.',
+  'gcp-compute-engine': 'Project-aware Compute Engine entry point staged for instance inventory and operator actions.',
+  'gcp-gke': 'Project-aware GKE entry point staged for cluster posture, upgrades, and shell handoff.'
 }
 
 const SERVICE_MATURITY_LABELS: Record<ServiceMaturity, string> = {
@@ -317,14 +320,6 @@ const PROVIDER_CONNECTION_MODES: Record<CloudProviderId, ProviderConnectionMode[
 
 const PROVIDER_PREVIEW_NAV_SECTIONS: Record<Exclude<CloudProviderId, 'aws'>, ProviderPreviewNavSection[]> = {
   gcp: [
-    {
-      id: 'gcp-compute',
-      label: 'Compute',
-      items: [
-        { id: 'gcp-compute-engine', label: 'Compute Engine', detail: 'Instance inventory and operator actions' },
-        { id: 'gcp-gke', label: 'GKE', detail: 'Cluster health, upgrades, and shell handoff' }
-      ]
-    },
     {
       id: 'gcp-data',
       label: 'Data',
@@ -583,19 +578,35 @@ function screenInstanceScopeSuffix(screen: Screen, awsScopeKey: string, provider
   return providerId
 }
 
-function PlaceholderScreen({ service }: { service: ServiceDescriptor }) {
+function PlaceholderScreen({
+  service,
+  eyebrow = 'Catalog',
+  statusLabel,
+  contextLabel,
+  contextDetail,
+  emptyTitle,
+  emptyCopy
+}: {
+  service: ServiceDescriptor
+  eyebrow?: string
+  statusLabel?: string
+  contextLabel?: string
+  contextDetail?: string
+  emptyTitle?: string
+  emptyCopy?: string
+}) {
   return (
     <>
       <section className="hero catalog-hero">
         <div>
-          <div className="eyebrow">Catalog</div>
+          <div className="eyebrow">{eyebrow}</div>
           <h2>{service.label}</h2>
           <p className="hero-path">{SERVICE_DESCRIPTIONS[service.id]}</p>
         </div>
         <div className="hero-connection">
           <div className="connection-summary">
             <span>Status</span>
-            <strong>{service.migrated ? 'Cataloged' : 'Planned'}</strong>
+            <strong>{statusLabel || (service.migrated ? 'Cataloged' : 'Planned')}</strong>
           </div>
           <div className="connection-summary">
             <span>Category</span>
@@ -607,11 +618,22 @@ function PlaceholderScreen({ service }: { service: ServiceDescriptor }) {
           </div>
         </div>
       </section>
+      {contextLabel ? (
+        <section className="panel stack">
+          <div className="catalog-page-header">
+            <div>
+              <div className="eyebrow">Current context</div>
+              <h3>{contextLabel}</h3>
+              {contextDetail ? <p className="hero-path">{contextDetail}</p> : null}
+            </div>
+          </div>
+        </section>
+      ) : null}
       <section className="empty-hero">
         <div>
-          <div className="eyebrow">Catalog</div>
-          <h2>{service.label} is listed but not wired into this shell yet</h2>
-          <p>{SERVICE_DESCRIPTIONS[service.id]}</p>
+          <div className="eyebrow">{eyebrow}</div>
+          <h2>{emptyTitle || `${service.label} is listed but not wired into this shell yet`}</h2>
+          <p>{emptyCopy || SERVICE_DESCRIPTIONS[service.id]}</p>
         </div>
       </section>
     </>
@@ -909,11 +931,42 @@ function screenCacheTag(screen: Screen): CacheTag | null {
     case 'waf':
     case 'identity-center':
       return screen
+    case 'gcp-compute-engine':
+    case 'gcp-gke':
+      return 'shell'
     case 'session-hub':
       return null
     default:
       return null
   }
+}
+
+function isProviderService(service: ServiceDescriptor | null, providerId: CloudProviderId): boolean {
+  return service?.providerId === providerId
+}
+
+function isProviderRefreshReady(
+  providerId: CloudProviderId,
+  activeCacheTag: CacheTag | null,
+  activeShellConnection: AwsConnection | null,
+  activeShellConnected: boolean,
+  gcpContextReady: boolean,
+  selectedPreviewMode: ProviderConnectionMode | null,
+  selectedService: ServiceDescriptor | null
+): boolean {
+  if (!activeCacheTag) {
+    return false
+  }
+
+  if (providerId === 'aws') {
+    return Boolean(activeShellConnection && activeShellConnected)
+  }
+
+  if (!isProviderService(selectedService, providerId)) {
+    return false
+  }
+
+  return providerId === 'gcp' ? gcpContextReady : selectedPreviewMode !== null
 }
 
 function refreshTagsForScreen(screen: Screen): CacheTag[] {
@@ -1465,11 +1518,20 @@ export function App() {
   )
   const connectionScopeKey = activeShellConnection
     ? `${activeProviderId}:${activeShellConnection.sessionId}:${activeShellConnection.region}`
-    : activeProviderId === 'gcp' && selectedPreviewMode && activeGcpConnectionDraft
-      ? `provider:${activeProviderId}:${selectedPreviewMode.id}:${activeGcpConnectionDraft.projectId.trim()}:${activeGcpConnectionDraft.location.trim()}`
+      : activeProviderId === 'gcp' && selectedPreviewMode && activeGcpConnectionDraft
+        ? `provider:${activeProviderId}:${selectedPreviewMode.id}:${activeGcpConnectionDraft.projectId.trim()}:${activeGcpConnectionDraft.location.trim()}`
       : selectedPreviewMode
         ? `provider:${activeProviderId}:${selectedPreviewMode.id}`
       : `provider:${activeProviderId}:disconnected`
+  const providerRefreshReady = isProviderRefreshReady(
+    activeProviderId,
+    activeCacheTag,
+    activeShellConnection,
+    activeShellConnected,
+    gcpContextReady,
+    selectedPreviewMode,
+    selectedService
+  )
   const versionLabel = releaseInfo?.currentVersion ?? ''
   const releaseStateLabel = !releaseInfo?.supportsAutoUpdate
     ? 'Unavailable in dev build'
@@ -1619,6 +1681,35 @@ export function App() {
       }
     }
     navigateToService(serviceId, region)
+  }
+
+  function renderCatalogPlaceholder(service: ServiceDescriptor): React.ReactNode {
+    if (service.providerId === 'gcp') {
+      const contextLabel = gcpContextReady
+        ? activeGcpConnectionDraft?.projectId.trim() || 'Project ready'
+        : selectedPreviewMode?.label || 'Project context pending'
+      const contextDetail = gcpContextReady
+        ? `${activeGcpConnectionDraft?.location.trim()} | shared shell context ready`
+        : 'Select a project and location in Connection Selector before opening this service.'
+
+      return (
+        <PlaceholderScreen
+          service={service}
+          eyebrow="Google Cloud Rollout"
+          statusLabel="Navbar wired"
+          contextLabel={contextLabel}
+          contextDetail={contextDetail}
+          emptyTitle={`${service.label} is wired into the Google Cloud navbar.`}
+          emptyCopy={
+            gcpContextReady
+              ? 'This entry now follows the selected project, location, and terminal shell context. The first live service console lands in the next branch.'
+              : 'Finish the Google Cloud project context in the selector, then return here to keep the shared shell behavior consistent.'
+          }
+        />
+      )
+    }
+
+    return <PlaceholderScreen service={service} />
   }
 
   function handleSelectProvider(providerId: CloudProviderId): void {
@@ -2006,8 +2097,12 @@ export function App() {
   ])
 
   function handlePageRefresh(): void {
-    if (!activeShellConnected || !activeShellConnection) {
+    if (!providerRefreshReady) {
       return
+    }
+
+    if (activeProviderId === 'gcp') {
+      void loadGcpCliContext()
     }
 
     const refreshTags = refreshTagsForScreen(screen)
@@ -2757,6 +2852,10 @@ export function App() {
     }
 
     if (activeProviderId !== 'aws' && targetScreen !== 'settings') {
+      if (isProviderService(targetService ?? null, activeProviderId)) {
+        return renderCatalogPlaceholder(targetService!)
+      }
+
       const previewDescription =
         targetScreen === 'direct-access'
           ? 'Direct Resource Access stays in the shared shell, but provider-specific lookup, permission context, and diagnostics are still being wired for this provider.'
@@ -2983,7 +3082,7 @@ export function App() {
     if (targetScreen === 'sqs' && targetService?.id === 'sqs') return <ConnectedServiceScreen service={targetService} state={connectionState}>{(connection) => <SqsConsole connection={connection} />}</ConnectedServiceScreen>
 
     if (targetService && !IMPLEMENTED_SCREENS.has(targetService.id)) {
-      return <PlaceholderScreen service={targetService} />
+      return renderCatalogPlaceholder(targetService)
     }
 
     return null
@@ -3117,7 +3216,7 @@ export function App() {
               type="button"
               className="sidebar-refresh-button"
               onClick={handlePageRefresh}
-              disabled={!activeCacheTag || !activeShellConnection || !activeShellConnected || isCurrentScreenRefreshing}
+              disabled={!providerRefreshReady || isCurrentScreenRefreshing}
             >
               {isCurrentScreenRefreshing
                 ? 'Refreshing current view...'
@@ -3125,9 +3224,13 @@ export function App() {
                   ? `Refresh ${selectedService.label}`
                   : 'Refresh current page'}
             </button>
-            {activeShellConnected && activeCacheTag && (
+            {providerRefreshReady && (
               <span className="sidebar-refresh-hint">
-                {prefersSoftRefresh ? 'Refresh keeps your current selection and filters.' : 'Refresh may rebuild the current view.'}
+                {activeProviderId === 'gcp'
+                  ? 'Refresh re-imports the active gcloud context and keeps the selected project in place.'
+                  : prefersSoftRefresh
+                    ? 'Refresh keeps your current selection and filters.'
+                    : 'Refresh may rebuild the current view.'}
               </span>
             )}
           </div>
@@ -3168,17 +3271,29 @@ export function App() {
                   </div>
                 </section>
               ))
-              : previewProviderSections.map((section) => (
-                <section key={section.id} className="service-group">
-                  <div className="service-group-title service-group-title-provider">
-                    <span>{section.label}</span>
-                    <small>{PROVIDER_AFFORDANCE_LABELS[activeProviderId]}</small>
-                  </div>
-                  <div className="service-group-list">
-                    {section.items.map((item) => renderPreviewNavItem(item))}
-                  </div>
-                </section>
-              ))}
+              : (
+                <>
+                  {categorizedProviderSections.map((section) => (
+                    <section key={section.id} className="service-group">
+                      <div className="service-group-title">{section.label}</div>
+                      <div className="service-group-list">
+                        {section.items.map((service) => renderServiceLink(service))}
+                      </div>
+                    </section>
+                  ))}
+                  {previewProviderSections.map((section) => (
+                    <section key={section.id} className="service-group">
+                      <div className="service-group-title service-group-title-provider">
+                        <span>{section.label}</span>
+                        <small>{PROVIDER_AFFORDANCE_LABELS[activeProviderId]}</small>
+                      </div>
+                      <div className="service-group-list">
+                        {section.items.map((item) => renderPreviewNavItem(item))}
+                      </div>
+                    </section>
+                  ))}
+                </>
+              )}
           </div>
         </div>
       </nav>
@@ -3416,7 +3531,7 @@ export function App() {
         )}
 
         {selectedService && !IMPLEMENTED_SCREENS.has(selectedService!.id) && (
-          <PlaceholderScreen service={selectedService!} />
+          renderCatalogPlaceholder(selectedService!)
         )}
         </div>
         )}
