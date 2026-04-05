@@ -19,6 +19,7 @@ import type {
   GcpCliContext,
   GcpComputeInstanceSummary,
   GcpGkeClusterSummary,
+  GcpSqlInstanceSummary,
   GcpStorageBucketSummary,
   GcpCliProject,
   AppReleaseInfo,
@@ -1164,6 +1165,10 @@ export async function listGcpGkeClusters(projectId: string, location: string): P
 
 export async function listGcpStorageBuckets(projectId: string, location: string): Promise<GcpStorageBucketSummary[]> {
   return unwrap((await rawAwsBridge().listGcpStorageBuckets(projectId, location)) as Wrapped<GcpStorageBucketSummary[]>)
+}
+
+export async function listGcpSqlInstances(projectId: string, location: string): Promise<GcpSqlInstanceSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpSqlInstances(projectId, location)) as Wrapped<GcpSqlInstanceSummary[]>)
 }
 
 export async function checkForAppUpdates(): Promise<AppReleaseInfo> {
