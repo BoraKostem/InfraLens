@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { BrowserWindow, dialog } from 'electron'
+import { GoogleAuth } from 'google-auth-library'
 
 import type {
   GcpCliConfiguration,
@@ -178,6 +179,58 @@ function buildGcpCliError(label: string, result: CommandResult, apiServiceName =
   }
 
   return new Error(`Google Cloud CLI failed while ${label}.${detail ? ` ${detail}` : ''}`)
+}
+
+function outputIndicatesAdcIssue(output: string): boolean {
+  const normalized = output.toLowerCase()
+  return normalized.includes('application default credentials')
+    || normalized.includes('could not load the default credentials')
+    || normalized.includes('default credentials')
+    || normalized.includes('could not authenticate')
+}
+
+function outputIndicatesPermissionIssue(output: string): boolean {
+  const normalized = output.toLowerCase()
+  return normalized.includes('permission denied')
+    || normalized.includes('forbidden')
+    || normalized.includes('does not have permission')
+    || normalized.includes('insufficient authentication scopes')
+}
+
+function buildGcpSdkError(label: string, error: unknown, apiServiceName = 'cloudresourcemanager.googleapis.com'): Error {
+  const detail = error instanceof Error ? error.message.trim() : String(error).trim()
+
+  if (outputIndicatesApiDisabled(detail)) {
+    const projectId = extractProjectIdFromOutput(detail)
+    const enableCommand = projectId
+      ? `gcloud services enable ${apiServiceName} --project ${projectId}`
+      : `gcloud services enable ${apiServiceName} --project <project-id>`
+
+    return new Error(
+      `Google Cloud API access failed while ${label}. The required API is disabled for the selected project. Run "${enableCommand}", wait for propagation, and retry.${detail ? ` ${detail}` : ''}`
+    )
+  }
+
+  if (outputIndicatesAdcIssue(detail)) {
+    return new Error(
+      `Google Cloud SDK authorization failed while ${label}. Run "gcloud auth application-default login" or provide GOOGLE_APPLICATION_CREDENTIALS, then try again.${detail ? ` ${detail}` : ''}`
+    )
+  }
+
+  if (outputIndicatesPermissionIssue(detail)) {
+    return new Error(
+      `Google Cloud SDK authorization failed while ${label}. Verify the selected credentials have the required IAM access for this project.${detail ? ` ${detail}` : ''}`
+    )
+  }
+
+  return new Error(`Google Cloud SDK failed while ${label}.${detail ? ` ${detail}` : ''}`)
+}
+
+function getGcpSdkAuth(projectId = ''): GoogleAuth {
+  return new GoogleAuth({
+    projectId: projectId.trim() || undefined,
+    scopes: ['https://www.googleapis.com/auth/cloud-platform']
+  })
 }
 
 function isWindowsBatchCommand(command: string): boolean {
@@ -824,6 +877,41 @@ function deriveLocationsFromConfigurations(configurations: GcpCliConfiguration[]
   )
 }
 
+async function listGcpProjectsViaSdk(): Promise<GcpCliProject[]> {
+  const auth = getGcpSdkAuth()
+  const client = await auth.getClient()
+  const projects: GcpCliProject[] = []
+  let nextPageToken = ''
+
+  do {
+    const response = await client.request<{ projects?: Array<Record<string, unknown>>; nextPageToken?: string }>({
+      url: 'https://cloudresourcemanager.googleapis.com/v1/projects',
+      params: {
+        pageSize: 500,
+        ...(nextPageToken ? { pageToken: nextPageToken } : {})
+      }
+    })
+
+    for (const entry of response.data.projects ?? []) {
+      const projectId = asString(entry.projectId)
+      if (!projectId) {
+        continue
+      }
+
+      projects.push({
+        projectId,
+        name: asString(entry.name),
+        projectNumber: asString(entry.projectNumber),
+        lifecycleState: asString(entry.lifecycleState)
+      })
+    }
+
+    nextPageToken = asString(response.data.nextPageToken)
+  } while (nextPageToken)
+
+  return projects
+}
+
 function safeParseList<T>(value: string, normalize: (entry: unknown) => T | null): T[] {
   if (!value.trim()) {
     return []
@@ -1032,133 +1120,79 @@ function safeParseItem<T>(value: string, normalize: (entry: unknown) => T | null
 }
 
 export async function getGcpCliContext(): Promise<GcpCliContext> {
-  const env = await getResolvedProcessEnv({ fresh: true })
-  const resolved = await resolveGcloudCommand(env)
-
-  if (!resolved) {
-    return {
-      detected: false,
-      cliPath: '',
-      activeConfigurationName: '',
-      activeAccount: '',
-      activeProjectId: '',
-      activeRegion: '',
-      activeZone: '',
-      configurations: [],
-      projects: [],
-      locations: []
-    }
-  }
-
   const fallback = await readGcpConfigFallback().catch(() => ({
     activeConfigurationName: '',
     configurations: [] as GcpCliConfiguration[]
   }))
-
-  let configurations = fallback.configurations
-  if (configurations.length === 0) {
-    const configurationsResult = await runCommand(
-      resolved.command,
-      buildGcloudArgs(['config', 'configurations', 'list', '--format=value(name,is_active,properties.core.account,properties.core.project,properties.compute.region,properties.compute.zone)']),
-      env,
-      4000
-    )
-    const cliConfigurations = parseConfigurationValueRows(configurationsResult.stdout)
-    configurations = cliConfigurations.length > 0 ? cliConfigurations : fallback.configurations
-  }
+  const configurations = fallback.configurations
   const activeConfiguration = configurations.find((entry) => entry.isActive)
     ?? configurations.find((entry) => entry.name === fallback.activeConfigurationName)
     ?? configurations[0]
     ?? null
   const derivedProjects = deriveProjectsFromConfigurations(configurations)
   const derivedLocations = deriveLocationsFromConfigurations(configurations)
-  const activeProjectId = activeConfiguration?.projectId ?? ''
-  const locationsResultPromise = runCommand(
-    resolved.command,
-    buildGcloudArgs(['compute', 'regions', 'list', '--format=value(name)', '--limit=500']),
-    env,
-    5000
-  )
+  const auth = getGcpSdkAuth(activeConfiguration?.projectId ?? '')
+  let authProjectId = ''
+  let authAccount = ''
+  let detected = configurations.length > 0
 
-  const activeProjectResult = await (
-    activeProjectId
-      ? runCommand(
-          resolved.command,
-          buildGcloudArgs(['projects', 'describe', activeProjectId, '--format=json(projectId,name,projectNumber,lifecycleState)']),
-          env,
-          4000
-        )
-      : Promise.resolve({
-          ok: false,
-          stdout: '',
-          stderr: '',
-          code: '',
-          path: resolved.path
-        } satisfies CommandResult)
-  )
+  try {
+    authProjectId = (await auth.getProjectId())?.trim() ?? ''
+    const credentials = await auth.getCredentials()
+    authAccount = typeof credentials.client_email === 'string' ? credentials.client_email.trim() : ''
+    detected = detected || Boolean(authProjectId || authAccount)
+  } catch {
+    // Keep fallback-only detection when ADC is not configured.
+  }
 
-  const activeProject = safeParseItem(activeProjectResult.stdout, normalizeProject)
-  const locationsResult = await locationsResultPromise
-  const cliLocations = parseLocationValueRows(locationsResult.stdout)
   const locations = mergeLocations(
-    cliLocations,
     derivedLocations,
     activeConfiguration?.region ? [activeConfiguration.region] : [],
     activeConfiguration?.zone ? [activeConfiguration.zone] : []
   )
-  const projects = mergeProjects(
-    activeProject ? [activeProject] : [],
-    derivedProjects
-  )
+  let projects = derivedProjects
+  try {
+    const sdkProjects = await listGcpProjectsViaSdk()
+    projects = mergeProjects(sdkProjects, derivedProjects)
+    detected = detected || sdkProjects.length > 0
+  } catch {
+    projects = derivedProjects
+  }
+
+  const activeProjectId = activeConfiguration?.projectId || authProjectId
+  const activeProject = projects.find((project) => project.projectId === activeProjectId) ?? null
 
   return {
-    detected: true,
-    cliPath: resolved.path,
+    detected,
+    cliPath: '',
     activeConfigurationName: activeConfiguration?.name ?? '',
-    activeAccount: activeConfiguration?.account ?? '',
-    activeProjectId: activeConfiguration?.projectId ?? '',
+    activeAccount: activeConfiguration?.account || authAccount,
+    activeProjectId,
     activeRegion: activeConfiguration?.region ?? '',
     activeZone: activeConfiguration?.zone ?? '',
     configurations,
-    projects,
+    projects: mergeProjects(activeProject ? [activeProject] : [], projects),
     locations
   }
 }
 
 export async function listGcpProjects(): Promise<GcpCliProject[]> {
-  const env = await getResolvedProcessEnv({ fresh: true })
-  const resolved = await resolveGcloudCommand(env)
-
-  if (!resolved) {
-    return []
-  }
-
   const fallback = await readGcpConfigFallback().catch(() => ({
     activeConfigurationName: '',
     configurations: [] as GcpCliConfiguration[]
   }))
   const derivedProjects = deriveProjectsFromConfigurations(fallback.configurations)
-  const projectsResult = await runCommand(
-    resolved.command,
-    buildGcloudArgs(['projects', 'list', '--format=value(projectId,name,projectNumber,lifecycleState)', '--page-size=500']),
-    env,
-    20000
-  )
 
-  const cliProjects = parseProjectValueRows(projectsResult.stdout)
+  try {
+    const sdkProjects = await listGcpProjectsViaSdk()
+    return mergeProjects(sdkProjects, derivedProjects)
+  } catch (error) {
+    if (derivedProjects.length > 0) {
+      return derivedProjects
+    }
 
-  if (!projectsResult.ok && cliProjects.length === 0) {
-    throw buildGcpCliError('loading the project catalog', projectsResult)
+    throw buildGcpSdkError('loading the project catalog', error, 'cloudresourcemanager.googleapis.com')
   }
-
-  if (projectsResult.ok && cliProjects.length === 0 && projectsResult.stderr.trim()) {
-    throw buildGcpCliError('loading the project catalog', projectsResult)
-  }
-
-  return mergeProjects(
-    cliProjects,
-    derivedProjects
-  )
 }
 
 export async function listGcpComputeInstances(projectId: string, location: string): Promise<GcpComputeInstanceSummary[]> {

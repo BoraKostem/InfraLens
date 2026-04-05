@@ -812,7 +812,7 @@ function GcpComputeEngineConsole({
           <div className="profile-catalog-empty">
             <div className="eyebrow">Compute Engine Access</div>
             <h3>Instance inventory could not be loaded</h3>
-            <p className="hero-path">Verify the selected project, enabled APIs, and active gcloud account, then retry the refresh.</p>
+            <p className="hero-path">Verify the selected project, enabled APIs, and active Google credentials, then retry the refresh.</p>
           </div>
         </section>
       ) : loading ? (
@@ -820,7 +820,7 @@ function GcpComputeEngineConsole({
           <div className="profile-catalog-empty">
             <div className="eyebrow">Loading</div>
             <h3>Importing Compute Engine inventory</h3>
-            <p className="hero-path">Reading instances from the active gcloud session for {projectId} in {locationLabel}.</p>
+            <p className="hero-path">Reading instances from the active Google credentials for {projectId} in {locationLabel}.</p>
           </div>
         </section>
       ) : instances.length === 0 ? (
@@ -828,7 +828,7 @@ function GcpComputeEngineConsole({
           <div className="profile-catalog-empty">
             <div className="eyebrow">No Instances</div>
             <h3>No Compute Engine instances were found</h3>
-            <p className="hero-path">No instances matched {locationLabel} in project {projectId}. Refresh gcloud after changing project context or region filters.</p>
+            <p className="hero-path">No instances matched {locationLabel} in project {projectId}. Refresh after changing project context or region filters.</p>
           </div>
         </section>
       ) : (
@@ -837,7 +837,7 @@ function GcpComputeEngineConsole({
             <div>
               <div className="eyebrow">Instance Inventory</div>
               <h3>{instances.length} instance{instances.length === 1 ? '' : 's'}</h3>
-              <p>{locationLabel} scope with live data from the active gcloud session.</p>
+          <p>{locationLabel} scope with live data from the active Google credentials.</p>
             </div>
           </div>
           <div className="profile-catalog-grid">
@@ -978,7 +978,7 @@ function GcpGkeConsole({
           <div className="profile-catalog-empty">
             <div className="eyebrow">GKE Access</div>
             <h3>Cluster inventory could not be loaded</h3>
-            <p className="hero-path">Verify the selected project, enabled APIs, and active gcloud account, then retry the refresh.</p>
+            <p className="hero-path">Verify the selected project, enabled APIs, and active Google credentials, then retry the refresh.</p>
           </div>
         </section>
       ) : loading ? (
@@ -986,7 +986,7 @@ function GcpGkeConsole({
           <div className="profile-catalog-empty">
             <div className="eyebrow">Loading</div>
             <h3>Importing GKE clusters</h3>
-            <p className="hero-path">Reading clusters from the active gcloud session for {projectId} in {locationLabel}.</p>
+            <p className="hero-path">Reading clusters from the active Google credentials for {projectId} in {locationLabel}.</p>
           </div>
         </section>
       ) : clusters.length === 0 ? (
@@ -994,7 +994,7 @@ function GcpGkeConsole({
           <div className="profile-catalog-empty">
             <div className="eyebrow">No Clusters</div>
             <h3>No GKE clusters were found</h3>
-            <p className="hero-path">No clusters matched {locationLabel} in project {projectId}. Refresh gcloud after changing project context or location filters.</p>
+            <p className="hero-path">No clusters matched {locationLabel} in project {projectId}. Refresh after changing project context or location filters.</p>
           </div>
         </section>
       ) : (
@@ -1003,7 +1003,7 @@ function GcpGkeConsole({
             <div>
               <div className="eyebrow">Cluster Inventory</div>
               <h3>{clusters.length} cluster{clusters.length === 1 ? '' : 's'}</h3>
-              <p>{locationLabel} scope with live data from the active gcloud session.</p>
+          <p>{locationLabel} scope with live data from the active Google credentials.</p>
             </div>
           </div>
           <div className="profile-catalog-grid">
@@ -1247,7 +1247,7 @@ function GcpCloudStorageConsole({
           <div className="s3-shell-stat-card s3-shell-stat-card-accent">
             <span>Tracked buckets</span>
             <strong>{buckets.length}</strong>
-            <small>Inventory loaded from the active gcloud session.</small>
+            <small>Inventory loaded from the active Google credentials.</small>
           </div>
           <div className="s3-shell-stat-card">
             <span>Aligned buckets</span>
@@ -1307,7 +1307,7 @@ function GcpCloudStorageConsole({
           <div className="profile-catalog-empty">
             <div className="eyebrow">Cloud Storage Access</div>
             <h3>Bucket inventory could not be loaded</h3>
-            <p className="hero-path">Verify the selected project, enabled APIs, and active gcloud account, then retry the refresh.</p>
+            <p className="hero-path">Verify the selected project, enabled APIs, and active Google credentials, then retry the refresh.</p>
           </div>
         </section>
       ) : loading ? (
@@ -1315,7 +1315,7 @@ function GcpCloudStorageConsole({
           <div className="profile-catalog-empty">
             <div className="eyebrow">Loading</div>
             <h3>Importing Cloud Storage buckets</h3>
-            <p className="hero-path">Reading bucket posture from the active gcloud session for {projectId}.</p>
+            <p className="hero-path">Reading bucket posture from the active Google credentials for {projectId}.</p>
           </div>
         </section>
       ) : buckets.length === 0 ? (
@@ -1323,7 +1323,7 @@ function GcpCloudStorageConsole({
           <div className="profile-catalog-empty">
             <div className="eyebrow">No Buckets</div>
             <h3>No Cloud Storage buckets were found</h3>
-            <p className="hero-path">No buckets were returned for project {projectId}. Refresh gcloud after changing project context or billing access.</p>
+            <p className="hero-path">No buckets were returned for project {projectId}. Refresh after changing project context or billing access.</p>
           </div>
         </section>
       ) : (
@@ -1424,7 +1424,7 @@ function GcpCloudStorageConsole({
                     <div className="s3-detail-stat-card">
                       <span>Storage class</span>
                       <strong>{selectedBucketSummary.storageClass || 'Unavailable'}</strong>
-                      <small>Bucket default class from active gcloud inventory.</small>
+                      <small>Bucket default class from the active Google credentials.</small>
                     </div>
                     <div className="s3-detail-stat-card">
                       <span>Selected object</span>
@@ -1869,7 +1869,7 @@ function GcpCloudSqlConsole({
           <div className="profile-catalog-empty">
             <div className="eyebrow">Cloud SQL Access</div>
             <h3>Instance inventory could not be loaded</h3>
-            <p className="hero-path">Verify the selected project, enabled APIs, and active gcloud account, then retry the refresh.</p>
+            <p className="hero-path">Verify the selected project, enabled APIs, and active Google credentials, then retry the refresh.</p>
           </div>
         </section>
       ) : loading ? (
@@ -1877,7 +1877,7 @@ function GcpCloudSqlConsole({
           <div className="profile-catalog-empty">
             <div className="eyebrow">Loading</div>
             <h3>Importing Cloud SQL instances</h3>
-            <p className="hero-path">Reading database posture from the active gcloud session for {projectId}.</p>
+            <p className="hero-path">Reading database posture from the active Google credentials for {projectId}.</p>
           </div>
         </section>
       ) : instances.length === 0 ? (
@@ -1885,7 +1885,7 @@ function GcpCloudSqlConsole({
           <div className="profile-catalog-empty">
             <div className="eyebrow">No Instances</div>
             <h3>No Cloud SQL instances were found</h3>
-            <p className="hero-path">No instances were returned for project {projectId}. Refresh gcloud after changing project context or Cloud SQL permissions.</p>
+            <p className="hero-path">No instances were returned for project {projectId}. Refresh after changing project context or Cloud SQL permissions.</p>
           </div>
         </section>
       ) : (
@@ -1897,7 +1897,7 @@ function GcpCloudSqlConsole({
               <p>
                 {normalizedLocation && normalizedLocation !== 'global'
                   ? `${inScopeInstances} instance${inScopeInstances === 1 ? '' : 's'} align with ${locationLabel}; out-of-scope regions stay visible for posture review.`
-                  : 'Project-wide Cloud SQL posture from the active gcloud session.'}
+            : 'Project-wide Cloud SQL posture from the active Google credentials.'}
               </p>
             </div>
           </div>
@@ -4134,7 +4134,7 @@ export function App() {
                   {isAwsProviderActive
                     ? 'Search by profile name, pin frequent targets, or remove credentials managed by the app. Each AWS profile returns to its own last workspace.'
                     : activeProviderId === 'gcp'
-                      ? 'Projects are imported from the active gcloud session. Pick one project and the shell reuses that context across the shared workspaces.'
+                      ? 'Projects are loaded from the active Google credentials. Pick one project and the shell reuses that context across the shared workspaces.'
                       : `${activeProvider.label} onboarding is staged here first so the adaptive rail, terminal, and diagnostics can attach to the same provider-aware selector later.`}
                 </p>
               </div>
@@ -4165,16 +4165,16 @@ export function App() {
                         {gcpCliError
                           ? gcpCliError
                           : gcpCliBusy && !gcpCliContext?.detected
-                          ? 'Loading gcloud catalog from the active CLI session.'
+                            ? 'Loading the Google Cloud catalog from the active credentials.'
                           : gcpProjectCatalogBusy
                             ? 'Syncing the full Google Cloud project catalog in the background.'
                           : gcpCliContext?.detected
                             ? `${detectedGcpConfigurationCount} configs | ${gcpCatalogAccount}`
-                            : gcpCliError || 'Refresh gcloud to import projects from the active CLI session.'}
+                            : gcpCliError || 'Refresh the Google Cloud catalog from the active credentials.'}
                       </small>
                     </div>
                     <button type="button" onClick={() => void loadGcpCliContext()} disabled={gcpCliBusy || gcpProjectCatalogBusy}>
-                      {gcpCliBusy ? 'Refreshing...' : gcpProjectCatalogBusy ? 'Syncing projects...' : 'Refresh gcloud'}
+                      {gcpCliBusy ? 'Refreshing...' : gcpProjectCatalogBusy ? 'Syncing projects...' : 'Refresh catalog'}
                     </button>
                   </div>
                 </div>
@@ -4248,16 +4248,16 @@ export function App() {
                   <div className="profile-catalog-empty">
                     <div className="eyebrow">
                       {gcpCliBusy
-                        ? 'Loading gcloud'
+                        ? 'Loading credentials'
                         : gcpCliError
-                          ? 'Gcloud error'
+                          ? 'Google Cloud error'
                         : gcpProjectCatalogBusy
                           ? 'Syncing catalog'
                         : gcpCliContext?.detected
                           ? gcpProjectSearch.trim()
                             ? 'No Matches'
                             : 'No Projects'
-                          : 'Loading gcloud'}
+                          : 'Loading credentials'}
                     </div>
                     <h3>
                       {gcpCliBusy
@@ -4274,7 +4274,7 @@ export function App() {
                     </h3>
                     <p className="hero-path">
                       {gcpCliBusy
-                        ? 'Importing projects from the active gcloud session.'
+                        ? 'Loading projects from the active Google credentials.'
                         : gcpCliError
                           ? gcpCliError
                         : gcpProjectCatalogBusy
@@ -4282,8 +4282,8 @@ export function App() {
                         : gcpCliContext?.detected
                           ? gcpProjectSearch.trim()
                             ? 'Try a different project id or name, or clear the search to see the full imported catalog.'
-                            : 'Sign in with gcloud or switch to a configuration that can see projects, then refresh the catalog.'
-                          : 'The simple GCP selector fills itself from the active gcloud session. Install or sign in, then refresh gcloud.'}
+                            : 'Sign in with application default credentials or switch to credentials that can see projects, then refresh the catalog.'
+                          : 'The simple GCP selector fills itself from the active Google credentials. Configure ADC or local credentials, then refresh the catalog.'}
                     </p>
                   </div>
                 )
@@ -4742,7 +4742,7 @@ export function App() {
                       ? `Project ${activeGcpConnectionDraft?.projectId.trim()} will be injected into the terminal with ${gcpCredentialFieldCopy?.label.toLowerCase()}.`
                       : gcpLocationOptions.length > 0
                         ? 'Choose a Google Cloud location to finish the shared shell context.'
-                        : 'Refresh gcloud to import selectable Google Cloud locations.'
+                        : 'Refresh the catalog to import selectable Google Cloud locations.'
                     : 'Select a Google Cloud connection mode to start binding project context.'}
                 </small>
               </label>
@@ -4787,7 +4787,7 @@ export function App() {
             {providerRefreshReady && (
               <span className="sidebar-refresh-hint">
                 {activeProviderId === 'gcp'
-                  ? 'Refresh re-imports the active gcloud context and keeps the selected project in place.'
+                  ? 'Refresh reloads the active Google Cloud context and keeps the selected project in place.'
                   : prefersSoftRefresh
                     ? 'Refresh keeps your current selection and filters.'
                     : 'Refresh may rebuild the current view.'}
