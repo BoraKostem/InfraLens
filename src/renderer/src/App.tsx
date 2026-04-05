@@ -1241,7 +1241,7 @@ function GcpCloudStorageConsole({
         <div className="s3-shell-hero-copy">
           <div className="s3-eyebrow">Object storage posture</div>
           <h2>Cloud Storage Operations</h2>
-          <p>Bucket inventory, object browsing, and inline editing now use the same shell language and visual frame as AWS S3.</p>
+          <p>Bucket inventory, object browsing, and inline editing now use a consistent shell language and visual frame.</p>
           <div className="s3-shell-meta-strip">
             <div className="s3-shell-meta-pill">
               <span>Project</span>
@@ -2105,7 +2105,7 @@ function GcpLoggingConsole({
       <div className="cw-shell-hero">
         <div className="cw-shell-hero-copy">
           <div className="cw-shell-kicker">Cloud Logging</div>
-          <h2>CloudWatch-style investigations for Google Cloud</h2>
+          <h2>Google-Cloud Logging</h2>
           <p>Keep the same investigation flow when switching providers: query editor, reusable searches, result tables, and selected-entry drilldown stay in the same shell pattern.</p>
           <div className="cw-shell-meta-strip">
             <div className="cw-shell-meta-pill"><span>Project</span><strong>{projectId}</strong></div>
