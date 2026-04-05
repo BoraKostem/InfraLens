@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { readFile, readdir } from 'node:fs/promises'
 
-import type { GcpCliConfiguration, GcpCliContext, GcpCliProject } from '@shared/types'
+import type { GcpCliConfiguration, GcpCliContext, GcpCliProject, GcpComputeInstanceSummary } from '@shared/types'
 import { getResolvedProcessEnv, resolveExecutablePath } from './shell'
 import { listToolCommandCandidates } from './toolchain'
 
@@ -14,6 +14,49 @@ type CommandResult = {
   code: string
   path: string
 }
+
+const DEFAULT_GCP_LOCATIONS = [
+  'africa-south1',
+  'asia-east1',
+  'asia-east2',
+  'asia-northeast1',
+  'asia-northeast2',
+  'asia-northeast3',
+  'asia-south1',
+  'asia-south2',
+  'asia-southeast1',
+  'asia-southeast2',
+  'australia-southeast1',
+  'australia-southeast2',
+  'europe-central2',
+  'europe-north1',
+  'europe-west1',
+  'europe-west2',
+  'europe-west3',
+  'europe-west4',
+  'europe-west6',
+  'europe-west8',
+  'europe-west9',
+  'me-central1',
+  'me-central2',
+  'me-west1',
+  'northamerica-northeast1',
+  'northamerica-northeast2',
+  'southamerica-east1',
+  'southamerica-west1',
+  'us-central1',
+  'us-east1',
+  'us-east4',
+  'us-east5',
+  'us-south1',
+  'us-west1',
+  'us-west2',
+  'us-west3',
+  'us-west4'
+] as const
+
+const GCP_REGION_PATTERN = /^[a-z]+(?:-[a-z0-9]+)+\d$/
+const GCP_ZONE_PATTERN = /^[a-z]+(?:-[a-z0-9]+)+\d-[a-z]$/
 
 function listGoogleCloudCommandCandidates(): string[] {
   if (process.platform === 'darwin') {
@@ -65,9 +108,26 @@ function outputIndicatesAuthIssue(output: string): boolean {
     || normalized.includes('login required')
     || normalized.includes('invalid_grant')
     || normalized.includes('unauthorized')
-    || normalized.includes('permission_denied')
     || normalized.includes('access token')
     || normalized.includes('credentials')
+}
+
+function outputIndicatesApiDisabled(output: string): boolean {
+  const normalized = output.toLowerCase()
+  return normalized.includes('api has not been used in project')
+    || normalized.includes('it is disabled')
+    || normalized.includes('enable it by visiting')
+    || normalized.includes('google developers console api activation')
+}
+
+function extractProjectIdFromOutput(output: string): string {
+  const quotedMatch = output.match(/project\s+"([^"]+)"/i)
+  if (quotedMatch?.[1]) {
+    return quotedMatch[1].trim()
+  }
+
+  const plainMatch = output.match(/project\s+([a-z0-9-]+)/i)
+  return plainMatch?.[1]?.trim() ?? ''
 }
 
 function summarizeCliFailure(stderr: string, stdout: string): string {
@@ -84,6 +144,17 @@ function summarizeCliFailure(stderr: string, stdout: string): string {
 function buildGcpCliError(label: string, result: CommandResult): Error {
   const output = summarizeOutput(result.stdout, result.stderr)
   const detail = summarizeCliFailure(result.stderr, result.stdout)
+
+  if (outputIndicatesApiDisabled(output)) {
+    const projectId = extractProjectIdFromOutput(output)
+    const enableCommand = projectId
+      ? `gcloud services enable compute.googleapis.com --project ${projectId}`
+      : 'gcloud services enable compute.googleapis.com --project <project-id>'
+
+    return new Error(
+      `Google Cloud API access failed while ${label}. The required API is disabled for the selected project. Run "${enableCommand}", wait for propagation, and retry.${detail ? ` ${detail}` : ''}`
+    )
+  }
 
   if (outputIndicatesAuthIssue(output)) {
     return new Error(
@@ -271,6 +342,44 @@ function mergeProjects(...lists: Array<GcpCliProject[]>): GcpCliProject[] {
   return [...merged.values()].sort((left, right) => left.projectId.localeCompare(right.projectId))
 }
 
+function mergeLocations(...lists: Array<string[]>): string[] {
+  const merged = new Set<string>()
+
+  for (const list of lists) {
+    for (const location of list) {
+      const normalized = location.trim()
+      if (!isValidGcpLocation(normalized)) {
+        continue
+      }
+
+      merged.add(normalized)
+    }
+  }
+
+  return [...merged].sort((left, right) => {
+    if (left === 'global') {
+      return -1
+    }
+
+    if (right === 'global') {
+      return 1
+    }
+
+    return left.localeCompare(right)
+  })
+}
+
+function isValidGcpLocation(value: string): boolean {
+  const normalized = value.trim().toLowerCase()
+  if (!normalized) {
+    return false
+  }
+
+  return normalized === 'global'
+    || GCP_REGION_PATTERN.test(normalized)
+    || GCP_ZONE_PATTERN.test(normalized)
+}
+
 function getGcpConfigRoot(): string {
   if (process.platform === 'win32') {
     return path.join(process.env.APPDATA ?? path.join(os.homedir(), 'AppData', 'Roaming'), 'gcloud')
@@ -368,6 +477,15 @@ function deriveProjectsFromConfigurations(configurations: GcpCliConfiguration[])
   return projects
 }
 
+function deriveLocationsFromConfigurations(configurations: GcpCliConfiguration[]): string[] {
+  return mergeLocations(
+    ['global'],
+    [...DEFAULT_GCP_LOCATIONS],
+    configurations.map((configuration) => configuration.region),
+    configurations.map((configuration) => configuration.zone)
+  )
+}
+
 function safeParseList<T>(value: string, normalize: (entry: unknown) => T | null): T[] {
   if (!value.trim()) {
     return []
@@ -432,6 +550,52 @@ function parseProjectValueRows(value: string): GcpCliProject[] {
     .filter((entry): entry is GcpCliProject => entry !== null)
 }
 
+function parseLocationValueRows(value: string): string[] {
+  return mergeLocations(
+    parseGcloudValueRows(value)
+      .map((columns) => columns[0] ?? '')
+  )
+}
+
+function parseComputeInstanceValueRows(value: string): GcpComputeInstanceSummary[] {
+  return parseGcloudValueRows(value)
+    .map((columns) => {
+      const [name = '', zone = '', status = '', machineType = '', internalIp = '', externalIp = ''] = columns
+      if (!name) {
+        return null
+      }
+
+      return {
+        name,
+        zone,
+        status,
+        machineType,
+        internalIp,
+        externalIp
+      } satisfies GcpComputeInstanceSummary
+    })
+    .filter((entry): entry is GcpComputeInstanceSummary => entry !== null)
+}
+
+function filterComputeInstancesByLocation(instances: GcpComputeInstanceSummary[], location: string): GcpComputeInstanceSummary[] {
+  const normalizedLocation = location.trim().toLowerCase()
+  if (!normalizedLocation || normalizedLocation === 'global') {
+    return instances
+  }
+
+  const isZoneLocation = /-[a-z]$/.test(normalizedLocation)
+  return instances.filter((instance) => {
+    const zone = instance.zone.trim().toLowerCase()
+    if (!zone) {
+      return false
+    }
+
+    return isZoneLocation
+      ? zone === normalizedLocation
+      : zone === normalizedLocation || zone.startsWith(`${normalizedLocation}-`)
+  })
+}
+
 function safeParseItem<T>(value: string, normalize: (entry: unknown) => T | null): T | null {
   if (!value.trim()) {
     return null
@@ -458,7 +622,8 @@ export async function getGcpCliContext(): Promise<GcpCliContext> {
       activeRegion: '',
       activeZone: '',
       configurations: [],
-      projects: []
+      projects: [],
+      locations: []
     }
   }
 
@@ -483,7 +648,14 @@ export async function getGcpCliContext(): Promise<GcpCliContext> {
     ?? configurations[0]
     ?? null
   const derivedProjects = deriveProjectsFromConfigurations(configurations)
+  const derivedLocations = deriveLocationsFromConfigurations(configurations)
   const activeProjectId = activeConfiguration?.projectId ?? ''
+  const locationsResultPromise = runCommand(
+    resolved.command,
+    buildGcloudArgs(['compute', 'regions', 'list', '--format=value(name)', '--limit=500']),
+    env,
+    5000
+  )
 
   const activeProjectResult = await (
     activeProjectId
@@ -503,6 +675,14 @@ export async function getGcpCliContext(): Promise<GcpCliContext> {
   )
 
   const activeProject = safeParseItem(activeProjectResult.stdout, normalizeProject)
+  const locationsResult = await locationsResultPromise
+  const cliLocations = parseLocationValueRows(locationsResult.stdout)
+  const locations = mergeLocations(
+    cliLocations,
+    derivedLocations,
+    activeConfiguration?.region ? [activeConfiguration.region] : [],
+    activeConfiguration?.zone ? [activeConfiguration.zone] : []
+  )
   const projects = mergeProjects(
     activeProject ? [activeProject] : [],
     derivedProjects
@@ -517,7 +697,8 @@ export async function getGcpCliContext(): Promise<GcpCliContext> {
     activeRegion: activeConfiguration?.region ?? '',
     activeZone: activeConfiguration?.zone ?? '',
     configurations,
-    projects
+    projects,
+    locations
   }
 }
 
@@ -555,4 +736,46 @@ export async function listGcpProjects(): Promise<GcpCliProject[]> {
     cliProjects,
     derivedProjects
   )
+}
+
+export async function listGcpComputeInstances(projectId: string, location: string): Promise<GcpComputeInstanceSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) {
+    return []
+  }
+
+  const env = await getResolvedProcessEnv({ fresh: true })
+  const resolved = await resolveGcloudCommand(env)
+
+  if (!resolved) {
+    return []
+  }
+
+  const instancesResult = await runCommand(
+    resolved.command,
+    buildGcloudArgs([
+      'compute',
+      'instances',
+      'list',
+      '--project',
+      normalizedProjectId,
+      '--format=value(name,zone.basename(),status,machineType.basename(),networkInterfaces[0].networkIP,networkInterfaces[0].accessConfigs[0].natIP)',
+      '--limit=500'
+    ]),
+    env,
+    20000
+  )
+
+  const cliInstances = parseComputeInstanceValueRows(instancesResult.stdout)
+
+  if (!instancesResult.ok && cliInstances.length === 0) {
+    throw buildGcpCliError(`listing Compute Engine instances for project "${normalizedProjectId}"`, instancesResult)
+  }
+
+  if (instancesResult.ok && cliInstances.length === 0 && instancesResult.stderr.trim()) {
+    throw buildGcpCliError(`listing Compute Engine instances for project "${normalizedProjectId}"`, instancesResult)
+  }
+
+  return filterComputeInstancesByLocation(cliInstances, location)
+    .sort((left, right) => left.zone.localeCompare(right.zone) || left.name.localeCompare(right.name))
 }

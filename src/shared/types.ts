@@ -557,6 +557,16 @@ export type GcpCliContext = {
   activeZone: string
   configurations: GcpCliConfiguration[]
   projects: GcpCliProject[]
+  locations: string[]
+}
+
+export type GcpComputeInstanceSummary = {
+  name: string
+  zone: string
+  status: string
+  machineType: string
+  internalIp: string
+  externalIp: string
 }
 
 export type Ec2SsmStatus = 'managed-online' | 'managed-offline' | 'not-managed'

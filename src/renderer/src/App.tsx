@@ -17,6 +17,7 @@ import type {
   EnterpriseAccessMode,
   EnterpriseAuditEvent,
   GcpCliContext,
+  GcpComputeInstanceSummary,
   GovernanceTagDefaults,
   NavigationFocus,
   ProviderDescriptor,
@@ -42,6 +43,7 @@ import {
   getAppSettings,
   getEnvironmentHealth,
   getGcpCliContext,
+  listGcpComputeInstances,
   listGcpProjects,
   getEnterpriseSettings,
   getGovernanceTagDefaults,
@@ -500,6 +502,22 @@ function ConnectedServiceScreen({
   )
 }
 
+function extractQuotedCommand(error: string): string | null {
+  const match = error.match(/Run "([^"]+)"/i)
+  return match?.[1]?.trim() || null
+}
+
+function getGcpComputeEnableAction(error: string, projectId: string): { command: string; summary: string } | null {
+  if (!error.toLowerCase().includes('google cloud api access failed')) {
+    return null
+  }
+
+  return {
+    command: extractQuotedCommand(error) ?? `gcloud services enable compute.googleapis.com --project ${projectId}`,
+    summary: `Compute Engine API is disabled for project ${projectId}.`
+  }
+}
+
 function getProfileBadge(name?: string | null): string {
   const parts = (name ?? '')
     .split(/[\s-_]+/)
@@ -625,6 +643,168 @@ function PlaceholderScreen({
   )
 }
 
+function GcpComputeEngineConsole({
+  projectId,
+  location,
+  refreshNonce,
+  onRunTerminalCommand,
+  canRunTerminalCommand
+}: {
+  projectId: string
+  location: string
+  refreshNonce: number
+  onRunTerminalCommand: (command: string) => void
+  canRunTerminalCommand: boolean
+}) {
+  const [instances, setInstances] = useState<GcpComputeInstanceSummary[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [lastLoadedAt, setLastLoadedAt] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+
+    setLoading(true)
+    setError('')
+
+    void listGcpComputeInstances(projectId, location)
+      .then((nextInstances) => {
+        if (cancelled) {
+          return
+        }
+
+        setInstances(nextInstances)
+        setLastLoadedAt(new Date().toISOString())
+      })
+      .catch((err) => {
+        if (cancelled) {
+          return
+        }
+
+        setError(err instanceof Error ? err.message : String(err))
+        setInstances([])
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [location, projectId, refreshNonce])
+
+  const locationLabel = location.trim() || 'all locations'
+  const lastLoadedLabel = lastLoadedAt ? new Date(lastLoadedAt).toLocaleTimeString() : 'Pending'
+  const enableAction = error ? getGcpComputeEnableAction(error, projectId) : null
+
+  return (
+    <>
+      <section className="panel stack">
+        <div className="catalog-page-header">
+          <div>
+            <div className="eyebrow">Compute Engine</div>
+            <h3>{projectId}</h3>
+            <p>Read-only instance inventory scoped to the selected Google Cloud project and location.</p>
+          </div>
+          <div className="hero-connection">
+            <div className="connection-summary">
+              <span>Project</span>
+              <strong>{projectId}</strong>
+            </div>
+            <div className="connection-summary">
+              <span>Location</span>
+              <strong>{locationLabel}</strong>
+            </div>
+            <div className="connection-summary">
+              <span>Last sync</span>
+              <strong>{loading ? 'Syncing...' : lastLoadedLabel}</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+      {error ? (
+        <section className="panel stack">
+          {enableAction ? (
+            <div className="error-banner gcp-enable-error-banner">
+              <div className="gcp-enable-error-copy">
+                <strong>{enableAction.summary}</strong>
+                <p>
+                  {canRunTerminalCommand
+                    ? 'Run the enable command in the terminal, wait for propagation, then refresh gcloud.'
+                    : 'Switch Settings > Access Mode to Operator to enable terminal actions for this command.'}
+                </p>
+              </div>
+              <div className="gcp-enable-error-actions">
+                <button
+                  type="button"
+                  className="accent"
+                  disabled={!canRunTerminalCommand}
+                  onClick={() => onRunTerminalCommand(enableAction.command)}
+                  title={canRunTerminalCommand ? enableAction.command : 'Switch to Operator mode to enable terminal actions'}
+                >
+                  Run enable command in terminal
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="error-banner">{error}</div>
+          )}
+          <div className="profile-catalog-empty">
+            <div className="eyebrow">Compute Engine Access</div>
+            <h3>Instance inventory could not be loaded</h3>
+            <p className="hero-path">Verify the selected project, enabled APIs, and active gcloud account, then retry the refresh.</p>
+          </div>
+        </section>
+      ) : loading ? (
+        <section className="panel stack">
+          <div className="profile-catalog-empty">
+            <div className="eyebrow">Loading</div>
+            <h3>Importing Compute Engine inventory</h3>
+            <p className="hero-path">Reading instances from the active gcloud session for {projectId} in {locationLabel}.</p>
+          </div>
+        </section>
+      ) : instances.length === 0 ? (
+        <section className="panel stack">
+          <div className="profile-catalog-empty">
+            <div className="eyebrow">No Instances</div>
+            <h3>No Compute Engine instances were found</h3>
+            <p className="hero-path">No instances matched {locationLabel} in project {projectId}. Refresh gcloud after changing project context or region filters.</p>
+          </div>
+        </section>
+      ) : (
+        <section className="panel stack">
+          <div className="catalog-page-header">
+            <div>
+              <div className="eyebrow">Instance Inventory</div>
+              <h3>{instances.length} instance{instances.length === 1 ? '' : 's'}</h3>
+              <p>{locationLabel} scope with live data from the active gcloud session.</p>
+            </div>
+          </div>
+          <div className="profile-catalog-grid">
+            {instances.map((instance) => (
+              <article key={`${instance.zone}:${instance.name}`} className="profile-catalog-card">
+                <div className="profile-catalog-status">
+                  <span>{instance.zone}</span>
+                  <strong>{instance.status || 'UNKNOWN'}</strong>
+                </div>
+                <div className="project-card-title">{instance.name}</div>
+                <div className="project-card-subtitle">{instance.machineType || 'Machine type unavailable'}</div>
+                <div className="hero-path" style={{ marginTop: 12 }}>
+                  Internal IP: {instance.internalIp || 'n/a'}
+                  <br />
+                  External IP: {instance.externalIp || 'n/a'}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+    </>
+  )
+}
+
 function ProviderPreviewScreen({
   provider,
   screen,
@@ -738,6 +918,47 @@ function createDefaultGcpConnectionDraft(modeId?: string): GcpConnectionDraft {
   }
 }
 
+const GCP_REGION_PATTERN = /^[a-z]+(?:-[a-z0-9]+)+\d$/
+const GCP_ZONE_PATTERN = /^[a-z]+(?:-[a-z0-9]+)+\d-[a-z]$/
+
+function isValidGcpLocation(value: string): boolean {
+  const normalized = value.trim().toLowerCase()
+  if (!normalized) {
+    return false
+  }
+
+  return normalized === 'global'
+    || GCP_REGION_PATTERN.test(normalized)
+    || GCP_ZONE_PATTERN.test(normalized)
+}
+
+function mergeGcpLocations(...lists: Array<string[]>): string[] {
+  const merged = new Set<string>()
+
+  for (const list of lists) {
+    for (const location of list) {
+      const normalized = location.trim()
+      if (!isValidGcpLocation(normalized)) {
+        continue
+      }
+
+      merged.add(normalized)
+    }
+  }
+
+  return [...merged].sort((left, right) => {
+    if (left === 'global') {
+      return -1
+    }
+
+    if (right === 'global') {
+      return 1
+    }
+
+    return left.localeCompare(right)
+  })
+}
+
 function readGcpConnectionDrafts(): GcpConnectionDraftByMode {
   try {
     const raw = window.localStorage.getItem(GCP_CONNECTION_CONTEXT_STORAGE_KEY)
@@ -750,7 +971,9 @@ function readGcpConnectionDrafts(): GcpConnectionDraftByMode {
       modeId,
       {
         projectId: typeof draft.projectId === 'string' ? draft.projectId : '',
-        location: typeof draft.location === 'string' ? draft.location : createDefaultGcpConnectionDraft(modeId).location,
+        location: typeof draft.location === 'string' && isValidGcpLocation(draft.location)
+          ? draft.location
+          : createDefaultGcpConnectionDraft(modeId).location,
         credentialHint: typeof draft.credentialHint === 'string' ? draft.credentialHint : ''
       } satisfies GcpConnectionDraft
     ] as const)
@@ -786,7 +1009,10 @@ function readGcpCliContextCache(): GcpCliContext | null {
       activeRegion: typeof parsed.activeRegion === 'string' ? parsed.activeRegion : '',
       activeZone: typeof parsed.activeZone === 'string' ? parsed.activeZone : '',
       configurations: Array.isArray(parsed.configurations) ? parsed.configurations : [],
-      projects: Array.isArray(parsed.projects) ? parsed.projects : []
+      projects: Array.isArray(parsed.projects) ? parsed.projects : [],
+      locations: Array.isArray(parsed.locations)
+        ? parsed.locations.filter((value): value is string => typeof value === 'string' && isValidGcpLocation(value))
+        : []
     }
   } catch {
     return null
@@ -1097,9 +1323,15 @@ export function App() {
     try {
       const nextContext = await getGcpCliContext()
       setGcpCliContext((current) => {
-        const merged = current && current.projects.length > nextContext.projects.length
-          ? { ...nextContext, projects: current.projects }
-          : nextContext
+        const mergedProjects = current && current.projects.length > nextContext.projects.length
+          ? current.projects
+          : nextContext.projects
+        const mergedLocations = mergeGcpLocations(current?.locations ?? [], nextContext.locations)
+        const merged = {
+          ...nextContext,
+          projects: mergedProjects,
+          locations: mergedLocations
+        }
         writeGcpCliContextCache(merged)
         return merged
       })
@@ -1124,7 +1356,8 @@ export function App() {
               activeRegion: '',
               activeZone: '',
               configurations: [],
-              projects
+              projects,
+              locations: []
             }
         writeGcpCliContextCache(merged)
         return merged
@@ -1326,6 +1559,14 @@ export function App() {
   const detectedGcpConfigurationCount = gcpCliContext?.configurations.length ?? 0
   const detectedGcpProjectCount = gcpCliContext?.projects.length ?? 0
   const gcpCatalogProjects = activeProviderId === 'gcp' ? gcpCliContext?.projects ?? [] : []
+  const gcpLocationOptions = activeProviderId === 'gcp'
+    ? mergeGcpLocations(
+        gcpCliContext?.locations ?? [],
+        activeGcpConfiguration?.region ? [activeGcpConfiguration.region] : [],
+        activeGcpConfiguration?.zone ? [activeGcpConfiguration.zone] : [],
+        activeGcpConnectionDraft?.location.trim() ? [activeGcpConnectionDraft.location.trim()] : []
+      )
+    : []
   const detectedGcloudCliPath = environmentHealth?.tools.find((tool) => tool.id === 'gcloud-cli' && tool.found)?.path
     || gcpCliContext?.cliPath
     || ''
@@ -1795,7 +2036,8 @@ export function App() {
       activeRegion: '',
       activeZone: '',
       configurations: [],
-      projects: []
+      projects: [],
+      locations: []
     })
 
     setSelectedPreviewModeIds((current) => ({ ...current, gcp: targetModeId }))
@@ -1808,6 +2050,34 @@ export function App() {
     }))
     setRecentGcpProjectIds((current) => [projectId, ...current.filter((entry) => entry !== projectId)].slice(0, 6))
     setNavOpen(true)
+  }
+
+  function handleApplyGcpLocation(location: string): void {
+    if (activeProviderId !== 'gcp') {
+      return
+    }
+
+    const targetModeId = selectedPreviewMode?.id || inferGcpModeIdFromContext(gcpCliContext ?? {
+      detected: false,
+      cliPath: '',
+      activeConfigurationName: '',
+      activeAccount: '',
+      activeProjectId: '',
+      activeRegion: '',
+      activeZone: '',
+      configurations: [],
+      projects: [],
+      locations: []
+    })
+
+    setSelectedPreviewModeIds((current) => ({ ...current, gcp: targetModeId }))
+    setGcpConnectionDrafts((current) => ({
+      ...current,
+      [targetModeId]: {
+        ...(current[targetModeId] ?? createDefaultGcpConnectionDraft(targetModeId)),
+        location
+      }
+    }))
   }
 
   function renderGcpProjectCard(project: NonNullable<GcpCliContext['projects'][number]>, compact = false) {
@@ -2130,6 +2400,10 @@ export function App() {
     }
 
     if (activeProviderId === 'gcp') {
+      setPageRefreshNonceByScreen((current) => ({
+        ...current,
+        [screen]: (current[screen] ?? 0) + 1
+      }))
       void loadGcpCliContext()
       return
     }
@@ -2150,7 +2424,7 @@ export function App() {
   }
 
   function handleOpenTerminalCommand(command: string): void {
-    if (!isAwsProviderActive) {
+    if (!isAwsProviderActive && !providerTerminalTarget) {
       return
     }
 
@@ -2895,6 +3169,24 @@ export function App() {
       )
     }
 
+    if (
+      activeProviderId === 'gcp'
+      && targetScreen === 'gcp-compute-engine'
+      && targetService?.id === 'gcp-compute-engine'
+      && gcpContextReady
+      && activeGcpConnectionDraft
+    ) {
+      return (
+        <GcpComputeEngineConsole
+          projectId={activeGcpConnectionDraft.projectId.trim()}
+          location={activeGcpConnectionDraft.location.trim()}
+          refreshNonce={pageRefreshNonceByScreen['gcp-compute-engine'] ?? 0}
+          onRunTerminalCommand={handleOpenTerminalCommand}
+          canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+        />
+      )
+    }
+
     if (activeProviderId !== 'aws' && targetScreen !== 'settings') {
       if (isProviderService(targetService ?? null, activeProviderId)) {
         return renderCatalogPlaceholder(targetService!)
@@ -3224,26 +3516,47 @@ export function App() {
                   ))}
                 </select>
               </label>
+            ) : activeProviderId === 'gcp' ? (
+              <label className="field">
+                <span>{activeProvider.locationLabel}</span>
+                <select
+                  value={activeGcpConnectionDraft?.location.trim() || ''}
+                  onChange={(event) => handleApplyGcpLocation(event.target.value)}
+                  disabled={!selectedPreviewMode || gcpLocationOptions.length === 0}
+                >
+                  {!activeGcpConnectionDraft?.location.trim() ? (
+                    <option value="" disabled>
+                      {gcpCliBusy ? 'Loading Google Cloud locations...' : 'Select location'}
+                    </option>
+                  ) : null}
+                  {gcpLocationOptions.map((location) => (
+                    <option key={location} value={location}>
+                      {location}
+                    </option>
+                  ))}
+                </select>
+                <small className="field-note">
+                  {selectedPreviewMode
+                    ? gcpContextReady
+                      ? `Project ${activeGcpConnectionDraft?.projectId.trim()} will be injected into the terminal with ${gcpCredentialFieldCopy?.label.toLowerCase()}.`
+                      : gcpLocationOptions.length > 0
+                        ? 'Choose a Google Cloud location to finish the shared shell context.'
+                        : 'Refresh gcloud to import selectable Google Cloud locations.'
+                    : 'Select a Google Cloud connection mode to start binding project context.'}
+                </small>
+              </label>
             ) : (
               <div className={`enterprise-sidebar-note provider-sidebar-note provider-sidebar-note-secondary provider-sidebar-note-${activeProviderId}`}>
                 <span>{activeProvider.locationLabel}</span>
                 <strong>
-                  {activeProviderId === 'gcp'
-                    ? activeGcpConnectionDraft?.location.trim() || 'Set location'
-                    : selectedPreviewMode
-                      ? selectedPreviewMode.label
-                      : 'Selector staged'}
+                  {selectedPreviewMode
+                    ? selectedPreviewMode.label
+                    : 'Selector staged'}
                 </strong>
                 <small>
-                  {activeProviderId === 'gcp'
-                    ? selectedPreviewMode
-                      ? gcpContextReady
-                        ? `Project ${activeGcpConnectionDraft?.projectId.trim()} will be injected into the terminal with ${gcpCredentialFieldCopy?.label.toLowerCase()}.`
-                        : 'Set a project and location to finish the Google Cloud shell context.'
-                      : 'Select a Google Cloud connection mode to start binding project context.'
-                    : selectedPreviewMode
-                      ? 'Terminal env values will be injected automatically when the shell opens.'
-                      : `${activeProvider.label} will bind location and credential context here in the next Phase 4 steps.`}
+                  {selectedPreviewMode
+                    ? 'Terminal env values will be injected automatically when the shell opens.'
+                    : `${activeProvider.label} will bind location and credential context here in the next Phase 4 steps.`}
                 </small>
               </div>
             )}
@@ -3685,6 +3998,10 @@ export function App() {
           onClose={() => setTerminalOpen(false)}
           defaultCommand={appSettings?.terminal.defaultCommand}
           fontSize={appSettings?.terminal.fontSize ?? 13}
+          commandToRun={pendingTerminalCommand}
+          onCommandHandled={(id) => {
+            setPendingTerminalCommand((current) => (current?.id === id ? null : current))
+          }}
         />
       ) : null}
 

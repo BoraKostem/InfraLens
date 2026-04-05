@@ -17,6 +17,7 @@ import type {
   AppDiagnosticsExportResult,
   EnvironmentHealthReport,
   GcpCliContext,
+  GcpComputeInstanceSummary,
   GcpCliProject,
   AppReleaseInfo,
   AppSecuritySummary,
@@ -809,6 +810,30 @@ function normalizeUserFacingError(rawError: string): AwsLensApiError {
     )
   }
 
+  if (normalized.includes('google cloud api access failed')) {
+    return new AwsLensApiError(
+      rawError,
+      rawError,
+      'Google Cloud API Disabled'
+    )
+  }
+
+  if (normalized.includes('google cloud cli authorization failed')) {
+    return new AwsLensApiError(
+      'Google Cloud CLI credentials are not valid for this request. Refresh your gcloud login or active account and retry.',
+      rawError,
+      'Google Cloud Authorization Failed'
+    )
+  }
+
+  if (normalized.includes('google cloud cli failed while')) {
+    return new AwsLensApiError(
+      rawError,
+      rawError,
+      'Google Cloud CLI Failed'
+    )
+  }
+
   return new AwsLensApiError(
     'The operation failed. Review the current context and export diagnostics if the problem persists.',
     rawError
@@ -1125,6 +1150,10 @@ export async function getGcpCliContext(): Promise<GcpCliContext> {
 
 export async function listGcpProjects(): Promise<GcpCliProject[]> {
   return unwrap((await rawAwsBridge().listGcpProjects()) as Wrapped<GcpCliProject[]>)
+}
+
+export async function listGcpComputeInstances(projectId: string, location: string): Promise<GcpComputeInstanceSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpComputeInstances(projectId, location)) as Wrapped<GcpComputeInstanceSummary[]>)
 }
 
 export async function checkForAppUpdates(): Promise<AppReleaseInfo> {
