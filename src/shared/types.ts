@@ -560,6 +560,40 @@ export type GcpCliContext = {
   locations: string[]
 }
 
+export type GcpProjectLabelSummary = {
+  key: string
+  value: string
+}
+
+export type GcpEnabledApiSummary = {
+  name: string
+  title: string
+}
+
+export type GcpProjectCapabilityHint = {
+  id: string
+  subject: string
+  severity: 'info' | 'warning' | 'error'
+  title: string
+  summary: string
+  recommendedAction: string
+}
+
+export type GcpProjectOverview = {
+  projectId: string
+  projectNumber: string
+  displayName: string
+  lifecycleState: string
+  parentType: string
+  parentId: string
+  createTime: string
+  labels: GcpProjectLabelSummary[]
+  enabledApis: GcpEnabledApiSummary[]
+  enabledApiCount: number
+  capabilityHints: GcpProjectCapabilityHint[]
+  notes: string[]
+}
+
 export type GcpComputeInstanceSummary = {
   name: string
   zone: string
@@ -1355,6 +1389,7 @@ export type ServiceId =
   | 'sts'
   | 'kms'
   | 'waf'
+  | 'gcp-projects'
   | 'gcp-compute-engine'
   | 'gcp-gke'
   | 'gcp-cloud-storage'

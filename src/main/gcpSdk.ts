@@ -10,12 +10,15 @@ import type {
   GcpBillingOverview,
   GcpBillingOwnershipHint,
   GcpBillingOwnershipValue,
+  GcpEnabledApiSummary,
   GcpComputeInstanceSummary,
   GcpLogEntryDetail,
   GcpGkeClusterSummary,
   GcpLogEntrySummary,
   GcpLogFacetCount,
   GcpLogQueryResult,
+  GcpProjectCapabilityHint,
+  GcpProjectOverview,
   GcpSqlInstanceSummary,
   GcpStorageBucketSummary,
   GcpStorageObjectContent,
@@ -26,6 +29,14 @@ const GCP_SDK_SCOPES = ['https://www.googleapis.com/auth/cloud-platform']
 const GCP_REGION_PATTERN = /^[a-z]+(?:-[a-z0-9]+)+\d$/
 const GCP_ZONE_PATTERN = /^[a-z]+(?:-[a-z0-9]+)+\d-[a-z]$/
 const GCP_BILLING_OWNERSHIP_KEYS = ['owner', 'team', 'cost-center', 'cost_center', 'environment', 'env', 'application', 'app', 'service']
+const GCP_PROJECT_CORE_API_HINTS = [
+  { name: 'compute.googleapis.com', title: 'Compute Engine API' },
+  { name: 'container.googleapis.com', title: 'GKE API' },
+  { name: 'storage.googleapis.com', title: 'Cloud Storage API' },
+  { name: 'sqladmin.googleapis.com', title: 'Cloud SQL Admin API' },
+  { name: 'logging.googleapis.com', title: 'Cloud Logging API' },
+  { name: 'cloudbilling.googleapis.com', title: 'Cloud Billing API' }
+]
 
 type GcpBillingProjectRecord = {
   projectId: string
@@ -97,6 +108,20 @@ function normalizeStringRecord(value: unknown): Record<string, string> {
       .map(([key, item]) => [key.trim(), asString(item)])
       .filter((entry) => entry[0] && entry[1])
   )
+}
+
+function titleFromApiName(value: string): string {
+  const normalized = value.trim().replace(/\.googleapis\.com$/, '')
+  if (!normalized) {
+    return ''
+  }
+
+  return normalized
+    .split('.')
+    .flatMap((segment) => segment.split('-'))
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(' ')
 }
 
 function outputIndicatesApiDisabled(output: string): boolean {
@@ -742,19 +767,126 @@ async function getGcpProjectMetadata(projectId: string): Promise<{
   name: string
   projectNumber: string
   lifecycleState: string
+  parentType: string
+  parentId: string
+  createTime: string
   labels: Record<string, string>
 }> {
   const response = await requestGcp<Record<string, unknown>>(projectId, {
     url: `https://cloudresourcemanager.googleapis.com/v3/projects/${encodeURIComponent(projectId)}`
   })
 
+  const parent = asString(response.parent)
+  const [parentType = '', parentId = ''] = parent.split('/')
+
   return {
     projectId: asString(response.projectId) || projectId,
     name: asString(response.displayName),
     projectNumber: asString(response.projectNumber),
     lifecycleState: asString(response.state),
+    parentType,
+    parentId,
+    createTime: asString(response.createTime),
     labels: normalizeStringRecord(response.labels)
   }
+}
+
+async function listEnabledGcpApis(projectId: string): Promise<GcpEnabledApiSummary[]> {
+  const services: GcpEnabledApiSummary[] = []
+  let pageToken = ''
+
+  do {
+    const response = await requestGcp<{ services?: Array<Record<string, unknown>>; nextPageToken?: string }>(projectId, {
+      url: `https://serviceusage.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/services?filter=state:ENABLED&pageSize=50${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`
+    })
+
+    for (const entry of response.services ?? []) {
+      const config = toRecord(entry.config)
+      const name = asString(entry.name).replace(/^projects\/[^/]+\/services\//, '')
+      if (!name) {
+        continue
+      }
+
+      services.push({
+        name,
+        title: asString(config.title) || titleFromApiName(name)
+      })
+    }
+
+    pageToken = asString(response.nextPageToken)
+  } while (pageToken)
+
+  return services.sort((left, right) => left.title.localeCompare(right.title))
+}
+
+function buildGcpProjectCapabilityHints(project: GcpProjectOverview): GcpProjectCapabilityHint[] {
+  const hints: GcpProjectCapabilityHint[] = []
+  const enabledApiNames = new Set(project.enabledApis.map((entry) => entry.name))
+  const missingCoreApis = GCP_PROJECT_CORE_API_HINTS.filter((entry) => !enabledApiNames.has(entry.name))
+
+  hints.push({
+    id: 'project-metadata',
+    subject: 'Metadata',
+    severity: 'info',
+    title: 'Project context is bound into the shell',
+    summary: `The selected shell is attached to ${project.displayName || project.projectId} and keeps navigation, terminal, and diagnostics in the same project scope.`,
+    recommendedAction: 'Use this page before opening service workspaces to confirm project identity, labels, and parent ownership.'
+  })
+
+  if (!project.parentType || !project.parentId) {
+    hints.push({
+      id: 'parent-hidden',
+      subject: 'Hierarchy',
+      severity: 'warning',
+      title: 'Folder or organization parent is not visible',
+      summary: 'The current credentials do not expose the project parent relationship, or the project is top-level.',
+      recommendedAction: 'Grant Cloud Resource Manager visibility if operators need folder or organization context in this shell.'
+    })
+  }
+
+  if (project.labels.length === 0) {
+    hints.push({
+      id: 'labels-missing',
+      subject: 'Labels',
+      severity: 'warning',
+      title: 'Project labels are missing',
+      summary: 'The selected project does not expose labels for owner, environment, cost-center, or service identity.',
+      recommendedAction: 'Add labels before using this project as a shared operator context so ownership and billing posture remain traceable.'
+    })
+  }
+
+  if (missingCoreApis.length > 0) {
+    hints.push({
+      id: 'apis-missing',
+      subject: 'APIs',
+      severity: 'warning',
+      title: 'Some core Google APIs are not enabled',
+      summary: `Missing core services: ${missingCoreApis.slice(0, 4).map((entry) => entry.title).join(', ')}${missingCoreApis.length > 4 ? '...' : ''}.`,
+      recommendedAction: `Enable missing APIs before expecting all GCP workspaces to load cleanly for project ${project.projectId}.`
+    })
+  } else {
+    hints.push({
+      id: 'apis-ready',
+      subject: 'APIs',
+      severity: 'info',
+      title: 'Core operator APIs are enabled',
+      summary: 'The common project, billing, compute, storage, SQL, and logging API surfaces are already active.',
+      recommendedAction: 'This project is a good candidate for opening the provider workspaces without extra enablement work.'
+    })
+  }
+
+  if (project.lifecycleState && project.lifecycleState !== 'ACTIVE') {
+    hints.push({
+      id: 'project-state',
+      subject: 'Lifecycle',
+      severity: 'error',
+      title: `Project state is ${project.lifecycleState}`,
+      summary: 'This project is not reported as ACTIVE, which can block normal operator workflows.',
+      recommendedAction: 'Verify lifecycle state and billing before attempting changes against this project.'
+    })
+  }
+
+  return hints
 }
 
 function buildGcpBillingProjectRecord(
@@ -952,6 +1084,63 @@ export async function listGcpComputeInstances(projectId: string, location: strin
       .sort((left, right) => left.zone.localeCompare(right.zone) || left.name.localeCompare(right.name))
   } catch (error) {
     throw buildGcpSdkError(`listing Compute Engine instances for project "${normalizedProjectId}"`, error, 'compute.googleapis.com')
+  }
+}
+
+export async function getGcpProjectOverview(projectId: string): Promise<GcpProjectOverview> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) {
+    return {
+      projectId: '',
+      projectNumber: '',
+      displayName: '',
+      lifecycleState: '',
+      parentType: '',
+      parentId: '',
+      createTime: '',
+      labels: [],
+      enabledApis: [],
+      enabledApiCount: 0,
+      capabilityHints: [],
+      notes: []
+    }
+  }
+
+  try {
+    const [metadata, enabledApis] = await Promise.all([
+      getGcpProjectMetadata(normalizedProjectId),
+      listEnabledGcpApis(normalizedProjectId)
+    ])
+
+    const overview: GcpProjectOverview = {
+      projectId: metadata.projectId,
+      projectNumber: metadata.projectNumber,
+      displayName: metadata.name,
+      lifecycleState: metadata.lifecycleState,
+      parentType: metadata.parentType,
+      parentId: metadata.parentId,
+      createTime: metadata.createTime,
+      labels: Object.entries(metadata.labels)
+        .map(([key, value]) => ({ key, value }))
+        .sort((left, right) => left.key.localeCompare(right.key)),
+      enabledApis: enabledApis.slice(0, 18),
+      enabledApiCount: enabledApis.length,
+      capabilityHints: [],
+      notes: [
+        'Enabled API sampling is trimmed in the UI for readability, but the total count reflects the full list returned by Service Usage.',
+        'This slice focuses on project metadata and API posture. Quotas, IAM bindings, and organization policy are not wired yet.'
+      ]
+    }
+
+    overview.capabilityHints = buildGcpProjectCapabilityHints(overview)
+    return overview
+  } catch (error) {
+    const detail = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase()
+    const serviceName = detail.includes('service usage')
+      ? 'serviceusage.googleapis.com'
+      : 'cloudresourcemanager.googleapis.com'
+
+    throw buildGcpSdkError(`loading project overview for project "${normalizedProjectId}"`, error, serviceName)
   }
 }
 
