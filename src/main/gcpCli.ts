@@ -881,33 +881,51 @@ async function listGcpProjectsViaSdk(): Promise<GcpCliProject[]> {
   const auth = getGcpSdkAuth()
   const client = await auth.getClient()
   const projects: GcpCliProject[] = []
-  let nextPageToken = ''
+  const seen = new Set<string>()
 
-  do {
-    const response = await client.request<{ projects?: Array<Record<string, unknown>>; nextPageToken?: string }>({
-      url: 'https://cloudresourcemanager.googleapis.com/v1/projects',
-      params: {
-        pageSize: 500,
-        ...(nextPageToken ? { pageToken: nextPageToken } : {})
-      }
-    })
+  async function collectFromRequest(url: string): Promise<void> {
+    let nextPageToken = ''
 
-    for (const entry of response.data.projects ?? []) {
-      const projectId = asString(entry.projectId)
-      if (!projectId) {
-        continue
-      }
-
-      projects.push({
-        projectId,
-        name: asString(entry.name),
-        projectNumber: asString(entry.projectNumber),
-        lifecycleState: asString(entry.lifecycleState)
+    do {
+      const response = await client.request<{ projects?: Array<Record<string, unknown>>; nextPageToken?: string }>({
+        url,
+        method: 'GET',
+        params: {
+          pageSize: 500,
+          ...(nextPageToken ? { pageToken: nextPageToken } : {})
+        }
       })
-    }
 
-    nextPageToken = asString(response.data.nextPageToken)
-  } while (nextPageToken)
+      for (const entry of response.data.projects ?? []) {
+        const projectId = asString(entry.projectId) || asString(entry.projectId)
+        if (!projectId || seen.has(projectId)) {
+          continue
+        }
+
+        seen.add(projectId)
+        projects.push({
+          projectId,
+          name: asString(entry.displayName) || asString(entry.name),
+          projectNumber: asString(entry.projectNumber),
+          lifecycleState: asString(entry.state) || asString(entry.lifecycleState)
+        })
+      }
+
+      nextPageToken = asString(response.data.nextPageToken)
+    } while (nextPageToken)
+  }
+
+  try {
+    await collectFromRequest('https://cloudresourcemanager.googleapis.com/v3/projects:search')
+  } catch (error) {
+    if (!outputIndicatesPermissionIssue(error instanceof Error ? error.message : String(error))) {
+      throw error
+    }
+  }
+
+  if (projects.length === 0) {
+    await collectFromRequest('https://cloudresourcemanager.googleapis.com/v1/projects')
+  }
 
   return projects
 }
