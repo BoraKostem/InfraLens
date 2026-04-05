@@ -77,6 +77,16 @@ function outputIndicatesApiDisabled(output: string): boolean {
     || normalized.includes('google developers console api activation')
 }
 
+function extractProjectIdFromOutput(output: string): string {
+  const quotedMatch = output.match(/project\s+"([^"]+)"/i)
+  if (quotedMatch?.[1]) {
+    return quotedMatch[1].trim()
+  }
+
+  const plainMatch = output.match(/project\s+([a-z0-9-]+)/i)
+  return plainMatch?.[1]?.trim() ?? ''
+}
+
 function summarizeCliFailure(stderr: string, stdout: string): string {
   const preferredOutput = stderr.trim() || stdout.trim()
 
@@ -93,8 +103,13 @@ function buildGcpCliError(label: string, result: CommandResult): Error {
   const detail = summarizeCliFailure(result.stderr, result.stdout)
 
   if (outputIndicatesApiDisabled(output)) {
+    const projectId = extractProjectIdFromOutput(output)
+    const enableCommand = projectId
+      ? `gcloud services enable compute.googleapis.com --project ${projectId}`
+      : 'gcloud services enable compute.googleapis.com --project <project-id>'
+
     return new Error(
-      `Google Cloud API access failed while ${label}. The required API is disabled for the selected project. Enable it in Google Cloud Console, wait for propagation, and retry.${detail ? ` ${detail}` : ''}`
+      `Google Cloud API access failed while ${label}. The required API is disabled for the selected project. Run "${enableCommand}", wait for propagation, and retry.${detail ? ` ${detail}` : ''}`
     )
   }
 

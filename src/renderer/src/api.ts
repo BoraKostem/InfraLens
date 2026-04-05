@@ -812,7 +812,7 @@ function normalizeUserFacingError(rawError: string): AwsLensApiError {
 
   if (normalized.includes('google cloud api access failed')) {
     return new AwsLensApiError(
-      'The selected Google Cloud project does not have the required API enabled for this screen. Enable the API in Google Cloud Console, wait a few minutes, and retry.',
+      rawError,
       rawError,
       'Google Cloud API Disabled'
     )
