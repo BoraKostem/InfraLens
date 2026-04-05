@@ -1426,7 +1426,8 @@ export function App() {
     }
 
     const recentProjectIds = new Set(recentGcpProjects.map((project) => project.projectId))
-    return filteredGcpProjects.filter((project) => !recentProjectIds.has(project.projectId))
+    const nonRecentProjects = filteredGcpProjects.filter((project) => !recentProjectIds.has(project.projectId))
+    return nonRecentProjects.length > 0 ? nonRecentProjects : filteredGcpProjects
   }, [filteredGcpProjects, gcpProjectSearch, recentGcpProjects])
 
   const primaryProfileLabel = isAwsProviderActive
@@ -2816,9 +2817,7 @@ export function App() {
                         : gcpCliContext?.detected
                           ? gcpProjectSearch.trim()
                             ? `No Google Cloud projects match "${gcpProjectSearch.trim()}"`
-                            : recentGcpProjects.length > 0
-                              ? 'All imported projects are already shown in Recent Projects'
-                              : 'No Google Cloud projects were imported'
+                            : 'No Google Cloud projects were imported'
                           : 'Loading Google Cloud projects'}
                     </h3>
                     <p className="hero-path">
@@ -2827,9 +2826,7 @@ export function App() {
                         : gcpCliContext?.detected
                           ? gcpProjectSearch.trim()
                             ? 'Try a different project id or name, or clear the search to see the full imported catalog.'
-                            : recentGcpProjects.length > 0
-                              ? 'Clear Recent Projects history by selecting another project, or search to show imported projects in the main grid again.'
-                              : 'Sign in with gcloud or switch to a configuration that can see projects, then refresh the catalog.'
+                            : 'Sign in with gcloud or switch to a configuration that can see projects, then refresh the catalog.'
                           : 'The simple GCP selector fills itself from the active gcloud session. Install or sign in, then refresh gcloud.'}
                     </p>
                   </div>
