@@ -805,6 +805,26 @@ textarea {
     linear-gradient(180deg, rgba(18, 22, 29, 0.96), rgba(11, 15, 21, 0.96));
 }
 
+.gcp-projects-console .overview-ownership-card {
+  overflow: hidden;
+}
+
+.gcp-projects-console .overview-ownership-header > div,
+.gcp-projects-console .overview-ownership-metrics {
+  min-width: 0;
+}
+
+.gcp-projects-console .overview-ownership-metrics {
+  max-width: 52%;
+}
+
+.gcp-projects-console .overview-ownership-metrics span {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  text-align: right;
+}
+
 .gcp-projects-console .ghost:hover {
   border-color: rgba(52, 168, 83, 0.22);
   box-shadow: 0 0 0 1px rgba(52, 168, 83, 0.08);
