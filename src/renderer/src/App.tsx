@@ -17,6 +17,7 @@ import type {
   EnterpriseAccessMode,
   EnterpriseAuditEvent,
   GcpCliContext,
+  GcpComputeInstanceSummary,
   GovernanceTagDefaults,
   NavigationFocus,
   ProviderDescriptor,
@@ -42,6 +43,7 @@ import {
   getAppSettings,
   getEnvironmentHealth,
   getGcpCliContext,
+  listGcpComputeInstances,
   listGcpProjects,
   getEnterpriseSettings,
   getGovernanceTagDefaults,
@@ -621,6 +623,131 @@ function PlaceholderScreen({
           </div>
         </div>
       </section>
+    </>
+  )
+}
+
+function GcpComputeEngineConsole({
+  projectId,
+  location,
+  refreshNonce
+}: {
+  projectId: string
+  location: string
+  refreshNonce: number
+}) {
+  const [instances, setInstances] = useState<GcpComputeInstanceSummary[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [lastLoadedAt, setLastLoadedAt] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+
+    setLoading(true)
+    setError('')
+
+    void listGcpComputeInstances(projectId, location)
+      .then((nextInstances) => {
+        if (cancelled) {
+          return
+        }
+
+        setInstances(nextInstances)
+        setLastLoadedAt(new Date().toISOString())
+      })
+      .catch((err) => {
+        if (cancelled) {
+          return
+        }
+
+        setError(err instanceof Error ? err.message : String(err))
+        setInstances([])
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [location, projectId, refreshNonce])
+
+  const locationLabel = location.trim() || 'all locations'
+  const lastLoadedLabel = lastLoadedAt ? new Date(lastLoadedAt).toLocaleTimeString() : 'Pending'
+
+  return (
+    <>
+      <section className="panel stack">
+        <div className="catalog-page-header">
+          <div>
+            <div className="eyebrow">Compute Engine</div>
+            <h3>{projectId}</h3>
+            <p>Read-only instance inventory scoped to the selected Google Cloud project and location.</p>
+          </div>
+          <div className="hero-connection">
+            <div className="connection-summary">
+              <span>Project</span>
+              <strong>{projectId}</strong>
+            </div>
+            <div className="connection-summary">
+              <span>Location</span>
+              <strong>{locationLabel}</strong>
+            </div>
+            <div className="connection-summary">
+              <span>Last sync</span>
+              <strong>{loading ? 'Syncing...' : lastLoadedLabel}</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+      {error ? <div className="error-banner">{error}</div> : null}
+      {loading ? (
+        <section className="panel stack">
+          <div className="profile-catalog-empty">
+            <div className="eyebrow">Loading</div>
+            <h3>Importing Compute Engine inventory</h3>
+            <p className="hero-path">Reading instances from the active gcloud session for {projectId} in {locationLabel}.</p>
+          </div>
+        </section>
+      ) : instances.length === 0 ? (
+        <section className="panel stack">
+          <div className="profile-catalog-empty">
+            <div className="eyebrow">No Instances</div>
+            <h3>No Compute Engine instances were found</h3>
+            <p className="hero-path">No instances matched {locationLabel} in project {projectId}. Refresh gcloud after changing project context or region filters.</p>
+          </div>
+        </section>
+      ) : (
+        <section className="panel stack">
+          <div className="catalog-page-header">
+            <div>
+              <div className="eyebrow">Instance Inventory</div>
+              <h3>{instances.length} instance{instances.length === 1 ? '' : 's'}</h3>
+              <p>{locationLabel} scope with live data from the active gcloud session.</p>
+            </div>
+          </div>
+          <div className="profile-catalog-grid">
+            {instances.map((instance) => (
+              <article key={`${instance.zone}:${instance.name}`} className="profile-catalog-card">
+                <div className="profile-catalog-status">
+                  <span>{instance.zone}</span>
+                  <strong>{instance.status || 'UNKNOWN'}</strong>
+                </div>
+                <div className="project-card-title">{instance.name}</div>
+                <div className="project-card-subtitle">{instance.machineType || 'Machine type unavailable'}</div>
+                <div className="hero-path" style={{ marginTop: 12 }}>
+                  Internal IP: {instance.internalIp || 'n/a'}
+                  <br />
+                  External IP: {instance.externalIp || 'n/a'}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
     </>
   )
 }
@@ -2130,6 +2257,10 @@ export function App() {
     }
 
     if (activeProviderId === 'gcp') {
+      setPageRefreshNonceByScreen((current) => ({
+        ...current,
+        [screen]: (current[screen] ?? 0) + 1
+      }))
       void loadGcpCliContext()
       return
     }
@@ -2892,6 +3023,22 @@ export function App() {
             </div>
           </div>
         </section>
+      )
+    }
+
+    if (
+      activeProviderId === 'gcp'
+      && targetScreen === 'gcp-compute-engine'
+      && targetService?.id === 'gcp-compute-engine'
+      && gcpContextReady
+      && activeGcpConnectionDraft
+    ) {
+      return (
+        <GcpComputeEngineConsole
+          projectId={activeGcpConnectionDraft.projectId.trim()}
+          location={activeGcpConnectionDraft.location.trim()}
+          refreshNonce={pageRefreshNonceByScreen['gcp-compute-engine'] ?? 0}
+        />
       )
     }
 

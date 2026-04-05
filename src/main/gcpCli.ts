@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { readFile, readdir } from 'node:fs/promises'
 
-import type { GcpCliConfiguration, GcpCliContext, GcpCliProject } from '@shared/types'
+import type { GcpCliConfiguration, GcpCliContext, GcpCliProject, GcpComputeInstanceSummary } from '@shared/types'
 import { getResolvedProcessEnv, resolveExecutablePath } from './shell'
 import { listToolCommandCandidates } from './toolchain'
 
@@ -432,6 +432,45 @@ function parseProjectValueRows(value: string): GcpCliProject[] {
     .filter((entry): entry is GcpCliProject => entry !== null)
 }
 
+function parseComputeInstanceValueRows(value: string): GcpComputeInstanceSummary[] {
+  return parseGcloudValueRows(value)
+    .map((columns) => {
+      const [name = '', zone = '', status = '', machineType = '', internalIp = '', externalIp = ''] = columns
+      if (!name) {
+        return null
+      }
+
+      return {
+        name,
+        zone,
+        status,
+        machineType,
+        internalIp,
+        externalIp
+      } satisfies GcpComputeInstanceSummary
+    })
+    .filter((entry): entry is GcpComputeInstanceSummary => entry !== null)
+}
+
+function filterComputeInstancesByLocation(instances: GcpComputeInstanceSummary[], location: string): GcpComputeInstanceSummary[] {
+  const normalizedLocation = location.trim().toLowerCase()
+  if (!normalizedLocation || normalizedLocation === 'global') {
+    return instances
+  }
+
+  const isZoneLocation = /-[a-z]$/.test(normalizedLocation)
+  return instances.filter((instance) => {
+    const zone = instance.zone.trim().toLowerCase()
+    if (!zone) {
+      return false
+    }
+
+    return isZoneLocation
+      ? zone === normalizedLocation
+      : zone === normalizedLocation || zone.startsWith(`${normalizedLocation}-`)
+  })
+}
+
 function safeParseItem<T>(value: string, normalize: (entry: unknown) => T | null): T | null {
   if (!value.trim()) {
     return null
@@ -555,4 +594,46 @@ export async function listGcpProjects(): Promise<GcpCliProject[]> {
     cliProjects,
     derivedProjects
   )
+}
+
+export async function listGcpComputeInstances(projectId: string, location: string): Promise<GcpComputeInstanceSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) {
+    return []
+  }
+
+  const env = await getResolvedProcessEnv({ fresh: true })
+  const resolved = await resolveGcloudCommand(env)
+
+  if (!resolved) {
+    return []
+  }
+
+  const instancesResult = await runCommand(
+    resolved.command,
+    buildGcloudArgs([
+      'compute',
+      'instances',
+      'list',
+      '--project',
+      normalizedProjectId,
+      '--format=value(name,zone.basename(),status,machineType.basename(),networkInterfaces[0].networkIP,networkInterfaces[0].accessConfigs[0].natIP)',
+      '--limit=500'
+    ]),
+    env,
+    20000
+  )
+
+  const cliInstances = parseComputeInstanceValueRows(instancesResult.stdout)
+
+  if (!instancesResult.ok && cliInstances.length === 0) {
+    throw buildGcpCliError(`listing Compute Engine instances for project "${normalizedProjectId}"`, instancesResult)
+  }
+
+  if (instancesResult.ok && cliInstances.length === 0 && instancesResult.stderr.trim()) {
+    throw buildGcpCliError(`listing Compute Engine instances for project "${normalizedProjectId}"`, instancesResult)
+  }
+
+  return filterComputeInstancesByLocation(cliInstances, location)
+    .sort((left, right) => left.zone.localeCompare(right.zone) || left.name.localeCompare(right.name))
 }
