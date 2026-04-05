@@ -9,6 +9,7 @@ import type {
   GcpCliProject,
   GcpComputeInstanceSummary,
   GcpGkeClusterSummary,
+  GcpSqlInstanceSummary,
   GcpStorageBucketSummary
 } from '@shared/types'
 import { getResolvedProcessEnv, resolveExecutablePath } from './shell'
@@ -392,6 +393,81 @@ function normalizeStorageBucket(entry: unknown): GcpStorageBucketSummary | null 
   }
 }
 
+function formatMaintenanceWindow(day: unknown, hour: unknown): string {
+  const hourText = typeof hour === 'number' ? `${String(hour).padStart(2, '0')}:00 UTC` : ''
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+  const dayText = typeof day === 'number' && day >= 1 && day <= 7 ? dayNames[day - 1] : ''
+
+  if (dayText && hourText) {
+    return `${dayText} ${hourText}`
+  }
+
+  return dayText || hourText
+}
+
+function normalizeSqlIpAddress(entry: unknown): { address: string; type: string } | null {
+  if (!entry || typeof entry !== 'object') {
+    return null
+  }
+
+  const record = entry as Record<string, unknown>
+  const address = asString(record.ipAddress) || asString(record.ip_address)
+  if (!address) {
+    return null
+  }
+
+  return {
+    address,
+    type: asString(record.type)
+  }
+}
+
+function normalizeSqlInstance(entry: unknown): GcpSqlInstanceSummary | null {
+  if (!entry || typeof entry !== 'object') {
+    return null
+  }
+
+  const record = entry as Record<string, unknown>
+  const settings = (record.settings && typeof record.settings === 'object'
+    ? record.settings
+    : {}) as Record<string, unknown>
+  const ipAddresses = Array.isArray(record.ipAddresses)
+    ? record.ipAddresses.map(normalizeSqlIpAddress).filter((item): item is NonNullable<ReturnType<typeof normalizeSqlIpAddress>> => item !== null)
+    : Array.isArray(record.ip_addresses)
+      ? record.ip_addresses.map(normalizeSqlIpAddress).filter((item): item is NonNullable<ReturnType<typeof normalizeSqlIpAddress>> => item !== null)
+      : []
+  const maintenanceWindow = (settings.maintenanceWindow && typeof settings.maintenanceWindow === 'object'
+    ? settings.maintenanceWindow
+    : settings.maintenance_window && typeof settings.maintenance_window === 'object'
+      ? settings.maintenance_window
+      : {}) as Record<string, unknown>
+  const publicIp = ipAddresses.find((item) => item.type.trim().toUpperCase() === 'PRIMARY')
+    ?? ipAddresses.find((item) => !item.type.trim() || item.type.trim().toUpperCase() === 'OUTGOING')
+    ?? ipAddresses[0]
+    ?? null
+  const privateIp = ipAddresses.find((item) => item.type.trim().toUpperCase() === 'PRIVATE') ?? null
+  const name = asString(record.name)
+
+  if (!name) {
+    return null
+  }
+
+  return {
+    name,
+    region: asString(record.region),
+    zone: asString(record.gceZone) || asString(record.gce_zone),
+    state: asString(record.state),
+    databaseVersion: asString(record.databaseVersion) || asString(record.database_version),
+    availabilityType: asString(settings.availabilityType) || asString(settings.availability_type),
+    primaryAddress: publicIp?.address ?? '',
+    privateAddress: privateIp?.address ?? '',
+    storageAutoResizeEnabled: asBoolean(settings.storageAutoResize ?? settings.storage_auto_resize),
+    diskSizeGb: asString(settings.dataDiskSizeGb) || asString(settings.data_disk_size_gb),
+    deletionProtectionEnabled: asBoolean(record.deletionProtectionEnabled ?? record.deletion_protection_enabled),
+    maintenanceWindow: formatMaintenanceWindow(maintenanceWindow.day, maintenanceWindow.hour)
+  }
+}
+
 function mergeProjects(...lists: Array<GcpCliProject[]>): GcpCliProject[] {
   const merged = new Map<string, GcpCliProject>()
 
@@ -680,6 +756,33 @@ function filterStorageBucketsByLocation(buckets: GcpStorageBucketSummary[], loca
   return [...buckets].sort((left, right) => {
     const leftMatches = left.location.trim().toLowerCase() === normalizedLocation
     const rightMatches = right.location.trim().toLowerCase() === normalizedLocation
+
+    if (leftMatches !== rightMatches) {
+      return leftMatches ? -1 : 1
+    }
+
+    return left.name.localeCompare(right.name)
+  })
+}
+
+function filterSqlInstancesByLocation(instances: GcpSqlInstanceSummary[], location: string): GcpSqlInstanceSummary[] {
+  const normalizedLocation = location.trim().toLowerCase()
+  if (!normalizedLocation || normalizedLocation === 'global') {
+    return instances
+  }
+
+  const isZoneLocation = /-[a-z]$/.test(normalizedLocation)
+  return [...instances].sort((left, right) => {
+    const leftRegion = left.region.trim().toLowerCase()
+    const rightRegion = right.region.trim().toLowerCase()
+    const leftZone = left.zone.trim().toLowerCase()
+    const rightZone = right.zone.trim().toLowerCase()
+    const leftMatches = isZoneLocation
+      ? leftZone === normalizedLocation
+      : leftRegion === normalizedLocation || leftZone.startsWith(`${normalizedLocation}-`)
+    const rightMatches = isZoneLocation
+      ? rightZone === normalizedLocation
+      : rightRegion === normalizedLocation || rightZone.startsWith(`${normalizedLocation}-`)
 
     if (leftMatches !== rightMatches) {
       return leftMatches ? -1 : 1
@@ -991,4 +1094,44 @@ export async function listGcpStorageBuckets(projectId: string, location: string)
   }
 
   return filterStorageBucketsByLocation(cliBuckets, location)
+}
+
+export async function listGcpSqlInstances(projectId: string, location: string): Promise<GcpSqlInstanceSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) {
+    return []
+  }
+
+  const env = await getResolvedProcessEnv({ fresh: true })
+  const resolved = await resolveGcloudCommand(env)
+
+  if (!resolved) {
+    return []
+  }
+
+  const instancesResult = await runCommand(
+    resolved.command,
+    buildGcloudArgs([
+      'sql',
+      'instances',
+      'list',
+      '--project',
+      normalizedProjectId,
+      '--format=json'
+    ]),
+    env,
+    20000
+  )
+
+  const cliInstances = safeParseList(instancesResult.stdout, normalizeSqlInstance)
+
+  if (!instancesResult.ok && cliInstances.length === 0) {
+    throw buildGcpCliError(`listing Cloud SQL instances for project "${normalizedProjectId}"`, instancesResult, 'sqladmin.googleapis.com')
+  }
+
+  if (instancesResult.ok && cliInstances.length === 0 && instancesResult.stderr.trim()) {
+    throw buildGcpCliError(`listing Cloud SQL instances for project "${normalizedProjectId}"`, instancesResult, 'sqladmin.googleapis.com')
+  }
+
+  return filterSqlInstancesByLocation(cliInstances, location)
 }

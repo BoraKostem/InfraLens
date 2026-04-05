@@ -590,6 +590,21 @@ export type GcpStorageBucketSummary = {
   labelCount: number
 }
 
+export type GcpSqlInstanceSummary = {
+  name: string
+  region: string
+  zone: string
+  state: string
+  databaseVersion: string
+  availabilityType: string
+  primaryAddress: string
+  privateAddress: string
+  storageAutoResizeEnabled: boolean
+  diskSizeGb: string
+  deletionProtectionEnabled: boolean
+  maintenanceWindow: string
+}
+
 export type Ec2SsmStatus = 'managed-online' | 'managed-offline' | 'not-managed'
 
 export type SsmManagedInstanceSummary = {

@@ -93,6 +93,7 @@ declare global {
       listGcpComputeInstances: (projectId: string, location: string) => Promise<unknown>
       listGcpGkeClusters: (projectId: string, location: string) => Promise<unknown>
       listGcpStorageBuckets: (projectId: string, location: string) => Promise<unknown>
+      listGcpSqlInstances: (projectId: string, location: string) => Promise<unknown>
       checkForAppUpdates: () => Promise<unknown>
       downloadAppUpdate: () => Promise<unknown>
       installAppUpdate: () => Promise<unknown>
