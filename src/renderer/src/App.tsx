@@ -19,6 +19,7 @@ import type {
   GcpCliContext,
   GcpComputeInstanceSummary,
   GcpGkeClusterSummary,
+  GcpLogQueryResult,
   GcpSqlInstanceSummary,
   GcpStorageObjectContent,
   GcpStorageObjectSummary,
@@ -50,6 +51,7 @@ import {
   getGcpCliContext,
   listGcpComputeInstances,
   listGcpGkeClusters,
+  listGcpLogEntries,
   listGcpSqlInstances,
   deleteGcpStorageObject,
   downloadGcpStorageObjectToPath,
@@ -277,6 +279,22 @@ const IMPLEMENTED_SCREENS = new Set<ServiceId>([
 ])
 
 const DEFAULT_PROVIDER_ID: CloudProviderId = 'aws'
+
+const GCP_LOGGING_PRESETS = [
+  { id: 'errors', label: 'Errors 24h', query: 'severity>=ERROR' },
+  { id: 'compute', label: 'Compute', query: 'resource.type="gce_instance"' },
+  { id: 'gke', label: 'GKE', query: 'resource.type="k8s_cluster" OR resource.type="k8s_container"' },
+  { id: 'sql', label: 'Cloud SQL', query: 'resource.type="cloudsql_database" OR logName:"cloudsql"' }
+] as const
+
+const GCP_LOGGING_TIME_RANGE_OPTIONS = [
+  { value: 1, label: '1 hour' },
+  { value: 3, label: '3 hours' },
+  { value: 12, label: '12 hours' },
+  { value: 24, label: '24 hours' },
+  { value: 72, label: '3 days' },
+  { value: 168, label: '7 days' }
+] as const
 
 const PROVIDER_CONNECTION_MODES: Record<CloudProviderId, ProviderConnectionMode[]> = {
   aws: [
@@ -1223,7 +1241,7 @@ function GcpCloudStorageConsole({
         <div className="s3-shell-hero-copy">
           <div className="s3-eyebrow">Object storage posture</div>
           <h2>Cloud Storage Operations</h2>
-          <p>Bucket inventory, object browsing, and inline editing now use the same shell language and visual frame as AWS S3.</p>
+          <p>Bucket inventory, object browsing, and inline editing now use a consistent shell language and visual frame.</p>
           <div className="s3-shell-meta-strip">
             <div className="s3-shell-meta-pill">
               <span>Project</span>
@@ -1949,6 +1967,328 @@ function GcpCloudSqlConsole({
         </section>
       )}
     </>
+  )
+}
+
+type GcpLoggingSavedQuery = {
+  id: string
+  name: string
+  description: string
+  query: string
+  lastRunAt: string
+}
+
+type GcpLoggingRunHistoryEntry = {
+  id: string
+  query: string
+  resultSummary: string
+  executedAt: string
+  status: 'success' | 'failed'
+}
+
+function GcpLoggingConsole({
+  projectId,
+  location,
+  refreshNonce,
+  onRunTerminalCommand,
+  canRunTerminalCommand
+}: {
+  projectId: string
+  location: string
+  refreshNonce: number
+  onRunTerminalCommand: (command: string) => void
+  canRunTerminalCommand: boolean
+}) {
+  const storageKey = `cloud-lens:gcp-logging-saved:${projectId}`
+  const [queryDraft, setQueryDraft] = useState('')
+  const [appliedQuery, setAppliedQuery] = useState('')
+  const [savedQueries, setSavedQueries] = useState<string[]>([])
+  const [result, setResult] = useState<GcpLogQueryResult | null>(null)
+  const [selectedEntryId, setSelectedEntryId] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const [lastLoadedAt, setLastLoadedAt] = useState('')
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(storageKey)
+      if (!raw) {
+        setSavedQueries([])
+        return
+      }
+
+      const parsed = JSON.parse(raw)
+      setSavedQueries(Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : [])
+    } catch {
+      setSavedQueries([])
+    }
+  }, [storageKey])
+
+  useEffect(() => {
+    let cancelled = false
+
+    setLoading(true)
+    setError('')
+
+    void listGcpLogEntries(projectId, location, appliedQuery)
+      .then((nextResult) => {
+        if (cancelled) {
+          return
+        }
+
+        setResult(nextResult)
+        setSelectedEntryId((current) => current || nextResult.entries[0]?.insertId || '')
+        setLastLoadedAt(new Date().toISOString())
+      })
+      .catch((err) => {
+        if (cancelled) {
+          return
+        }
+
+        setError(err instanceof Error ? err.message : String(err))
+        setResult(null)
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [appliedQuery, location, projectId, refreshNonce])
+
+  const locationLabel = location.trim() || 'global'
+  const lastLoadedLabel = lastLoadedAt ? new Date(lastLoadedAt).toLocaleTimeString() : 'Pending'
+  const topSeverity = result?.severityCounts[0]?.label || 'n/a'
+  const errorCount = result?.severityCounts
+    .filter((entry) => ['ALERT', 'CRITICAL', 'EMERGENCY', 'ERROR'].includes(entry.label.toUpperCase()))
+    .reduce((sum, entry) => sum + entry.count, 0) ?? 0
+  const warningCount = result?.severityCounts
+    .filter((entry) => entry.label.toUpperCase() === 'WARNING')
+    .reduce((sum, entry) => sum + entry.count, 0) ?? 0
+  const topResources = result?.resourceTypeCounts.slice(0, 3).map((entry) => `${entry.label} (${entry.count})`).join(', ') || 'No resource facets yet'
+  const selectedEntry = result?.entries.find((entry) => entry.insertId === selectedEntryId) ?? result?.entries[0] ?? null
+  const escapedTerminalFilter = (result?.query || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  const rerunCommand = `gcloud logging read --project ${projectId} --limit=50 --format=json "${escapedTerminalFilter}"`
+  const enableAction = error ? getGcpApiEnableAction(
+    error,
+    `gcloud services enable logging.googleapis.com --project ${projectId}`,
+    `Cloud Logging API is disabled for project ${projectId}.`
+  ) : null
+
+  function persistSavedQueries(nextQueries: string[]): void {
+    setSavedQueries(nextQueries)
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(nextQueries))
+    } catch {
+      // Ignore persistence failures and keep the current in-memory state.
+    }
+  }
+
+  function handleSaveInvestigation(): void {
+    const normalized = queryDraft.trim()
+    if (!normalized) {
+      return
+    }
+
+    const nextQueries = [normalized, ...savedQueries.filter((entry) => entry !== normalized)].slice(0, 6)
+    persistSavedQueries(nextQueries)
+    setMessage('Investigation saved.')
+  }
+
+  return (
+    <div className="cw-console gcp-logging-console">
+      {message ? <div className="s3-msg s3-msg-ok">{message}<button type="button" className="s3-msg-close" onClick={() => setMessage('')}>x</button></div> : null}
+      <div className="cw-shell-hero">
+        <div className="cw-shell-hero-copy">
+          <div className="cw-shell-kicker">Cloud Logging</div>
+          <h2>Google-Cloud Logging</h2>
+          <p>Keep the same investigation flow when switching providers: query editor, reusable searches, result tables, and selected-entry drilldown stay in the same shell pattern.</p>
+          <div className="cw-shell-meta-strip">
+            <div className="cw-shell-meta-pill"><span>Project</span><strong>{projectId}</strong></div>
+            <div className="cw-shell-meta-pill"><span>Lens</span><strong>{locationLabel}</strong></div>
+            <div className="cw-shell-meta-pill"><span>Window</span><strong>24 hours</strong></div>
+            <div className="cw-shell-meta-pill"><span>Last sync</span><strong>{loading ? 'Refreshing...' : lastLoadedLabel}</strong></div>
+          </div>
+        </div>
+        <div className="cw-shell-hero-stats">
+          <div className="cw-shell-stat-card cw-shell-stat-card-accent"><span>Entries</span><strong>{result?.entries.length.toLocaleString() ?? '0'}</strong><small>Rows matched by the active filter.</small></div>
+          <div className="cw-shell-stat-card"><span>Top Severity</span><strong>{topSeverity}</strong><small>Current leading severity in scope.</small></div>
+          <div className="cw-shell-stat-card"><span>Resources</span><strong>{result?.resourceTypeCounts.length.toLocaleString() ?? '0'}</strong><small>Resource types present in the result set.</small></div>
+          <div className="cw-shell-stat-card"><span>Saved Queries</span><strong>{savedQueries.length.toLocaleString()}</strong><small>Reusable searches for this project.</small></div>
+        </div>
+      </div>
+
+      <div className="cw-shell-toolbar">
+        <div className="cw-tabs" role="tablist" aria-label="Cloud Logging tabs">
+          <button type="button" className="cw-tab active"><span>Overview</span></button>
+        </div>
+        <div className="cw-toolbar">
+          <div className="cw-toolbar-group">
+            <span className="cw-toolbar-label">Source</span>
+            <span className="cw-toolbar-pill">{locationLabel}</span>
+          </div>
+          <div className="cw-toolbar-group">
+            <span className="cw-toolbar-label">Posture</span>
+            <span className="cw-toolbar-pill">{topResources}</span>
+          </div>
+          <span className="cw-toolbar-pill">{loading ? 'Refreshing telemetry' : 'Telemetry ready'}</span>
+        </div>
+      </div>
+
+      <div className="cw-section">
+        <div className="cw-section-head">
+          <div><h3>Investigation Workspace</h3><p className="cw-section-subtitle">Use the same editor-plus-sidebar workflow as CloudWatch while staying inside the GCP provider context.</p></div>
+          <div className="cw-query-headline"><span className="cw-toolbar-pill">{errorCount} errors</span><span className="cw-toolbar-pill">{warningCount} warnings</span></div>
+        </div>
+        <div className="cw-query-layout">
+          <div className="cw-query-main">
+            <div className="cw-query-target-bar">
+              <span className="cw-query-source">{projectId}</span>
+              <span className="cw-query-source">{locationLabel}</span>
+              <button type="button" className="cw-toggle" onClick={() => { setQueryDraft(''); setAppliedQuery('') }}>Reset</button>
+              <button
+                type="button"
+                className="cw-toggle"
+                disabled={!canRunTerminalCommand}
+                onClick={() => onRunTerminalCommand(rerunCommand)}
+                title={canRunTerminalCommand ? rerunCommand : 'Switch to Operator mode to enable terminal actions'}
+              >
+                Rerun in terminal
+              </button>
+            </div>
+            <div className="cw-query-preset-row">
+              {GCP_LOGGING_PRESETS.map((preset) => (
+                <button key={preset.id} type="button" className="cw-chip" onClick={() => setQueryDraft(preset.query)}>
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+            <textarea className="cw-query-editor" value={queryDraft} onChange={(event) => setQueryDraft(event.target.value)} rows={8} spellCheck={false} placeholder={'severity>=ERROR\nresource.type="gce_instance"'} />
+            <div className="cw-query-actions">
+              <button type="button" className="cw-refresh-btn" onClick={() => setAppliedQuery(queryDraft.trim())}>Run Query</button>
+              <button type="button" className="cw-expand-btn" disabled={!queryDraft.trim()} onClick={handleSaveInvestigation}>Save Query</button>
+            </div>
+            {enableAction ? (
+              <div className="error-banner gcp-enable-error-banner">
+                <div className="gcp-enable-error-copy">
+                  <strong>{enableAction.summary}</strong>
+                  <p>
+                    {canRunTerminalCommand
+                      ? 'Run the enable command in the terminal, wait for propagation, then retry.'
+                      : 'Switch Settings > Access Mode to Operator to enable terminal actions for this command.'}
+                  </p>
+                </div>
+                <div className="gcp-enable-error-actions">
+                  <button
+                    type="button"
+                    className="accent"
+                    disabled={!canRunTerminalCommand}
+                    onClick={() => onRunTerminalCommand(enableAction.command)}
+                    title={canRunTerminalCommand ? enableAction.command : 'Switch to Operator mode to enable terminal actions'}
+                  >
+                    Run enable command in terminal
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            {error && !enableAction ? <div className="cw-query-feedback error">{error}</div> : null}
+            {loading ? <div className="cw-query-feedback">Running Cloud Logging query...</div> : null}
+            {result ? (
+              <div className="cw-query-results">
+                <div className="cw-section-head">
+                  <div><h3>Query Results</h3><p className="cw-section-subtitle">{result.entries.length} rows returned for the active project and location lens.</p></div>
+                  <div className="cw-query-headline"><span className="cw-toolbar-pill">{result.query ? 'Custom filter' : 'Default filter'}</span></div>
+                </div>
+                <div className="cw-table-scroll">
+                  <table className="cw-table">
+                    <thead>
+                      <tr>
+                        <th>Timestamp</th>
+                        <th>Severity</th>
+                        <th>Resource</th>
+                        <th>Log</th>
+                        <th>Summary</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {result.entries.length === 0 ? (
+                        <tr><td className="cw-empty" colSpan={5}>No log entries matched the current filter.</td></tr>
+                      ) : result.entries.map((entry) => (
+                        <tr key={`${entry.insertId}:${entry.timestamp}`} className="cw-clickable" onClick={() => setSelectedEntryId(entry.insertId)}>
+                          <td>{entry.timestamp ? new Date(entry.timestamp).toLocaleString() : '-'}</td>
+                          <td><span className="cw-toolbar-pill">{entry.severity}</span></td>
+                          <td>{entry.resourceType}</td>
+                          <td>{entry.logName}</td>
+                          <td><span className="cw-query-cell">{entry.summary}</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
+          </div>
+          <div className="cw-query-sidebar">
+            <div className="cw-query-card">
+              <div className="cw-panel-head"><div><h3>Saved Queries</h3><p className="cw-chart-subtitle">Reusable searches in the same sidebar pattern as CloudWatch.</p></div></div>
+              {savedQueries.length === 0 ? <div className="cw-table-hint">No saved queries yet.</div> : (
+                <div className="cw-query-list">
+                  {savedQueries.map((savedQuery) => (
+                    <div key={savedQuery} className="cw-query-list-item">
+                      <div>
+                        <strong>{savedQuery.length > 28 ? `${savedQuery.slice(0, 28)}...` : savedQuery}</strong>
+                        <span>{savedQuery}</span>
+                      </div>
+                      <div className="cw-query-list-actions">
+                        <button type="button" className="cw-toggle" onClick={() => setQueryDraft(savedQuery)}>Load</button>
+                        <button type="button" className="cw-expand-btn" onClick={() => { setQueryDraft(savedQuery); setAppliedQuery(savedQuery) }}>Run</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="cw-query-card">
+              <div className="cw-panel-head"><div><h3>Selected Entry</h3><p className="cw-chart-subtitle">Parsed drilldown for the active row.</p></div></div>
+              {!selectedEntry ? <div className="cw-table-hint">Select a row from Query Results.</div> : (
+                <div className="cw-query-list">
+                  <div className="cw-query-list-item">
+                    <div>
+                      <strong>{selectedEntry.logName}</strong>
+                      <span>{selectedEntry.summary}</span>
+                      <small>{selectedEntry.timestamp ? new Date(selectedEntry.timestamp).toLocaleString() : 'Timestamp unavailable'}</small>
+                    </div>
+                  </div>
+                  {selectedEntry.details.slice(0, 5).map((detail) => (
+                    <div key={`${selectedEntry.insertId}:${detail.label}`} className="cw-query-list-item">
+                      <div>
+                        <strong>{detail.label}</strong>
+                        <span style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{detail.value}</span>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="cw-query-list-actions">
+                    <button
+                      type="button"
+                      className="cw-expand-btn"
+                      disabled={!canRunTerminalCommand}
+                      onClick={() => onRunTerminalCommand(`gcloud logging read --project ${projectId} --limit=1 --format=json "insertId=\\"${selectedEntry.insertId.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}\\""`)}
+                      title={canRunTerminalCommand ? `gcloud logging read --project ${projectId} --limit=1 --format=json "insertId=\\"${selectedEntry.insertId.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}\\""` : 'Switch to Operator mode to enable terminal actions'}
+                    >
+                      Read in terminal
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -4382,6 +4722,24 @@ export function App() {
           projectId={activeGcpConnectionDraft.projectId.trim()}
           location={activeGcpConnectionDraft.location.trim()}
           refreshNonce={pageRefreshNonceByScreen['gcp-gke'] ?? 0}
+          onRunTerminalCommand={handleOpenTerminalCommand}
+          canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+        />
+      )
+    }
+
+    if (
+      activeProviderId === 'gcp'
+      && targetScreen === 'gcp-logging'
+      && targetService?.id === 'gcp-logging'
+      && gcpContextReady
+      && activeGcpConnectionDraft
+    ) {
+      return (
+        <GcpLoggingConsole
+          projectId={activeGcpConnectionDraft.projectId.trim()}
+          location={activeGcpConnectionDraft.location.trim()}
+          refreshNonce={pageRefreshNonceByScreen['gcp-logging'] ?? 0}
           onRunTerminalCommand={handleOpenTerminalCommand}
           canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
         />
