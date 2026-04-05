@@ -288,6 +288,12 @@ textarea {
   gap: 0.45rem;
 }
 
+.field-note {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
 .project-list {
   display: flex;
   flex-direction: column;

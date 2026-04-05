@@ -299,6 +299,33 @@ function mergeProjects(...lists: Array<GcpCliProject[]>): GcpCliProject[] {
   return [...merged.values()].sort((left, right) => left.projectId.localeCompare(right.projectId))
 }
 
+function mergeLocations(...lists: Array<string[]>): string[] {
+  const merged = new Set<string>()
+
+  for (const list of lists) {
+    for (const location of list) {
+      const normalized = location.trim()
+      if (!normalized) {
+        continue
+      }
+
+      merged.add(normalized)
+    }
+  }
+
+  return [...merged].sort((left, right) => {
+    if (left === 'global') {
+      return -1
+    }
+
+    if (right === 'global') {
+      return 1
+    }
+
+    return left.localeCompare(right)
+  })
+}
+
 function getGcpConfigRoot(): string {
   if (process.platform === 'win32') {
     return path.join(process.env.APPDATA ?? path.join(os.homedir(), 'AppData', 'Roaming'), 'gcloud')
@@ -396,6 +423,14 @@ function deriveProjectsFromConfigurations(configurations: GcpCliConfiguration[])
   return projects
 }
 
+function deriveLocationsFromConfigurations(configurations: GcpCliConfiguration[]): string[] {
+  return mergeLocations(
+    ['global'],
+    configurations.map((configuration) => configuration.region),
+    configurations.map((configuration) => configuration.zone)
+  )
+}
+
 function safeParseList<T>(value: string, normalize: (entry: unknown) => T | null): T[] {
   if (!value.trim()) {
     return []
@@ -458,6 +493,13 @@ function parseProjectValueRows(value: string): GcpCliProject[] {
       } satisfies GcpCliProject
     })
     .filter((entry): entry is GcpCliProject => entry !== null)
+}
+
+function parseLocationValueRows(value: string): string[] {
+  return mergeLocations(
+    parseGcloudValueRows(value)
+      .map((columns) => columns[0] ?? '')
+  )
 }
 
 function parseComputeInstanceValueRows(value: string): GcpComputeInstanceSummary[] {
@@ -525,7 +567,8 @@ export async function getGcpCliContext(): Promise<GcpCliContext> {
       activeRegion: '',
       activeZone: '',
       configurations: [],
-      projects: []
+      projects: [],
+      locations: []
     }
   }
 
@@ -550,7 +593,14 @@ export async function getGcpCliContext(): Promise<GcpCliContext> {
     ?? configurations[0]
     ?? null
   const derivedProjects = deriveProjectsFromConfigurations(configurations)
+  const derivedLocations = deriveLocationsFromConfigurations(configurations)
   const activeProjectId = activeConfiguration?.projectId ?? ''
+  const locationsResultPromise = runCommand(
+    resolved.command,
+    buildGcloudArgs(['compute', 'regions', 'list', '--format=value(name)', '--limit=500']),
+    env,
+    5000
+  )
 
   const activeProjectResult = await (
     activeProjectId
@@ -570,6 +620,14 @@ export async function getGcpCliContext(): Promise<GcpCliContext> {
   )
 
   const activeProject = safeParseItem(activeProjectResult.stdout, normalizeProject)
+  const locationsResult = await locationsResultPromise
+  const cliLocations = parseLocationValueRows(locationsResult.stdout)
+  const locations = mergeLocations(
+    cliLocations,
+    derivedLocations,
+    activeConfiguration?.region ? [activeConfiguration.region] : [],
+    activeConfiguration?.zone ? [activeConfiguration.zone] : []
+  )
   const projects = mergeProjects(
     activeProject ? [activeProject] : [],
     derivedProjects
@@ -584,7 +642,8 @@ export async function getGcpCliContext(): Promise<GcpCliContext> {
     activeRegion: activeConfiguration?.region ?? '',
     activeZone: activeConfiguration?.zone ?? '',
     configurations,
-    projects
+    projects,
+    locations
   }
 }
 

@@ -557,6 +557,7 @@ export type GcpCliContext = {
   activeZone: string
   configurations: GcpCliConfiguration[]
   projects: GcpCliProject[]
+  locations: string[]
 }
 
 export type GcpComputeInstanceSummary = {

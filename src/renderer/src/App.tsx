@@ -911,6 +911,33 @@ function createDefaultGcpConnectionDraft(modeId?: string): GcpConnectionDraft {
   }
 }
 
+function mergeGcpLocations(...lists: Array<string[]>): string[] {
+  const merged = new Set<string>()
+
+  for (const list of lists) {
+    for (const location of list) {
+      const normalized = location.trim()
+      if (!normalized) {
+        continue
+      }
+
+      merged.add(normalized)
+    }
+  }
+
+  return [...merged].sort((left, right) => {
+    if (left === 'global') {
+      return -1
+    }
+
+    if (right === 'global') {
+      return 1
+    }
+
+    return left.localeCompare(right)
+  })
+}
+
 function readGcpConnectionDrafts(): GcpConnectionDraftByMode {
   try {
     const raw = window.localStorage.getItem(GCP_CONNECTION_CONTEXT_STORAGE_KEY)
@@ -959,7 +986,8 @@ function readGcpCliContextCache(): GcpCliContext | null {
       activeRegion: typeof parsed.activeRegion === 'string' ? parsed.activeRegion : '',
       activeZone: typeof parsed.activeZone === 'string' ? parsed.activeZone : '',
       configurations: Array.isArray(parsed.configurations) ? parsed.configurations : [],
-      projects: Array.isArray(parsed.projects) ? parsed.projects : []
+      projects: Array.isArray(parsed.projects) ? parsed.projects : [],
+      locations: Array.isArray(parsed.locations) ? parsed.locations.filter((value): value is string => typeof value === 'string') : []
     }
   } catch {
     return null
@@ -1270,9 +1298,15 @@ export function App() {
     try {
       const nextContext = await getGcpCliContext()
       setGcpCliContext((current) => {
-        const merged = current && current.projects.length > nextContext.projects.length
-          ? { ...nextContext, projects: current.projects }
-          : nextContext
+        const mergedProjects = current && current.projects.length > nextContext.projects.length
+          ? current.projects
+          : nextContext.projects
+        const mergedLocations = mergeGcpLocations(current?.locations ?? [], nextContext.locations)
+        const merged = {
+          ...nextContext,
+          projects: mergedProjects,
+          locations: mergedLocations
+        }
         writeGcpCliContextCache(merged)
         return merged
       })
@@ -1297,7 +1331,8 @@ export function App() {
               activeRegion: '',
               activeZone: '',
               configurations: [],
-              projects
+              projects,
+              locations: []
             }
         writeGcpCliContextCache(merged)
         return merged
@@ -1499,6 +1534,14 @@ export function App() {
   const detectedGcpConfigurationCount = gcpCliContext?.configurations.length ?? 0
   const detectedGcpProjectCount = gcpCliContext?.projects.length ?? 0
   const gcpCatalogProjects = activeProviderId === 'gcp' ? gcpCliContext?.projects ?? [] : []
+  const gcpLocationOptions = activeProviderId === 'gcp'
+    ? mergeGcpLocations(
+        gcpCliContext?.locations ?? [],
+        activeGcpConfiguration?.region ? [activeGcpConfiguration.region] : [],
+        activeGcpConfiguration?.zone ? [activeGcpConfiguration.zone] : [],
+        activeGcpConnectionDraft?.location.trim() ? [activeGcpConnectionDraft.location.trim()] : []
+      )
+    : []
   const detectedGcloudCliPath = environmentHealth?.tools.find((tool) => tool.id === 'gcloud-cli' && tool.found)?.path
     || gcpCliContext?.cliPath
     || ''
@@ -1968,7 +2011,8 @@ export function App() {
       activeRegion: '',
       activeZone: '',
       configurations: [],
-      projects: []
+      projects: [],
+      locations: []
     })
 
     setSelectedPreviewModeIds((current) => ({ ...current, gcp: targetModeId }))
@@ -1981,6 +2025,34 @@ export function App() {
     }))
     setRecentGcpProjectIds((current) => [projectId, ...current.filter((entry) => entry !== projectId)].slice(0, 6))
     setNavOpen(true)
+  }
+
+  function handleApplyGcpLocation(location: string): void {
+    if (activeProviderId !== 'gcp') {
+      return
+    }
+
+    const targetModeId = selectedPreviewMode?.id || inferGcpModeIdFromContext(gcpCliContext ?? {
+      detected: false,
+      cliPath: '',
+      activeConfigurationName: '',
+      activeAccount: '',
+      activeProjectId: '',
+      activeRegion: '',
+      activeZone: '',
+      configurations: [],
+      projects: [],
+      locations: []
+    })
+
+    setSelectedPreviewModeIds((current) => ({ ...current, gcp: targetModeId }))
+    setGcpConnectionDrafts((current) => ({
+      ...current,
+      [targetModeId]: {
+        ...(current[targetModeId] ?? createDefaultGcpConnectionDraft(targetModeId)),
+        location
+      }
+    }))
   }
 
   function renderGcpProjectCard(project: NonNullable<GcpCliContext['projects'][number]>, compact = false) {
@@ -3418,26 +3490,47 @@ export function App() {
                   ))}
                 </select>
               </label>
+            ) : activeProviderId === 'gcp' ? (
+              <label className="field">
+                <span>{activeProvider.locationLabel}</span>
+                <select
+                  value={activeGcpConnectionDraft?.location.trim() || ''}
+                  onChange={(event) => handleApplyGcpLocation(event.target.value)}
+                  disabled={!selectedPreviewMode || gcpLocationOptions.length === 0}
+                >
+                  {!activeGcpConnectionDraft?.location.trim() ? (
+                    <option value="" disabled>
+                      {gcpCliBusy ? 'Loading Google Cloud locations...' : 'Select location'}
+                    </option>
+                  ) : null}
+                  {gcpLocationOptions.map((location) => (
+                    <option key={location} value={location}>
+                      {location}
+                    </option>
+                  ))}
+                </select>
+                <small className="field-note">
+                  {selectedPreviewMode
+                    ? gcpContextReady
+                      ? `Project ${activeGcpConnectionDraft?.projectId.trim()} will be injected into the terminal with ${gcpCredentialFieldCopy?.label.toLowerCase()}.`
+                      : gcpLocationOptions.length > 0
+                        ? 'Choose a Google Cloud location to finish the shared shell context.'
+                        : 'Refresh gcloud to import selectable Google Cloud locations.'
+                    : 'Select a Google Cloud connection mode to start binding project context.'}
+                </small>
+              </label>
             ) : (
               <div className={`enterprise-sidebar-note provider-sidebar-note provider-sidebar-note-secondary provider-sidebar-note-${activeProviderId}`}>
                 <span>{activeProvider.locationLabel}</span>
                 <strong>
-                  {activeProviderId === 'gcp'
-                    ? activeGcpConnectionDraft?.location.trim() || 'Set location'
-                    : selectedPreviewMode
-                      ? selectedPreviewMode.label
-                      : 'Selector staged'}
+                  {selectedPreviewMode
+                    ? selectedPreviewMode.label
+                    : 'Selector staged'}
                 </strong>
                 <small>
-                  {activeProviderId === 'gcp'
-                    ? selectedPreviewMode
-                      ? gcpContextReady
-                        ? `Project ${activeGcpConnectionDraft?.projectId.trim()} will be injected into the terminal with ${gcpCredentialFieldCopy?.label.toLowerCase()}.`
-                        : 'Set a project and location to finish the Google Cloud shell context.'
-                      : 'Select a Google Cloud connection mode to start binding project context.'
-                    : selectedPreviewMode
-                      ? 'Terminal env values will be injected automatically when the shell opens.'
-                      : `${activeProvider.label} will bind location and credential context here in the next Phase 4 steps.`}
+                  {selectedPreviewMode
+                    ? 'Terminal env values will be injected automatically when the shell opens.'
+                    : `${activeProvider.label} will bind location and credential context here in the next Phase 4 steps.`}
                 </small>
               </div>
             )}
