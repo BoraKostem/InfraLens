@@ -1,8 +1,6 @@
-import os from 'node:os'
 import path from 'node:path'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { BrowserWindow, dialog } from 'electron'
-import { Storage } from '@google-cloud/storage'
 import { GoogleAuth } from 'google-auth-library'
 import { google } from 'googleapis'
 
@@ -24,6 +22,14 @@ type GcpStorageObjectRecord = {
   size: number
   lastModified: string
   storageClass: string
+}
+
+type GcpRequestOptions = {
+  data?: unknown
+  headers?: Record<string, string>
+  method?: 'DELETE' | 'GET' | 'POST'
+  responseType?: 'arraybuffer' | 'json' | 'text'
+  url: string
 }
 
 function asString(value: unknown): string {
@@ -130,6 +136,49 @@ function getGcpAuth(projectId = ''): GoogleAuth {
     projectId: projectId.trim() || undefined,
     scopes: GCP_SDK_SCOPES
   })
+}
+
+async function requestGcp<T>(projectId: string, options: GcpRequestOptions): Promise<T> {
+  const client = await getGcpAuth(projectId).getClient()
+  const response = await client.request<T>({
+    url: options.url,
+    method: options.method ?? 'GET',
+    headers: options.headers,
+    data: options.data,
+    responseType: options.responseType
+  })
+
+  return response.data
+}
+
+function buildStorageApiUrl(pathname: string, query: Record<string, number | string | undefined> = {}): string {
+  const url = new URL(`https://storage.googleapis.com${pathname}`)
+
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === '') {
+      continue
+    }
+
+    url.searchParams.set(key, String(value))
+  }
+
+  return url.toString()
+}
+
+function encodeStorageObjectKey(value: string): string {
+  return encodeURIComponent(value.trim())
+}
+
+function asBuffer(value: ArrayBuffer | Buffer | Uint8Array): Buffer {
+  if (Buffer.isBuffer(value)) {
+    return value
+  }
+
+  if (value instanceof Uint8Array) {
+    return Buffer.from(value)
+  }
+
+  return Buffer.from(value)
 }
 
 function resourceBasename(value: string): string {
@@ -416,14 +465,6 @@ function isValidGcpLocation(value: string): boolean {
   return normalized === 'global' || GCP_REGION_PATTERN.test(normalized) || GCP_ZONE_PATTERN.test(normalized)
 }
 
-async function createTempGcpStorageFile(key: string, content: string): Promise<string> {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'cloud-lens-gcs-'))
-  const fileName = path.basename(key.trim()) || 'object.txt'
-  const filePath = path.join(tempDir, fileName)
-  await writeFile(filePath, content, 'utf8')
-  return filePath
-}
-
 export async function listGcpComputeInstances(projectId: string, location: string): Promise<GcpComputeInstanceSummary[]> {
   const normalizedProjectId = projectId.trim()
   if (!normalizedProjectId) {
@@ -510,10 +551,14 @@ export async function listGcpStorageBuckets(projectId: string, location: string)
   }
 
   try {
-    const storage = new Storage({ projectId: normalizedProjectId })
-    const [bucketList] = await storage.getBuckets({ project: normalizedProjectId, autoPaginate: false, maxResults: 500 })
-    const buckets = bucketList
-      .map((bucket) => normalizeStorageBucket({ name: bucket.name, ...(bucket.metadata ?? {}) }))
+    const response = await requestGcp<{ items?: unknown[] }>(normalizedProjectId, {
+      url: buildStorageApiUrl('/storage/v1/b', {
+        project: normalizedProjectId,
+        maxResults: 500
+      })
+    })
+    const buckets = (response.items ?? [])
+      .map((bucket) => normalizeStorageBucket(bucket))
       .filter((entry): entry is GcpStorageBucketSummary => entry !== null)
 
     return filterStorageBucketsByLocation(buckets, location)
@@ -531,22 +576,19 @@ export async function listGcpStorageObjects(projectId: string, bucketName: strin
   }
 
   try {
-    const storage = new Storage({ projectId: normalizedProjectId })
-    const bucket = storage.bucket(normalizedBucketName)
-    const [files, , apiResponse] = await bucket.getFiles({
-      autoPaginate: false,
-      maxResults: 500,
-      prefix: normalizedPrefix || undefined,
-      delimiter: '/'
+    const response = await requestGcp<{ items?: unknown[]; prefixes?: string[] }>(normalizedProjectId, {
+      url: buildStorageApiUrl(`/storage/v1/b/${encodeURIComponent(normalizedBucketName)}/o`, {
+        maxResults: 500,
+        prefix: normalizedPrefix || undefined,
+        delimiter: '/'
+      })
     })
 
     const records = [
-      ...files
-        .map((file) => normalizeStorageObjectRecord({ name: file.name, ...(file.metadata ?? {}) }, normalizedBucketName))
+      ...(response.items ?? [])
+        .map((file) => normalizeStorageObjectRecord(file, normalizedBucketName))
         .filter((entry): entry is GcpStorageObjectRecord => entry !== null),
-      ...((Array.isArray((apiResponse as { prefixes?: unknown } | undefined)?.prefixes)
-        ? ((apiResponse as { prefixes?: string[] }).prefixes ?? [])
-        : [])).map((folderPrefix) => ({
+      ...(response.prefixes ?? []).map((folderPrefix) => ({
         key: folderPrefix,
         size: 0,
         lastModified: '',
@@ -569,15 +611,19 @@ export async function getGcpStorageObjectContent(projectId: string, bucketName: 
   }
 
   try {
-    const storage = new Storage({ projectId: normalizedProjectId })
-    const file = storage.bucket(normalizedBucketName).file(normalizedKey)
-    const [[metadata], [body]] = await Promise.all([
-      file.getMetadata(),
-      file.download()
+    const objectPath = `/storage/v1/b/${encodeURIComponent(normalizedBucketName)}/o/${encodeStorageObjectKey(normalizedKey)}`
+    const [metadata, body] = await Promise.all([
+      requestGcp<Record<string, unknown>>(normalizedProjectId, {
+        url: buildStorageApiUrl(objectPath)
+      }),
+      requestGcp<string>(normalizedProjectId, {
+        url: buildStorageApiUrl(objectPath, { alt: 'media' }),
+        responseType: 'text'
+      })
     ])
 
     return {
-      body: body.toString('utf8'),
+      body,
       contentType: asString(metadata.contentType) || guessContentTypeFromKey(normalizedKey)
     }
   } catch (error) {
@@ -593,20 +639,20 @@ export async function putGcpStorageObjectContent(projectId: string, bucketName: 
     return
   }
 
-  const tempFile = await createTempGcpStorageFile(normalizedKey, content)
   try {
-    const storage = new Storage({ projectId: normalizedProjectId })
-    await storage.bucket(normalizedBucketName).upload(tempFile, {
-      destination: normalizedKey,
-      resumable: false,
-      metadata: {
-        contentType: guessContentTypeFromKey(normalizedKey)
-      }
+    await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+      url: buildStorageApiUrl(`/upload/storage/v1/b/${encodeURIComponent(normalizedBucketName)}/o`, {
+        uploadType: 'media',
+        name: normalizedKey
+      }),
+      method: 'POST',
+      headers: {
+        'Content-Type': guessContentTypeFromKey(normalizedKey)
+      },
+      data: content
     })
   } catch (error) {
     throw buildGcpSdkError(`writing Cloud Storage object "${normalizedKey}"`, error, 'storage.googleapis.com')
-  } finally {
-    await rm(path.dirname(tempFile), { recursive: true, force: true }).catch(() => undefined)
   }
 }
 
@@ -620,10 +666,17 @@ export async function uploadGcpStorageObject(projectId: string, bucketName: stri
   }
 
   try {
-    const storage = new Storage({ projectId: normalizedProjectId })
-    await storage.bucket(normalizedBucketName).upload(normalizedLocalPath, {
-      destination: normalizedKey,
-      resumable: false
+    const fileBody = await readFile(normalizedLocalPath)
+    await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+      url: buildStorageApiUrl(`/upload/storage/v1/b/${encodeURIComponent(normalizedBucketName)}/o`, {
+        uploadType: 'media',
+        name: normalizedKey
+      }),
+      method: 'POST',
+      headers: {
+        'Content-Type': guessContentTypeFromKey(normalizedKey || normalizedLocalPath)
+      },
+      data: fileBody
     })
   } catch (error) {
     throw buildGcpSdkError(`uploading Cloud Storage object "${normalizedKey}"`, error, 'storage.googleapis.com')
@@ -650,8 +703,13 @@ export async function downloadGcpStorageObjectToPath(projectId: string, bucketNa
   }
 
   try {
-    const storage = new Storage({ projectId: normalizedProjectId })
-    await storage.bucket(normalizedBucketName).file(normalizedKey).download({ destination: result.filePath })
+    const body = await requestGcp<ArrayBuffer | Buffer | Uint8Array>(normalizedProjectId, {
+      url: buildStorageApiUrl(`/storage/v1/b/${encodeURIComponent(normalizedBucketName)}/o/${encodeStorageObjectKey(normalizedKey)}`, {
+        alt: 'media'
+      }),
+      responseType: 'arraybuffer'
+    })
+    await writeFile(result.filePath, asBuffer(body))
     return result.filePath
   } catch (error) {
     throw buildGcpSdkError(`downloading Cloud Storage object "${normalizedKey}"`, error, 'storage.googleapis.com')
@@ -667,8 +725,10 @@ export async function deleteGcpStorageObject(projectId: string, bucketName: stri
   }
 
   try {
-    const storage = new Storage({ projectId: normalizedProjectId })
-    await storage.bucket(normalizedBucketName).file(normalizedKey).delete()
+    await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+      url: buildStorageApiUrl(`/storage/v1/b/${encodeURIComponent(normalizedBucketName)}/o/${encodeStorageObjectKey(normalizedKey)}`),
+      method: 'DELETE'
+    })
   } catch (error) {
     throw buildGcpSdkError(`deleting Cloud Storage object "${normalizedKey}"`, error, 'storage.googleapis.com')
   }
