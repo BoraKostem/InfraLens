@@ -647,12 +647,14 @@ function GcpComputeEngineConsole({
   projectId,
   location,
   refreshNonce,
-  onRunTerminalCommand
+  onRunTerminalCommand,
+  canRunTerminalCommand
 }: {
   projectId: string
   location: string
   refreshNonce: number
   onRunTerminalCommand: (command: string) => void
+  canRunTerminalCommand: boolean
 }) {
   const [instances, setInstances] = useState<GcpComputeInstanceSummary[]>([])
   const [loading, setLoading] = useState(true)
@@ -728,14 +730,19 @@ function GcpComputeEngineConsole({
             <div className="error-banner gcp-enable-error-banner">
               <div className="gcp-enable-error-copy">
                 <strong>{enableAction.summary}</strong>
-                <p>Run the enable command in the terminal, wait for propagation, then refresh gcloud.</p>
+                <p>
+                  {canRunTerminalCommand
+                    ? 'Run the enable command in the terminal, wait for propagation, then refresh gcloud.'
+                    : 'Switch Settings > Access Mode to Operator to enable terminal actions for this command.'}
+                </p>
               </div>
               <div className="gcp-enable-error-actions">
                 <button
                   type="button"
                   className="accent"
+                  disabled={!canRunTerminalCommand}
                   onClick={() => onRunTerminalCommand(enableAction.command)}
-                  title={enableAction.command}
+                  title={canRunTerminalCommand ? enableAction.command : 'Switch to Operator mode to enable terminal actions'}
                 >
                   Run enable command in terminal
                 </button>
@@ -1750,9 +1757,13 @@ export function App() {
   const isCurrentScreenRefreshing = refreshState?.screen === screen
   const prefersSoftRefresh = SOFT_REFRESH_SCREENS.has(screen)
   const showCatalogFab = screen === 'profiles' && !showEnvironmentOnboarding && isAwsProviderActive
-  const terminalToggleEnabled = isAwsProviderActive
-    ? enterpriseSettings.accessMode === 'operator' && activeShellConnected
-    : providerTerminalTarget !== null
+  const terminalToggleEnabled = enterpriseSettings.accessMode === 'operator' && (
+    isAwsProviderActive
+      ? activeShellConnected
+      : activeProviderId === 'gcp'
+        ? gcpContextReady
+        : selectedPreviewMode !== null
+  )
   const connectionScopeKey = activeShellConnection
     ? `${activeProviderId}:${activeShellConnection.sessionId}:${activeShellConnection.region}`
       : activeProviderId === 'gcp' && selectedPreviewMode && activeGcpConnectionDraft
@@ -2248,10 +2259,10 @@ export function App() {
   }, [fabMode, showCatalogFab])
 
   useEffect(() => {
-    if (isAwsProviderActive && enterpriseSettings.accessMode !== 'operator' && terminalOpen) {
+    if (enterpriseSettings.accessMode !== 'operator' && terminalOpen) {
       setTerminalOpen(false)
     }
-  }, [enterpriseSettings.accessMode, isAwsProviderActive, terminalOpen])
+  }, [enterpriseSettings.accessMode, terminalOpen])
 
   useEffect(() => {
     if (!terminalToggleEnabled && terminalOpen) {
@@ -3153,6 +3164,7 @@ export function App() {
           location={activeGcpConnectionDraft.location.trim()}
           refreshNonce={pageRefreshNonceByScreen['gcp-compute-engine'] ?? 0}
           onRunTerminalCommand={handleOpenTerminalCommand}
+          canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
         />
       )
     }
@@ -3936,7 +3948,7 @@ export function App() {
                     : `Select a ${activeProvider.label} connection mode before opening the terminal.`}
           </span>
         </div>
-        {(isAwsProviderActive ? enterpriseSettings.accessMode === 'operator' : providerTerminalTarget !== null) && (
+        {enterpriseSettings.accessMode === 'operator' && (
           <button
             type="button"
             className="accent footer-terminal-toggle"
