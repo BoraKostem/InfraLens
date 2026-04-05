@@ -1574,6 +1574,9 @@ export function App() {
     selectedPreviewMode,
     selectedService
   )
+  const isProviderPageRefreshing = activeProviderId === 'gcp'
+    ? gcpCliBusy || gcpProjectCatalogBusy
+    : isCurrentScreenRefreshing
   const versionLabel = releaseInfo?.currentVersion ?? ''
   const releaseStateLabel = !releaseInfo?.supportsAutoUpdate
     ? 'Unavailable in dev build'
@@ -2145,10 +2148,10 @@ export function App() {
 
     if (activeProviderId === 'gcp') {
       void loadGcpCliContext()
+      return
     }
 
     const refreshTags = refreshTagsForScreen(screen)
-
     if (refreshTags.length === 0) {
       return
     }
@@ -3274,10 +3277,12 @@ export function App() {
               type="button"
               className="sidebar-refresh-button"
               onClick={handlePageRefresh}
-              disabled={!providerRefreshReady || isCurrentScreenRefreshing}
+              disabled={!providerRefreshReady || isProviderPageRefreshing}
             >
-              {isCurrentScreenRefreshing
-                ? 'Refreshing current view...'
+              {isProviderPageRefreshing
+                ? activeProviderId === 'gcp'
+                  ? 'Syncing GCP catalog...'
+                  : 'Refreshing current view...'
                 : selectedService
                   ? `Refresh ${selectedService.label}`
                   : 'Refresh current page'}
