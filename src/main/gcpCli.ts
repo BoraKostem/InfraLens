@@ -55,6 +55,9 @@ const DEFAULT_GCP_LOCATIONS = [
   'us-west4'
 ] as const
 
+const GCP_REGION_PATTERN = /^[a-z]+(?:-[a-z0-9]+)+\d$/
+const GCP_ZONE_PATTERN = /^[a-z]+(?:-[a-z0-9]+)+\d-[a-z]$/
+
 function listGoogleCloudCommandCandidates(): string[] {
   if (process.platform === 'darwin') {
     return [
@@ -345,7 +348,7 @@ function mergeLocations(...lists: Array<string[]>): string[] {
   for (const list of lists) {
     for (const location of list) {
       const normalized = location.trim()
-      if (!normalized) {
+      if (!isValidGcpLocation(normalized)) {
         continue
       }
 
@@ -364,6 +367,17 @@ function mergeLocations(...lists: Array<string[]>): string[] {
 
     return left.localeCompare(right)
   })
+}
+
+function isValidGcpLocation(value: string): boolean {
+  const normalized = value.trim().toLowerCase()
+  if (!normalized) {
+    return false
+  }
+
+  return normalized === 'global'
+    || GCP_REGION_PATTERN.test(normalized)
+    || GCP_ZONE_PATTERN.test(normalized)
 }
 
 function getGcpConfigRoot(): string {

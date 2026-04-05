@@ -918,13 +918,27 @@ function createDefaultGcpConnectionDraft(modeId?: string): GcpConnectionDraft {
   }
 }
 
+const GCP_REGION_PATTERN = /^[a-z]+(?:-[a-z0-9]+)+\d$/
+const GCP_ZONE_PATTERN = /^[a-z]+(?:-[a-z0-9]+)+\d-[a-z]$/
+
+function isValidGcpLocation(value: string): boolean {
+  const normalized = value.trim().toLowerCase()
+  if (!normalized) {
+    return false
+  }
+
+  return normalized === 'global'
+    || GCP_REGION_PATTERN.test(normalized)
+    || GCP_ZONE_PATTERN.test(normalized)
+}
+
 function mergeGcpLocations(...lists: Array<string[]>): string[] {
   const merged = new Set<string>()
 
   for (const list of lists) {
     for (const location of list) {
       const normalized = location.trim()
-      if (!normalized) {
+      if (!isValidGcpLocation(normalized)) {
         continue
       }
 
@@ -957,7 +971,9 @@ function readGcpConnectionDrafts(): GcpConnectionDraftByMode {
       modeId,
       {
         projectId: typeof draft.projectId === 'string' ? draft.projectId : '',
-        location: typeof draft.location === 'string' ? draft.location : createDefaultGcpConnectionDraft(modeId).location,
+        location: typeof draft.location === 'string' && isValidGcpLocation(draft.location)
+          ? draft.location
+          : createDefaultGcpConnectionDraft(modeId).location,
         credentialHint: typeof draft.credentialHint === 'string' ? draft.credentialHint : ''
       } satisfies GcpConnectionDraft
     ] as const)
@@ -994,7 +1010,9 @@ function readGcpCliContextCache(): GcpCliContext | null {
       activeZone: typeof parsed.activeZone === 'string' ? parsed.activeZone : '',
       configurations: Array.isArray(parsed.configurations) ? parsed.configurations : [],
       projects: Array.isArray(parsed.projects) ? parsed.projects : [],
-      locations: Array.isArray(parsed.locations) ? parsed.locations.filter((value): value is string => typeof value === 'string') : []
+      locations: Array.isArray(parsed.locations)
+        ? parsed.locations.filter((value): value is string => typeof value === 'string' && isValidGcpLocation(value))
+        : []
     }
   } catch {
     return null
