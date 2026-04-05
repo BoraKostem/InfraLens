@@ -502,7 +502,7 @@ function buildLocationAwareLogFilter(location: string): string {
 function buildGcpLogFilter(location: string, query: string): string {
   const normalizedQuery = query.trim()
   const normalizedLocationFilter = buildLocationAwareLogFilter(location)
-  const freshnessFilter = 'timestamp >= "-24h"'
+  const freshnessFilter = `timestamp >= "${new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()}"`
 
   return [freshnessFilter, normalizedLocationFilter, normalizedQuery]
     .filter(Boolean)

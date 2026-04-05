@@ -840,6 +840,14 @@ function normalizeUserFacingError(rawError: string): AwsLensApiError {
     )
   }
 
+  if (normalized.includes('google cloud sdk failed while')) {
+    return new AwsLensApiError(
+      rawError,
+      rawError,
+      'Google Cloud SDK Failed'
+    )
+  }
+
   return new AwsLensApiError(
     'The operation failed. Review the current context and export diagnostics if the problem persists.',
     rawError
