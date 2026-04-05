@@ -1420,6 +1420,14 @@ export function App() {
       .filter((project): project is NonNullable<typeof project> => project !== null)
       .slice(0, 4)
   }, [gcpCatalogProjects, recentGcpProjectIds])
+  const visibleGcpProjects = useMemo(() => {
+    if (gcpProjectSearch.trim()) {
+      return filteredGcpProjects
+    }
+
+    const recentProjectIds = new Set(recentGcpProjects.map((project) => project.projectId))
+    return filteredGcpProjects.filter((project) => !recentProjectIds.has(project.projectId))
+  }, [filteredGcpProjects, gcpProjectSearch, recentGcpProjects])
 
   const primaryProfileLabel = isAwsProviderActive
     ? connectionState.activeSession?.sourceProfile || connectionState.selectedProfile?.name || connectionState.profile || 'No profile selected'
@@ -2789,8 +2797,8 @@ export function App() {
                   </div>
                 )
               ) : activeProviderId === 'gcp' ? (
-                filteredGcpProjects.length > 0 ? (
-                  filteredGcpProjects.map((project) => renderGcpProjectCard(project))
+                visibleGcpProjects.length > 0 ? (
+                  visibleGcpProjects.map((project) => renderGcpProjectCard(project))
                 ) : (
                   <div className="profile-catalog-empty">
                     <div className="eyebrow">
@@ -2808,7 +2816,9 @@ export function App() {
                         : gcpCliContext?.detected
                           ? gcpProjectSearch.trim()
                             ? `No Google Cloud projects match "${gcpProjectSearch.trim()}"`
-                            : 'No Google Cloud projects were imported'
+                            : recentGcpProjects.length > 0
+                              ? 'All imported projects are already shown in Recent Projects'
+                              : 'No Google Cloud projects were imported'
                           : 'Loading Google Cloud projects'}
                     </h3>
                     <p className="hero-path">
@@ -2817,7 +2827,9 @@ export function App() {
                         : gcpCliContext?.detected
                           ? gcpProjectSearch.trim()
                             ? 'Try a different project id or name, or clear the search to see the full imported catalog.'
-                            : 'Sign in with gcloud or switch to a configuration that can see projects, then refresh the catalog.'
+                            : recentGcpProjects.length > 0
+                              ? 'Clear Recent Projects history by selecting another project, or search to show imported projects in the main grid again.'
+                              : 'Sign in with gcloud or switch to a configuration that can see projects, then refresh the catalog.'
                           : 'The simple GCP selector fills itself from the active gcloud session. Install or sign in, then refresh gcloud.'}
                     </p>
                   </div>

@@ -74,7 +74,7 @@ function buildExecution(command: string, args: string[]): { command: string; arg
   }
 }
 
-async function runCommand(command: string, args: string[], env: Record<string, string>): Promise<CommandResult> {
+async function runCommand(command: string, args: string[], env: Record<string, string>, timeout = 20000): Promise<CommandResult> {
   return new Promise((resolve) => {
     const execution = buildExecution(command, args)
 
@@ -84,7 +84,7 @@ async function runCommand(command: string, args: string[], env: Record<string, s
         execution.args,
         {
           env,
-          timeout: 20000,
+          timeout,
           windowsHide: true,
           maxBuffer: 1024 * 1024 * 4
         },
@@ -200,6 +200,29 @@ function normalizeProject(entry: unknown): GcpCliProject | null {
   }
 }
 
+function mergeProjects(...lists: Array<GcpCliProject[]>): GcpCliProject[] {
+  const merged = new Map<string, GcpCliProject>()
+
+  for (const list of lists) {
+    for (const project of list) {
+      const existing = merged.get(project.projectId)
+      if (!existing) {
+        merged.set(project.projectId, project)
+        continue
+      }
+
+      merged.set(project.projectId, {
+        projectId: project.projectId,
+        name: project.name || existing.name,
+        projectNumber: project.projectNumber || existing.projectNumber,
+        lifecycleState: project.lifecycleState || existing.lifecycleState
+      })
+    }
+  }
+
+  return [...merged.values()].sort((left, right) => left.projectId.localeCompare(right.projectId))
+}
+
 function getGcpConfigRoot(): string {
   if (process.platform === 'win32') {
     return path.join(process.env.APPDATA ?? path.join(os.homedir(), 'AppData', 'Roaming'), 'gcloud')
@@ -310,6 +333,18 @@ function safeParseList<T>(value: string, normalize: (entry: unknown) => T | null
   }
 }
 
+function safeParseItem<T>(value: string, normalize: (entry: unknown) => T | null): T | null {
+  if (!value.trim()) {
+    return null
+  }
+
+  try {
+    return normalize(parseJson<unknown>(value))
+  } catch {
+    return null
+  }
+}
+
 export async function getGcpCliContext(): Promise<GcpCliContext> {
   const env = await getResolvedProcessEnv({ fresh: true })
   const resolved = await resolveGcloudCommand(env)
@@ -333,10 +368,12 @@ export async function getGcpCliContext(): Promise<GcpCliContext> {
     configurations: [] as GcpCliConfiguration[]
   }))
 
-  const [configurationsResult, projectsResult] = await Promise.all([
-    runCommand(resolved.command, ['config', 'configurations', 'list', '--format=json'], env),
-    runCommand(resolved.command, ['projects', 'list', '--format=json'], env)
-  ])
+  const configurationsResult = await runCommand(
+    resolved.command,
+    ['config', 'configurations', 'list', '--format=json'],
+    env,
+    5000
+  )
 
   const cliConfigurations = safeParseList(configurationsResult.stdout, normalizeConfiguration)
   const configurations = cliConfigurations.length > 0
@@ -346,10 +383,34 @@ export async function getGcpCliContext(): Promise<GcpCliContext> {
     ?? configurations.find((entry) => entry.name === fallback.activeConfigurationName)
     ?? configurations[0]
     ?? null
+  const derivedProjects = deriveProjectsFromConfigurations(configurations)
+  const activeProjectId = activeConfiguration?.projectId ?? ''
+
+  const [activeProjectResult, projectsResult] = await Promise.all([
+    activeProjectId
+      ? runCommand(resolved.command, ['projects', 'describe', activeProjectId, '--format=json'], env, 5000)
+      : Promise.resolve({
+          ok: false,
+          stdout: '',
+          stderr: '',
+          code: '',
+          path: resolved.path
+        } satisfies CommandResult),
+    runCommand(
+      resolved.command,
+      ['projects', 'list', '--format=json', '--page-size=200'],
+      env,
+      6000
+    )
+  ])
+
+  const activeProject = safeParseItem(activeProjectResult.stdout, normalizeProject)
   const cliProjects = safeParseList(projectsResult.stdout, normalizeProject)
-  const projects = cliProjects.length > 0
-    ? cliProjects
-    : deriveProjectsFromConfigurations(configurations)
+  const projects = mergeProjects(
+    activeProject ? [activeProject] : [],
+    cliProjects,
+    derivedProjects
+  )
 
   return {
     detected: true,
