@@ -13,19 +13,21 @@ import { exportDiagnosticsBundle } from './diagnostics'
 import { getEnvironmentHealthReport } from './environment'
 import { exportEnterpriseAuditEvents, getEnterpriseSettings, listEnterpriseAuditEvents, setEnterpriseAccessMode } from './enterprise'
 import {
+  getGcpCliContext,
+  listGcpProjects
+} from './gcpCli'
+import {
   deleteGcpStorageObject,
   downloadGcpStorageObjectToPath,
-  getGcpCliContext,
   getGcpStorageObjectContent,
   listGcpComputeInstances,
   listGcpGkeClusters,
-  listGcpProjects,
   listGcpSqlInstances,
   listGcpStorageBuckets,
   listGcpStorageObjects,
   putGcpStorageObjectContent,
   uploadGcpStorageObject
-} from './gcpCli'
+} from './gcpSdk'
 import { getVaultEntryCounts, listVaultEntries, revealVaultEntrySecret, saveVaultEntry } from './localVault'
 import { createHandlerWrapper, type OperationOptions } from './operations'
 import { checkForAppUpdates, downloadAppUpdate, getReleaseInfo, installAppUpdate } from './releaseCheck'
