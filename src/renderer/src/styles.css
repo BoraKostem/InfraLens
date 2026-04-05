@@ -2293,6 +2293,29 @@ button.overview-tile.clickable.active strong {
   color: #ffd9d0;
 }
 
+.gcp-enable-error-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem 1rem;
+}
+
+.gcp-enable-error-copy {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.gcp-enable-error-copy p {
+  margin: 0;
+}
+
+.gcp-enable-error-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
 .success-banner {
   padding: 0.9rem 1rem;
   border-radius: 14px;

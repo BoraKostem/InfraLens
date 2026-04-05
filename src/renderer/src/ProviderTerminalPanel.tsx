@@ -265,13 +265,17 @@ export function ProviderTerminalPanel({
   open,
   onClose,
   defaultCommand,
-  fontSize = 13
+  fontSize = 13,
+  commandToRun,
+  onCommandHandled
 }: {
   target: ProviderTerminalTarget
   open: boolean
   onClose: () => void
   defaultCommand?: string
   fontSize?: number
+  commandToRun: { id: number; command: string } | null
+  onCommandHandled: (id: number) => void
 }) {
   const tabsRef = useRef<TerminalTab[]>([])
   const resizeStateRef = useRef<{ startY: number; startHeight: number } | null>(null)
@@ -296,13 +300,13 @@ export function ProviderTerminalPanel({
   }, [panelHeight])
 
   useEffect(() => {
-    if (!open || tabsRef.current.length > 0) {
+    if (!open || tabsRef.current.length > 0 || commandToRun) {
       return
     }
 
     const tabId = createTab(target, defaultCommand)
     setActiveTabId(tabId)
-  }, [defaultCommand, open, target])
+  }, [commandToRun, defaultCommand, open, target])
 
   useEffect(() => {
     const existing = tabsRef.current.find((tab) => tab.id === activeTabId)
@@ -323,6 +327,27 @@ export function ProviderTerminalPanel({
       )
     )
   }, [activeTabId, open, target])
+
+  useEffect(() => {
+    if (!open || !commandToRun) {
+      return
+    }
+
+    const matchingTab = tabsRef.current.find((tab) => matchesTarget(tab.target, target))
+    if (matchingTab) {
+      setActiveTabId(matchingTab.id)
+      void updateProviderTerminalContext(matchingTab.id, target)
+        .then(() => runAwsTerminalCommand(matchingTab.id, commandToRun.command))
+        .then(() => {
+          onCommandHandled(commandToRun.id)
+        })
+      return
+    }
+
+    const tabId = createTab(target, commandToRun.command)
+    setActiveTabId(tabId)
+    onCommandHandled(commandToRun.id)
+  }, [commandToRun, onCommandHandled, open, target])
 
   useEffect(() => {
     return () => {

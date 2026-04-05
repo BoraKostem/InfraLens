@@ -502,6 +502,22 @@ function ConnectedServiceScreen({
   )
 }
 
+function extractQuotedCommand(error: string): string | null {
+  const match = error.match(/Run "([^"]+)"/i)
+  return match?.[1]?.trim() || null
+}
+
+function getGcpComputeEnableAction(error: string, projectId: string): { command: string; summary: string } | null {
+  if (!error.toLowerCase().includes('google cloud api access failed')) {
+    return null
+  }
+
+  return {
+    command: extractQuotedCommand(error) ?? `gcloud services enable compute.googleapis.com --project ${projectId}`,
+    summary: `Compute Engine API is disabled for project ${projectId}.`
+  }
+}
+
 function getProfileBadge(name?: string | null): string {
   const parts = (name ?? '')
     .split(/[\s-_]+/)
@@ -630,11 +646,13 @@ function PlaceholderScreen({
 function GcpComputeEngineConsole({
   projectId,
   location,
-  refreshNonce
+  refreshNonce,
+  onRunTerminalCommand
 }: {
   projectId: string
   location: string
   refreshNonce: number
+  onRunTerminalCommand: (command: string) => void
 }) {
   const [instances, setInstances] = useState<GcpComputeInstanceSummary[]>([])
   const [loading, setLoading] = useState(true)
@@ -677,6 +695,7 @@ function GcpComputeEngineConsole({
 
   const locationLabel = location.trim() || 'all locations'
   const lastLoadedLabel = lastLoadedAt ? new Date(lastLoadedAt).toLocaleTimeString() : 'Pending'
+  const enableAction = error ? getGcpComputeEnableAction(error, projectId) : null
 
   return (
     <>
@@ -705,7 +724,26 @@ function GcpComputeEngineConsole({
       </section>
       {error ? (
         <section className="panel stack">
-          <div className="error-banner">{error}</div>
+          {enableAction ? (
+            <div className="error-banner gcp-enable-error-banner">
+              <div className="gcp-enable-error-copy">
+                <strong>{enableAction.summary}</strong>
+                <p>Run the enable command in the terminal, wait for propagation, then refresh gcloud.</p>
+              </div>
+              <div className="gcp-enable-error-actions">
+                <button
+                  type="button"
+                  className="accent"
+                  onClick={() => onRunTerminalCommand(enableAction.command)}
+                  title={enableAction.command}
+                >
+                  Run enable command in terminal
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="error-banner">{error}</div>
+          )}
           <div className="profile-catalog-empty">
             <div className="eyebrow">Compute Engine Access</div>
             <h3>Instance inventory could not be loaded</h3>
@@ -2289,7 +2327,7 @@ export function App() {
   }
 
   function handleOpenTerminalCommand(command: string): void {
-    if (!isAwsProviderActive) {
+    if (!isAwsProviderActive && !providerTerminalTarget) {
       return
     }
 
@@ -3046,6 +3084,7 @@ export function App() {
           projectId={activeGcpConnectionDraft.projectId.trim()}
           location={activeGcpConnectionDraft.location.trim()}
           refreshNonce={pageRefreshNonceByScreen['gcp-compute-engine'] ?? 0}
+          onRunTerminalCommand={handleOpenTerminalCommand}
         />
       )
     }
@@ -3840,6 +3879,10 @@ export function App() {
           onClose={() => setTerminalOpen(false)}
           defaultCommand={appSettings?.terminal.defaultCommand}
           fontSize={appSettings?.terminal.fontSize ?? 13}
+          commandToRun={pendingTerminalCommand}
+          onCommandHandled={(id) => {
+            setPendingTerminalCommand((current) => (current?.id === id ? null : current))
+          }}
         />
       ) : null}
 
