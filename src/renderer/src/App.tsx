@@ -2,6 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import appLogoUrl from '../../../assets/aws-lens-logo.png'
 import type {
+  AppDiagnosticsActiveContext,
+  AppDiagnosticsConnectionSummary,
+  AppDiagnosticsFocusSummary,
+  AppDiagnosticsScreen,
   AppReleaseInfo,
   AppSecuritySummary,
   AppSettings,
@@ -42,6 +46,7 @@ import {
   setTerraformCliKind,
   setEnterpriseAccessMode,
   updateAppSettings,
+  updateDiagnosticsActiveContext,
   updateGovernanceTagDefaults,
   useAwsActivity,
   useEnterpriseSettings,
@@ -415,6 +420,145 @@ function refreshTagsForScreen(screen: Screen): CacheTag[] {
   }
 }
 
+function diagnosticsScreenLabel(screen: Screen, service: ServiceDescriptor | null): string {
+  switch (screen) {
+    case 'profiles':
+      return 'Profile Catalog'
+    case 'settings':
+      return 'Settings'
+    case 'direct-access':
+      return 'Direct Access'
+    default:
+      return service?.label ?? screen
+  }
+}
+
+function summarizeFocusForDiagnostics(focus: TokenizedFocus<NavigationFocus['service']> | null): AppDiagnosticsFocusSummary | null {
+  if (!focus) {
+    return null
+  }
+
+  switch (focus.service) {
+    case 'route53':
+      return {
+        service: focus.service,
+        resourceId: `${focus.record.name}:${focus.record.type}`,
+        summary: `${focus.record.name} ${focus.record.type}`
+      }
+    case 'load-balancers':
+      return {
+        service: focus.service,
+        resourceId: focus.loadBalancerArn,
+        summary: focus.loadBalancerArn.split('/').pop() ?? focus.loadBalancerArn
+      }
+    case 'lambda':
+      return {
+        service: focus.service,
+        resourceId: focus.functionName,
+        summary: focus.functionName
+      }
+    case 'ecs':
+      return {
+        service: focus.service,
+        resourceId: focus.serviceName,
+        summary: `${focus.serviceName} (${focus.clusterArn.split('/').pop() ?? focus.clusterArn})`
+      }
+    case 'eks':
+      return {
+        service: focus.service,
+        resourceId: focus.clusterName,
+        summary: focus.clusterName
+      }
+    case 'cloudtrail':
+      return {
+        service: focus.service,
+        resourceId: focus.resourceName || focus.filter || 'timeline',
+        summary: focus.resourceName || focus.filter || 'CloudTrail event search'
+      }
+    case 'ec2':
+      return {
+        service: focus.service,
+        resourceId: focus.instanceId || focus.volumeId || focus.tab || 'inventory',
+        summary: focus.instanceId || focus.volumeId || focus.tab || 'EC2 inventory'
+      }
+    case 'cloudwatch':
+      return {
+        service: focus.service,
+        resourceId: focus.ec2InstanceId || focus.logGroupNames?.[0] || focus.serviceHint || 'workspace',
+        summary: focus.ec2InstanceId || focus.logGroupNames?.join(', ') || focus.queryString || 'CloudWatch workspace'
+      }
+    case 'vpc':
+      return {
+        service: focus.service,
+        resourceId: focus.vpcId,
+        summary: focus.vpcId
+      }
+    case 'security-groups':
+      return {
+        service: focus.service,
+        resourceId: focus.securityGroupId,
+        summary: focus.securityGroupId
+      }
+    case 'waf':
+      return {
+        service: focus.service,
+        resourceId: focus.webAclName,
+        summary: focus.webAclName
+      }
+    default:
+      return null
+  }
+}
+
+function summarizeConnectionForDiagnostics(
+  connection: ReturnType<typeof useAwsPageConnection>['connection'],
+  connected: boolean,
+  accountId: string
+): AppDiagnosticsConnectionSummary {
+  if (!connection) {
+    return {
+      status: 'disconnected',
+      kind: '',
+      label: '',
+      profile: '',
+      sourceProfile: '',
+      region: '',
+      sessionId: '',
+      accountId: '',
+      roleArn: '',
+      assumedRoleArn: ''
+    }
+  }
+
+  if (connection.kind === 'assumed-role') {
+    return {
+      status: connected ? 'connected' : 'disconnected',
+      kind: connection.kind,
+      label: connection.label,
+      profile: connection.profile,
+      sourceProfile: connection.sourceProfile,
+      region: connection.region,
+      sessionId: connection.sessionId,
+      accountId: connection.accountId,
+      roleArn: connection.roleArn,
+      assumedRoleArn: connection.assumedRoleArn
+    }
+  }
+
+  return {
+    status: connected ? 'connected' : 'disconnected',
+    kind: connection.kind,
+    label: connection.label,
+    profile: connection.profile,
+    sourceProfile: '',
+    region: connection.region,
+    sessionId: connection.sessionId,
+    accountId,
+    roleArn: '',
+    assumedRoleArn: ''
+  }
+}
+
 export function App() {
   const [releaseInfo, setReleaseInfo] = useState<AppReleaseInfo | null>(null)
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null)
@@ -463,6 +607,7 @@ export function App() {
   const enterpriseSettings = useEnterpriseSettings()
   const launchScreenInitializedRef = useRef(false)
   const terminalAutoOpenedScopeRef = useRef('')
+  const diagnosticsContextSignatureRef = useRef('')
 
   useEffect(() => {
     void listServices()
@@ -705,6 +850,9 @@ export function App() {
       : 'Idle'
 
   const selectedService = (services.find((service) => service.id === screen) ?? null) as ServiceDescriptor | null
+  const currentDiagnosticsFocus = (screen === 'profiles' || screen === 'settings' || screen === 'direct-access'
+    ? null
+    : (focusMap[screen as NavigationFocus['service']] ?? null)) as TokenizedFocus<NavigationFocus['service']> | null
   const activeCacheTag = screenCacheTag(screen)
   const activePageNonce = pageRefreshNonceByScreen[screen] ?? 0
   const isCurrentScreenRefreshing = refreshState?.screen === screen
@@ -912,6 +1060,41 @@ export function App() {
     setRefreshState(null)
     setConnectionRenderEpoch((current) => current + 1)
   }, [connectionScopeKey])
+
+  useEffect(() => {
+    const context: AppDiagnosticsActiveContext = {
+      capturedAt: new Date().toISOString(),
+      screen: screen as AppDiagnosticsScreen,
+      screenLabel: diagnosticsScreenLabel(screen, selectedService),
+      connection: summarizeConnectionForDiagnostics(
+        connectionState.connection,
+        connectionState.connected,
+        connectionState.identity?.account ?? ''
+      ),
+      focus: summarizeFocusForDiagnostics(currentDiagnosticsFocus)
+    }
+
+    const signature = JSON.stringify({
+      screen: context.screen,
+      screenLabel: context.screenLabel,
+      connection: context.connection,
+      focus: context.focus
+    })
+
+    if (diagnosticsContextSignatureRef.current === signature) {
+      return
+    }
+
+    diagnosticsContextSignatureRef.current = signature
+    void updateDiagnosticsActiveContext(context)
+  }, [
+    connectionState.connected,
+    connectionState.connection,
+    connectionState.identity?.account,
+    currentDiagnosticsFocus,
+    screen,
+    selectedService
+  ])
 
   // Redirect to profiles when connection fails (e.g. SSO session expired)
   useEffect(() => {
