@@ -893,20 +893,6 @@ export function App() {
       ? 'settings-status-pill-preview'
       : 'settings-status-pill-stable'
   const observabilityLabEnabled = isObservabilityLabEnabled(appSettings?.features)
-  const releaseNotesPreview = useMemo(() => {
-    const notes = releaseInfo?.latestRelease.notes?.trim()
-    if (!notes) {
-      return 'No release notes are available yet.'
-    }
-
-    const compact = notes.replace(/\s+/g, ' ').trim()
-    return compact.length > 240 ? `${compact.slice(0, 237)}...` : compact
-  }, [releaseInfo?.latestRelease.notes])
-  const releasePackagingLabel = !releaseInfo?.supportsAutoUpdate
-    ? 'Dev shell or unpackaged build'
-    : releaseInfo.updateMechanism === 'electron-updater'
-      ? 'Packaged auto-update flow'
-      : 'Release check only'
   const environmentIssueCount = useMemo(() => {
     if (!environmentHealth) {
       return 0
@@ -1737,59 +1723,6 @@ export function App() {
               </div>
             </div>
           </div>
-          <section className="panel stack profile-release-center" aria-label="Release center">
-            <div className="catalog-page-header profile-release-center__header">
-              <div>
-                <div className="eyebrow">Release Center</div>
-                <h3>Updater, packaging, and release notes</h3>
-                <p className="hero-path">Track packaged build status, check for updates, and review the latest published notes without leaving AWS Lens.</p>
-              </div>
-              <div className="profile-release-center__badges">
-                <span className={`settings-status-pill ${releaseStateTone}`}>{releaseStateLabel}</span>
-                <span className={`settings-status-pill settings-status-pill-${releaseInfo?.currentBuild.channel ?? 'unknown'}`}>
-                  {releaseInfo?.currentBuild.channel ?? 'unknown'}
-                </span>
-              </div>
-            </div>
-            <div className="profile-release-center__grid">
-              <div className="profile-release-center__stats">
-                <div className="profile-release-center__stat">
-                  <span>Current</span>
-                  <strong>{releaseInfo?.currentVersion ? `v${releaseInfo.currentVersion}` : 'Unknown'}</strong>
-                </div>
-                <div className="profile-release-center__stat">
-                  <span>Latest</span>
-                  <strong>{releaseInfo?.latestVersion ? `v${releaseInfo.latestVersion}` : 'Unavailable'}</strong>
-                </div>
-                <div className="profile-release-center__stat">
-                  <span>Packaging</span>
-                  <strong>{releasePackagingLabel}</strong>
-                </div>
-                <div className="profile-release-center__stat">
-                  <span>Published</span>
-                  <strong>{releaseInfo?.latestRelease.publishedAt ? new Date(releaseInfo.latestRelease.publishedAt).toLocaleDateString() : 'Unknown'}</strong>
-                </div>
-              </div>
-              <div className="profile-release-center__notes">
-                <div className="eyebrow">Release Notes</div>
-                <p>{releaseInfo?.error ?? releaseNotesPreview}</p>
-                <div className="profile-release-center__actions">
-                  <button type="button" className="accent" disabled={!releaseInfo?.canCheckForUpdates} onClick={() => void handleCheckForUpdates()}>
-                    {releaseInfo?.checkStatus === 'checking' ? 'Checking...' : 'Check'}
-                  </button>
-                  <button type="button" disabled={!releaseInfo?.canDownloadUpdate} onClick={() => void handleDownloadUpdate()}>
-                    {releaseInfo?.updateStatus === 'downloading' ? 'Downloading...' : 'Download'}
-                  </button>
-                  <button type="button" disabled={!releaseInfo?.canInstallUpdate} onClick={() => void handleInstallUpdate()}>
-                    Install
-                  </button>
-                  <button type="button" onClick={handleOpenReleasePage}>
-                    Full notes
-                  </button>
-                </div>
-              </div>
-            </div>
-          </section>
           <div className="panel stack profile-catalog-panel">
             <div className="catalog-page-header profile-catalog-toolbar">
               <div>
@@ -2125,24 +2058,13 @@ export function App() {
                   <button
                     type="button"
                     className="app-update-indicator"
-                    aria-label={`Update available. Latest version is ${releaseInfo.latestVersion}. Open profile release center.`}
+                    aria-label={`Update available. Latest version is ${releaseInfo.latestVersion}. Open settings.`}
                     title={`Update available: v${releaseInfo.latestVersion}`}
-                    onClick={() => setScreen('profiles')}
+                    onClick={() => setScreen('settings')}
                   >
                     ↑
                   </button>
                 )}
-            </div>
-          </div>
-          <div className="service-nav-release-strip">
-            <div className="service-nav-release-strip__copy">
-              <span>Release</span>
-              <strong>{releaseStateLabel}</strong>
-              <small>{releaseInfo?.latestVersion ? `Latest v${releaseInfo.latestVersion}` : releasePackagingLabel}</small>
-            </div>
-            <div className="service-nav-release-strip__actions">
-              <button type="button" onClick={() => setScreen('profiles')}>Open</button>
-              <button type="button" onClick={handleOpenReleasePage}>Notes</button>
             </div>
           </div>
           <div className="service-nav-controls">
