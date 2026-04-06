@@ -1258,6 +1258,8 @@ export type VaultEntryKind =
   | 'access-key'
   | 'generic'
   | 'db-credential'
+  | 'kubeconfig-fragment'
+  | 'api-token'
   | 'connection-secret'
 
 export type VaultOrigin =

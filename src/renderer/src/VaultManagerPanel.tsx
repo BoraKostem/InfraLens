@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 
 import type {
   AppSecuritySummary,
+  DbConnectionEngine,
   EnterpriseAccessMode,
   VaultEntryInput,
   VaultEntryKind,
@@ -28,6 +29,12 @@ type VaultDraft = {
   kind: VaultEntryKind
   name: string
   secret: string
+  accessKeyId: string
+  secretAccessKey: string
+  usernameHint: string
+  dbEngine: DbConnectionEngine
+  notes: string
+  service: string
 }
 type ImportSelection = {
   fileName: string
@@ -36,12 +43,14 @@ type ImportSelection = {
 }
 
 const KIND_LABELS: Record<VaultEntryKind, string> = {
-  'aws-profile': 'AWS profile',
-  'ssh-key': 'SSH key',
-  pem: 'PEM',
+  'aws-profile': 'AWS credentials',
+  'ssh-key': 'SSH private key',
+  pem: 'PEM key',
   'access-key': 'Access key',
   generic: 'Generic secret',
-  'db-credential': 'DB credential',
+  'db-credential': 'DB login',
+  'kubeconfig-fragment': 'Kubeconfig fragment',
+  'api-token': 'API token',
   'connection-secret': 'Connection secret'
 }
 
@@ -64,37 +73,238 @@ const ROTATION_LABELS: Record<VaultRotationState, string> = {
 
 const KIND_OPTIONS: Array<{ value: VaultKindFilter; label: string }> = [
   { value: 'all', label: 'All kinds' },
-  { value: 'aws-profile', label: 'AWS profiles' },
+  { value: 'aws-profile', label: 'AWS credentials' },
+  { value: 'pem', label: 'PEM keys' },
+  { value: 'db-credential', label: 'DB logins' },
+  { value: 'kubeconfig-fragment', label: 'Kubeconfig fragments' },
+  { value: 'api-token', label: 'API tokens' },
+  { value: 'generic', label: 'Generic secrets' },
   { value: 'ssh-key', label: 'SSH keys' },
-  { value: 'pem', label: 'PEM' },
   { value: 'access-key', label: 'Access keys' },
-  { value: 'db-credential', label: 'DB credentials' },
-  { value: 'connection-secret', label: 'Connection secrets' },
-  { value: 'generic', label: 'Generic secrets' }
+  { value: 'connection-secret', label: 'Connection secrets' }
 ]
+
+const DB_ENGINE_OPTIONS: DbConnectionEngine[] = [
+  'postgres',
+  'mysql',
+  'mariadb',
+  'sqlserver',
+  'oracle',
+  'aurora-postgresql',
+  'aurora-mysql',
+  'unknown'
+]
+
+const KIND_DESCRIPTIONS: Record<VaultEntryKind, string> = {
+  'aws-profile': 'Store an access key ID and secret access key pair in the vault for app-managed AWS sessions.',
+  'ssh-key': 'Store SSH private key material that can be staged into EC2 and bastion workflows.',
+  pem: 'Store PEM-formatted private key material for direct SSH and certificate-based access.',
+  'access-key': 'Store a raw access key or shared secret without extra structure.',
+  generic: 'Store arbitrary secret text, JSON blobs, or copied credentials that do not fit a typed workflow yet.',
+  'db-credential': 'Store a reusable database login with engine, username hint, and password metadata.',
+  'kubeconfig-fragment': 'Store a kubeconfig snippet or context fragment for future cluster connection presets.',
+  'api-token': 'Store a service token or bearer credential together with the service label that uses it.',
+  'connection-secret': 'Store a structured connection payload such as JSON returned by another system.'
+}
+
+function normalizeDbEngineLabel(engine: DbConnectionEngine): string {
+  switch (engine) {
+    case 'aurora-postgresql':
+      return 'Aurora PostgreSQL'
+    case 'aurora-mysql':
+      return 'Aurora MySQL'
+    case 'sqlserver':
+      return 'SQL Server'
+    default:
+      return engine ? engine.charAt(0).toUpperCase() + engine.slice(1) : 'Unknown'
+  }
+}
 
 function createDraft(mode: DraftMode): VaultDraft {
   return {
     kind: mode === 'import' ? 'connection-secret' : 'generic',
     name: '',
-    secret: ''
+    secret: '',
+    accessKeyId: '',
+    secretAccessKey: '',
+    usernameHint: '',
+    dbEngine: 'unknown',
+    notes: '',
+    service: ''
   }
 }
 
-function inferImportKind(fileName: string): VaultEntryKind {
+function inferImportKind(fileName: string, content: string): VaultEntryKind {
   const normalized = fileName.trim().toLowerCase()
+  const normalizedContent = content.trim().toLowerCase()
 
-  if (normalized.endsWith('.pem')) {
+  if (normalized.endsWith('.pem') || normalizedContent.includes('-----begin')) {
     return 'pem'
   }
   if (normalized.endsWith('.ppk') || normalized.endsWith('.key')) {
     return 'ssh-key'
+  }
+  if (
+    normalized.includes('kube')
+    || (
+      normalizedContent.includes('apiversion:')
+      && (
+        normalizedContent.includes('clusters:')
+        || normalizedContent.includes('contexts:')
+        || normalizedContent.includes('users:')
+      )
+    )
+  ) {
+    return 'kubeconfig-fragment'
+  }
+  if (normalized.includes('token') || normalized.includes('bearer')) {
+    return 'api-token'
+  }
+  if (normalized.endsWith('.json')) {
+    try {
+      const parsed = JSON.parse(content) as Partial<{
+        accessKeyId: string
+        secretAccessKey: string
+        password: string
+      }>
+      if (typeof parsed.accessKeyId === 'string' && typeof parsed.secretAccessKey === 'string') {
+        return 'aws-profile'
+      }
+      if (typeof parsed.password === 'string') {
+        return 'db-credential'
+      }
+    } catch {
+      // Fall through to generic connection secret handling.
+    }
   }
   if (normalized.endsWith('.json')) {
     return 'connection-secret'
   }
 
   return 'generic'
+}
+
+function defaultRotationState(kind: VaultEntryKind): VaultRotationState {
+  return kind === 'pem' || kind === 'ssh-key' ? 'not-applicable' : 'unknown'
+}
+
+function buildCreatePayload(draft: VaultDraft): VaultEntryInput {
+  const name = draft.name.trim()
+
+  switch (draft.kind) {
+    case 'aws-profile': {
+      const accessKeyId = draft.accessKeyId.trim()
+      const secretAccessKey = draft.secretAccessKey.trim()
+      if (!accessKeyId || !secretAccessKey) {
+        throw new Error('AWS credentials require both access key ID and secret access key.')
+      }
+
+      return {
+        kind: draft.kind,
+        name,
+        secret: JSON.stringify({
+          accessKeyId,
+          secretAccessKey
+        }),
+        origin: 'manual',
+        rotationState: defaultRotationState(draft.kind),
+        metadata: {
+          profileName: name
+        }
+      }
+    }
+    case 'db-credential': {
+      const password = draft.secret.trim()
+      if (!password) {
+        throw new Error('DB login requires a password.')
+      }
+
+      return {
+        kind: draft.kind,
+        name,
+        secret: JSON.stringify({
+          password,
+          usernameHint: draft.usernameHint.trim(),
+          engine: draft.dbEngine,
+          notes: draft.notes.trim()
+        }),
+        origin: 'manual',
+        rotationState: defaultRotationState(draft.kind),
+        metadata: {
+          usernameHint: draft.usernameHint.trim(),
+          engine: draft.dbEngine,
+          notes: draft.notes.trim()
+        }
+      }
+    }
+    case 'api-token':
+      return {
+        kind: draft.kind,
+        name,
+        secret: draft.secret,
+        origin: 'manual',
+        rotationState: defaultRotationState(draft.kind),
+        metadata: {
+          service: draft.service.trim(),
+          notes: draft.notes.trim()
+        }
+      }
+    case 'kubeconfig-fragment':
+      return {
+        kind: draft.kind,
+        name,
+        secret: draft.secret,
+        origin: 'manual',
+        rotationState: defaultRotationState(draft.kind),
+        metadata: {
+          format: 'kubeconfig'
+        }
+      }
+    default:
+      return {
+        kind: draft.kind,
+        name,
+        secret: draft.secret,
+        origin: 'manual',
+        rotationState: defaultRotationState(draft.kind)
+      }
+  }
+}
+
+function getSecretFieldLabel(kind: VaultEntryKind): string {
+  switch (kind) {
+    case 'pem':
+      return 'PEM contents'
+    case 'ssh-key':
+      return 'SSH private key'
+    case 'api-token':
+      return 'Token'
+    case 'kubeconfig-fragment':
+      return 'Kubeconfig fragment'
+    case 'connection-secret':
+      return 'Connection payload'
+    default:
+      return 'Secret'
+  }
+}
+
+function getSecretPlaceholder(kind: VaultEntryKind): string {
+  switch (kind) {
+    case 'pem':
+      return '-----BEGIN PRIVATE KEY-----'
+    case 'ssh-key':
+      return 'Paste the SSH private key contents'
+    case 'api-token':
+      return 'Paste the API token or bearer secret'
+    case 'kubeconfig-fragment':
+      return 'apiVersion: v1\nkind: Config\nclusters:\n  - name: ...'
+    case 'connection-secret':
+      return 'Paste the JSON connection payload or secret blob'
+    case 'access-key':
+      return 'Paste the raw access key or shared secret'
+    default:
+      return 'Paste the secret value or JSON blob'
+  }
 }
 
 function formatTimestamp(value: string): string {
@@ -195,6 +405,8 @@ export function VaultManagerPanel({
       pem: 0,
       'access-key': 0,
       'db-credential': 0,
+      'kubeconfig-fragment': 0,
+      'api-token': 0,
       'connection-secret': 0,
       generic: 0
     }
@@ -266,15 +478,7 @@ export function VaultManagerPanel({
     setErrorMessage('')
 
     try {
-      const payload: VaultEntryInput = {
-        kind: draft.kind,
-        name: draft.name,
-        secret: draft.secret,
-        origin: 'manual',
-        rotationState: draft.kind === 'pem' || draft.kind === 'ssh-key' ? 'not-applicable' : 'unknown'
-      }
-
-      const saved = await saveVaultEntry(payload)
+      const saved = await saveVaultEntry(buildCreatePayload(draft))
       setStatusMessage(`${draftMode === 'import' ? 'Imported' : 'Saved'} vault entry: ${saved.name}`)
       await hydrateEntries(saved.id)
       resetDraft(draftMode, { clearFeedback: false })
@@ -301,12 +505,13 @@ export function VaultManagerPanel({
       const selected = {
         fileName: file.name,
         content,
-        suggestedKind: inferImportKind(file.name)
+        suggestedKind: inferImportKind(file.name, content)
       }
 
       setImportSelection(selected)
       setDraftMode('import')
       setDraft({
+        ...createDraft('import'),
         kind: selected.suggestedKind,
         name: selected.fileName,
         secret: selected.content
@@ -335,7 +540,7 @@ export function VaultManagerPanel({
         name: draft.name,
         secret: importSelection.content,
         origin: 'imported-file',
-        rotationState: draft.kind === 'pem' || draft.kind === 'ssh-key' ? 'not-applicable' : 'unknown',
+        rotationState: defaultRotationState(draft.kind),
         metadata: {
           fileName: importSelection.fileName
         }
@@ -417,6 +622,8 @@ export function VaultManagerPanel({
         `Total ${countsByKind.total}`,
         `AWS ${countsByKind['aws-profile']}`,
         `DB ${countsByKind['db-credential']}`,
+        `API ${countsByKind['api-token']}`,
+        `Kube ${countsByKind['kubeconfig-fragment']}`,
         `SSH ${countsByKind['ssh-key']}`,
         `PEM ${countsByKind.pem}`,
         `Keys ${countsByKind['access-key']}`
@@ -623,22 +830,128 @@ export function VaultManagerPanel({
                       ))}
                     </select>
                   </label>
-                  <label className="vault-manager-form__field">
-                    <span>Name</span>
-                    <input
-                      value={draft.name}
-                      onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-                      placeholder="human-readable entry name"
-                    />
-                  </label>
-                  <label className="vault-manager-form__field vault-manager-form__field-span-2">
-                    <span>Secret</span>
-                    <textarea
-                      value={draft.secret}
-                      onChange={(event) => setDraft((current) => ({ ...current, secret: event.target.value }))}
-                      placeholder="Paste the secret value or JSON blob"
-                    />
-                  </label>
+                  <div className="settings-static-muted vault-manager-form__field-span-2">{KIND_DESCRIPTIONS[draft.kind]}</div>
+
+                  {draft.kind === 'aws-profile' ? (
+                    <>
+                      <label className="vault-manager-form__field">
+                        <span>Name</span>
+                        <input
+                          value={draft.name}
+                          onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+                          placeholder="prod-admin or audit-readonly"
+                        />
+                      </label>
+                      <label className="vault-manager-form__field">
+                        <span>Access key ID</span>
+                        <input
+                          value={draft.accessKeyId}
+                          onChange={(event) => setDraft((current) => ({ ...current, accessKeyId: event.target.value }))}
+                          placeholder="AKIA..."
+                        />
+                      </label>
+                      <label className="vault-manager-form__field vault-manager-form__field-span-2">
+                        <span>Secret access key</span>
+                        <input
+                          type="password"
+                          value={draft.secretAccessKey}
+                          onChange={(event) => setDraft((current) => ({ ...current, secretAccessKey: event.target.value }))}
+                          placeholder="Paste the AWS secret access key"
+                        />
+                      </label>
+                    </>
+                  ) : draft.kind === 'db-credential' ? (
+                    <>
+                      <label className="vault-manager-form__field">
+                        <span>Name</span>
+                        <input
+                          value={draft.name}
+                          onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+                          placeholder="orders-prod-admin"
+                        />
+                      </label>
+                      <label className="vault-manager-form__field">
+                        <span>Engine</span>
+                        <select value={draft.dbEngine} onChange={(event) => setDraft((current) => ({ ...current, dbEngine: event.target.value as DbConnectionEngine }))}>
+                          {DB_ENGINE_OPTIONS.map((engine) => (
+                            <option key={engine} value={engine}>{normalizeDbEngineLabel(engine)}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="vault-manager-form__field">
+                        <span>Username hint</span>
+                        <input
+                          value={draft.usernameHint}
+                          onChange={(event) => setDraft((current) => ({ ...current, usernameHint: event.target.value }))}
+                          placeholder="db_admin"
+                        />
+                      </label>
+                      <label className="vault-manager-form__field">
+                        <span>Password</span>
+                        <input
+                          type="password"
+                          value={draft.secret}
+                          onChange={(event) => setDraft((current) => ({ ...current, secret: event.target.value }))}
+                          placeholder="Paste the database password"
+                        />
+                      </label>
+                      <label className="vault-manager-form__field vault-manager-form__field-span-2">
+                        <span>Notes</span>
+                        <input
+                          value={draft.notes}
+                          onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))}
+                          placeholder="Optional connection or owner note"
+                        />
+                      </label>
+                    </>
+                  ) : draft.kind === 'api-token' ? (
+                    <>
+                      <label className="vault-manager-form__field">
+                        <span>Name</span>
+                        <input
+                          value={draft.name}
+                          onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+                          placeholder="grafana-cloud-api"
+                        />
+                      </label>
+                      <label className="vault-manager-form__field">
+                        <span>Service</span>
+                        <input
+                          value={draft.service}
+                          onChange={(event) => setDraft((current) => ({ ...current, service: event.target.value }))}
+                          placeholder="Grafana Cloud"
+                        />
+                      </label>
+                      <label className="vault-manager-form__field vault-manager-form__field-span-2">
+                        <span>{getSecretFieldLabel(draft.kind)}</span>
+                        <input
+                          type="password"
+                          value={draft.secret}
+                          onChange={(event) => setDraft((current) => ({ ...current, secret: event.target.value }))}
+                          placeholder={getSecretPlaceholder(draft.kind)}
+                        />
+                      </label>
+                    </>
+                  ) : (
+                    <>
+                      <label className="vault-manager-form__field">
+                        <span>Name</span>
+                        <input
+                          value={draft.name}
+                          onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+                          placeholder="human-readable entry name"
+                        />
+                      </label>
+                      <label className="vault-manager-form__field vault-manager-form__field-span-2">
+                        <span>{getSecretFieldLabel(draft.kind)}</span>
+                        <textarea
+                          value={draft.secret}
+                          onChange={(event) => setDraft((current) => ({ ...current, secret: event.target.value }))}
+                          placeholder={getSecretPlaceholder(draft.kind)}
+                        />
+                      </label>
+                    </>
+                  )}
                 </div>
 
                 <div className="settings-inline-actions">

@@ -106,6 +106,8 @@ function sanitizeKind(value: unknown): VaultEntryKind {
     case 'access-key':
     case 'generic':
     case 'db-credential':
+    case 'kubeconfig-fragment':
+    case 'api-token':
     case 'connection-secret':
       return value
     default:
