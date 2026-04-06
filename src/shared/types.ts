@@ -2054,6 +2054,7 @@ export type CostBreakdown = {
   entries: CostBreakdownEntry[]
   total: number
   period: string
+  metric: string
 }
 
 export type BillingLinkedAccountSummary = {

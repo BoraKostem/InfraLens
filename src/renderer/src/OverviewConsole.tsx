@@ -338,7 +338,7 @@ export function OverviewConsole({
 
   const displayedMonthlyCost = costBreakdown?.total ?? metrics?.globalTotals.totalCost ?? globalMetrics?.globalTotals.totalCost ?? 0
   const displayedCostDetail = costBreakdown
-    ? `${costBreakdown.period} · Cost Explorer · Unblended cost`
+    ? `${costBreakdown.period} · Cost Explorer · ${costBreakdown.metric}`
     : 'Estimated from resource heuristics'
 
   const content = (
@@ -1040,7 +1040,7 @@ export function OverviewConsole({
                   ...stat,
                   label: 'Monthly Cost',
                   value: fmtCurrency(costBreakdown.total),
-                  detail: `Current month (${costBreakdown.period}) from Cost Explorer using Unblended cost`
+                  detail: `Current month (${costBreakdown.period}) from Cost Explorer using ${costBreakdown.metric}`
                 }
               }
 

@@ -77,7 +77,19 @@ const COST_WAF_ACL = 5.0
 const COST_SECRET = 0.4
 const COST_KEY_PAIR = 0
 const COST_CW_ALARM = 0.1
-const COST_EXPLORER_METRIC = 'UnblendedCost' as const
+const COST_EXPLORER_METRICS = [
+  'NetAmortizedCost',
+  'AmortizedCost',
+  'NetUnblendedCost',
+  'UnblendedCost'
+] as const
+type CostExplorerMetric = typeof COST_EXPLORER_METRICS[number]
+const COST_EXPLORER_METRIC_LABELS: Record<CostExplorerMetric, string> = {
+  NetAmortizedCost: 'Net amortized cost',
+  AmortizedCost: 'Amortized cost',
+  NetUnblendedCost: 'Net unblended cost',
+  UnblendedCost: 'Unblended cost'
+}
 const BILLING_HOME_REGION = 'us-east-1'
 const OWNERSHIP_TAG_KEYS: GovernanceTagKey[] = ['Owner', 'Environment', 'Project', 'CostCenter']
 const ORGANIZATIONS_HOME_REGION = 'us-east-1'
@@ -1199,9 +1211,24 @@ function roundPercent(value: number): number {
 }
 
 function readCostMetricAmount(
-  metrics: Record<string, { Amount?: string; Unit?: string } | undefined> | undefined
+  metrics: Record<string, { Amount?: string; Unit?: string } | undefined> | undefined,
+  metric: CostExplorerMetric
 ): number {
-  return parseFloat(metrics?.[COST_EXPLORER_METRIC]?.Amount ?? '0')
+  return parseFloat(metrics?.[metric]?.Amount ?? '0')
+}
+
+function selectPreferredCostMetric(totalsByMetric: Map<CostExplorerMetric, number>): CostExplorerMetric {
+  for (const metric of COST_EXPLORER_METRICS) {
+    if (Math.abs(totalsByMetric.get(metric) ?? 0) > 0.001) {
+      return metric
+    }
+  }
+
+  return 'UnblendedCost'
+}
+
+function getCostExplorerMetricLabel(metric: CostExplorerMetric): string {
+  return COST_EXPLORER_METRIC_LABELS[metric]
 }
 
 function createBillingCostExplorerClient(connection: AwsConnection): CostExplorerClient {
@@ -1263,23 +1290,28 @@ function isAssignedTagValue(value: string): boolean {
 async function fetchCurrentMonthTotalCost(connection: AwsConnection): Promise<{
   total: number
   period: string
+  metric: CostExplorerMetric
 }> {
   const client = createBillingCostExplorerClient(connection)
   const { label, timePeriod } = getCurrentMonthCostExplorerWindow()
   const response = await client.send(new GetCostAndUsageCommand({
     TimePeriod: timePeriod,
-    Granularity: 'MONTHLY',
-    Metrics: [COST_EXPLORER_METRIC]
+    Granularity: 'DAILY',
+    Metrics: [...COST_EXPLORER_METRICS]
   }))
 
-  let total = 0
+  const totalsByMetric = new Map<CostExplorerMetric, number>(COST_EXPLORER_METRICS.map((metric) => [metric, 0]))
   for (const result of response.ResultsByTime ?? []) {
-    total += readCostMetricAmount(result.Total)
+    for (const metric of COST_EXPLORER_METRICS) {
+      totalsByMetric.set(metric, (totalsByMetric.get(metric) ?? 0) + readCostMetricAmount(result.Total, metric))
+    }
   }
+  const metric = selectPreferredCostMetric(totalsByMetric)
 
   return {
-    total: roundCurrency(total),
-    period: label
+    total: roundCurrency(totalsByMetric.get(metric) ?? 0),
+    period: label,
+    metric
   }
 }
 
@@ -1291,20 +1323,29 @@ async function fetchCurrentMonthGroupedCosts(
   const { timePeriod } = getCurrentMonthCostExplorerWindow()
   const response = await client.send(new GetCostAndUsageCommand({
     TimePeriod: timePeriod,
-    Granularity: 'MONTHLY',
-    Metrics: [COST_EXPLORER_METRIC],
+    Granularity: 'DAILY',
+    Metrics: [...COST_EXPLORER_METRICS],
     GroupBy: [groupBy]
   }))
 
-  const groupedAmounts = new Map<string, number>()
+  const totalsByMetric = new Map<CostExplorerMetric, number>(COST_EXPLORER_METRICS.map((metric) => [metric, 0]))
+  const groupedAmountsByMetric = new Map<CostExplorerMetric, Map<string, number>>(
+    COST_EXPLORER_METRICS.map((metric) => [metric, new Map<string, number>()])
+  )
 
   for (const result of response.ResultsByTime ?? []) {
     for (const group of result.Groups ?? []) {
       const key = group.Keys?.[0] ?? 'Unknown'
-      const amount = readCostMetricAmount(group.Metrics)
-      groupedAmounts.set(key, (groupedAmounts.get(key) ?? 0) + amount)
+      for (const metric of COST_EXPLORER_METRICS) {
+        const amount = readCostMetricAmount(group.Metrics, metric)
+        const metricGroups = groupedAmountsByMetric.get(metric)!
+        metricGroups.set(key, (metricGroups.get(key) ?? 0) + amount)
+        totalsByMetric.set(metric, (totalsByMetric.get(metric) ?? 0) + amount)
+      }
     }
   }
+  const metric = selectPreferredCostMetric(totalsByMetric)
+  const groupedAmounts = groupedAmountsByMetric.get(metric) ?? new Map<string, number>()
 
   return [...groupedAmounts.entries()]
     .map(([key, amount]) => ({ key, amount: roundCurrency(amount) }))
@@ -1319,31 +1360,40 @@ async function fetchCurrentMonthCostBreakdown(connection: AwsConnection): Promis
   const [totalResp, groupedResp] = await Promise.all([
     client.send(new GetCostAndUsageCommand({
       TimePeriod: timePeriod,
-      Granularity: 'MONTHLY',
-      Metrics: [COST_EXPLORER_METRIC]
+      Granularity: 'DAILY',
+      Metrics: [...COST_EXPLORER_METRICS]
     })),
     client.send(new GetCostAndUsageCommand({
       TimePeriod: timePeriod,
-      Granularity: 'MONTHLY',
-      Metrics: [COST_EXPLORER_METRIC],
+      Granularity: 'DAILY',
+      Metrics: [...COST_EXPLORER_METRICS],
       GroupBy: [{ Type: 'DIMENSION', Key: 'SERVICE' }]
     }))
   ])
 
-  const serviceMap = new Map<string, number>()
-  let exactTotal = 0
+  const totalsByMetric = new Map<CostExplorerMetric, number>(COST_EXPLORER_METRICS.map((metric) => [metric, 0]))
+  const serviceMapsByMetric = new Map<CostExplorerMetric, Map<string, number>>(
+    COST_EXPLORER_METRICS.map((metric) => [metric, new Map<string, number>()])
+  )
 
   for (const result of totalResp.ResultsByTime ?? []) {
-    exactTotal += readCostMetricAmount(result.Total)
+    for (const metric of COST_EXPLORER_METRICS) {
+      totalsByMetric.set(metric, (totalsByMetric.get(metric) ?? 0) + readCostMetricAmount(result.Total, metric))
+    }
   }
 
   for (const result of groupedResp.ResultsByTime ?? []) {
     for (const group of result.Groups ?? []) {
       const service = group.Keys?.[0] ?? 'Unknown'
-      const amount = readCostMetricAmount(group.Metrics)
-      serviceMap.set(service, (serviceMap.get(service) ?? 0) + amount)
+      for (const metric of COST_EXPLORER_METRICS) {
+        const amount = readCostMetricAmount(group.Metrics, metric)
+        const serviceMap = serviceMapsByMetric.get(metric)!
+        serviceMap.set(service, (serviceMap.get(service) ?? 0) + amount)
+      }
     }
   }
+  const metric = selectPreferredCostMetric(totalsByMetric)
+  const serviceMap = serviceMapsByMetric.get(metric) ?? new Map<string, number>()
 
   const entries: CostBreakdownEntry[] = []
 
@@ -1355,7 +1405,12 @@ async function fetchCurrentMonthCostBreakdown(connection: AwsConnection): Promis
 
   entries.sort((a, b) => b.amount - a.amount)
 
-  return { entries, total: roundCurrency(exactTotal), period: label }
+  return {
+    entries,
+    total: roundCurrency(totalsByMetric.get(metric) ?? 0),
+    period: label,
+    metric: getCostExplorerMetricLabel(metric)
+  }
 }
 
 async function getMonthlyCostForTag(
@@ -1368,8 +1423,8 @@ async function getMonthlyCostForTag(
 
   const resp = await client.send(new GetCostAndUsageCommand({
     TimePeriod: timePeriod,
-    Granularity: 'MONTHLY',
-    Metrics: [COST_EXPLORER_METRIC],
+    Granularity: 'DAILY',
+    Metrics: [...COST_EXPLORER_METRICS],
     Filter: {
       Tags: {
         Key: tagKey,
@@ -1379,12 +1434,15 @@ async function getMonthlyCostForTag(
     }
   }))
 
-  let total = 0
+  const totalsByMetric = new Map<CostExplorerMetric, number>(COST_EXPLORER_METRICS.map((metric) => [metric, 0]))
   for (const result of resp.ResultsByTime ?? []) {
-    total += readCostMetricAmount(result.Total)
+    for (const metric of COST_EXPLORER_METRICS) {
+      totalsByMetric.set(metric, (totalsByMetric.get(metric) ?? 0) + readCostMetricAmount(result.Total, metric))
+    }
   }
+  const metric = selectPreferredCostMetric(totalsByMetric)
 
-  return roundCurrency(total)
+  return roundCurrency(totalsByMetric.get(metric) ?? 0)
 }
 
 function createOrganizationsClient(connection: AwsConnection): OrganizationsClient {
@@ -1662,6 +1720,7 @@ export async function getOverviewAccountContext(connection: AwsConnection): Prom
     } else if (payerVisibility === 'member-or-standalone') {
       notes.push('Only single-account spend is visible from the current credentials, so organization-level grouping is inferred as limited.')
     }
+    notes.push(`Cost metric: ${getCostExplorerMetricLabel(totalCost.metric)}.`)
 
     if (ownershipHints.every((hint) => hint.taggedAmount === 0) && totalCost.total > 0) {
       notes.push('Ownership hints are empty for the current month. AWS cost allocation tags may not be activated for Owner, Environment, Project, or CostCenter.')
