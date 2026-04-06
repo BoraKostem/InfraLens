@@ -2,6 +2,19 @@
   gap: 14px;
 }
 
+.gcp-compliance-center .compliance-shell-hero::after {
+  background:
+    linear-gradient(115deg, rgba(55, 184, 113, 0.12), transparent 38%),
+    linear-gradient(180deg, transparent 60%, rgba(125, 211, 252, 0.08));
+}
+
+.gcp-compliance-center .compliance-overview-tile.highlight,
+.gcp-compliance-center .tf-shell-stat-card-accent {
+  background:
+    radial-gradient(circle at top right, rgba(55, 184, 113, 0.18), transparent 42%),
+    linear-gradient(180deg, rgba(22, 45, 35, 0.96), rgba(10, 24, 18, 0.96));
+}
+
 .compliance-shell-hero {
   grid-template-columns: minmax(0, 1.18fr) minmax(320px, 0.92fr);
 }

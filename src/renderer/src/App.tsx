@@ -95,6 +95,7 @@ import { CloudTrailConsole } from './CloudTrailConsole'
 import { CloudWatchConsole } from './CloudWatchConsole'
 import { DirectResourceConsole } from './DirectResourceConsole'
 import { GcpCompareWorkspace } from './GcpCompareWorkspace'
+import { GcpComplianceCenter } from './GcpComplianceCenter'
 import { useAwsPageConnection } from './AwsPage'
 import { EcsConsole } from './EcsConsole'
 import { Ec2Console } from './Ec2Console'
@@ -5683,6 +5684,20 @@ export function App() {
             />
           )
         }
+
+          if (activeProviderId === 'gcp' && targetScreen === 'compliance-center' && activeGcpConnectionDraft) {
+            return (
+              <GcpComplianceCenter
+                projectId={activeGcpConnectionDraft.projectId.trim()}
+                location={activeGcpConnectionDraft.location.trim()}
+                catalogProjects={gcpCatalogProjects}
+                refreshNonce={pageRefreshNonceByScreen['compliance-center'] ?? 0}
+                onNavigate={(serviceId, resourceId) => navigateToServiceWithResourceId(serviceId, resourceId)}
+                onRunTerminalCommand={handleOpenTerminalCommand}
+                canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+              />
+            )
+          }
 
         if (isProviderService(targetService ?? null, activeProviderId)) {
           return renderCatalogPlaceholder(targetService!)
