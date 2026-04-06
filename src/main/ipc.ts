@@ -95,6 +95,15 @@ async function stageSshPrivateKey(sourcePath: string): Promise<string> {
   return targetPath
 }
 
+async function deriveSshPublicKey(privateKeyPath: string): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync('ssh-keygen', ['-y', '-f', privateKeyPath], { windowsHide: true })
+    return stdout.trim()
+  } catch {
+    return ''
+  }
+}
+
 async function stageVaultSshPrivateKey(entryId: string): Promise<string> {
   const entry = listVaultEntries().find((candidate) => candidate.id === entryId)
   if (!entry) {
@@ -112,19 +121,26 @@ async function stageVaultSshPrivateKey(entryId: string): Promise<string> {
   await fs.mkdir(targetDir, { recursive: true })
   await fs.writeFile(targetPath, secret, 'utf8')
 
-  const publicKeyCandidates = [entry.metadata.sourcePath, entry.metadata.stagedPath]
-    .map((candidate) => candidate?.trim())
-    .filter((candidate): candidate is string => Boolean(candidate))
-    .map((candidate) => `${candidate}.pub`)
-
   let publicKey = entry.metadata.publicKey?.trim() ?? ''
   if (!publicKey) {
+    const publicKeyCandidates = [
+      entry.metadata.publicKeyPath,
+      entry.metadata.sourcePath ? `${entry.metadata.sourcePath}.pub` : '',
+      entry.metadata.stagedPath ? `${entry.metadata.stagedPath}.pub` : ''
+    ]
+      .map((candidate) => candidate?.trim())
+      .filter((candidate, index, items): candidate is string => Boolean(candidate) && items.indexOf(candidate) === index)
+
     for (const candidatePath of publicKeyCandidates) {
       publicKey = await fs.readFile(candidatePath, 'utf8').then((value) => value.trim()).catch(() => '')
       if (publicKey) {
         break
       }
     }
+  }
+
+  if (!publicKey) {
+    publicKey = await deriveSshPublicKey(targetPath)
   }
 
   if (publicKey) {
@@ -150,9 +166,9 @@ async function importSshPrivateKeyToVault(sourcePath: string): Promise<Ec2Chosen
     secret: content,
     metadata: {
       sourcePath,
-      stagedPath,
       fileName: baseName,
-      publicKey
+      publicKey,
+      publicKeyPath: `${sourcePath}.pub`
     },
     origin: 'imported',
     rotationState: 'not-applicable'

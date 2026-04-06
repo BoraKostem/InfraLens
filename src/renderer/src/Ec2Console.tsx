@@ -1538,40 +1538,6 @@ export function Ec2Console({
     }
   }
 
-  async function doSendKey() {
-    if (!selectedId || !sshKey || !detail) return
-    await runEc2Mutation(async () => {
-      const resolvedKey = await resolveCurrentSshKeyInput()
-      await markSelectedPemUsed('ec2-instance-connect', resolvedKey.vaultEntryId)
-      const ok = await sendSshPublicKey(connection, selectedId, sshUser, resolvedKey.value, detail.availabilityZone)
-      setMsg(ok ? `Public key sent for ${sshUser} (valid 60s)` : 'Failed to send key')
-    })
-  }
-
-  async function doEc2InstanceConnectSsh() {
-    if (!detail || !onRunTerminalCommand) {
-      return
-    }
-
-    await runEc2Mutation(async () => {
-      const resolvedKey = await resolveCurrentSshKeyInput()
-      await markSelectedPemUsed('ec2-instance-connect', resolvedKey.vaultEntryId)
-      const ok = await sendSshPublicKey(connection, selectedId, sshUser, resolvedKey.value, detail.availabilityZone)
-      if (!ok) {
-        setMsg('Failed to send key')
-        return
-      }
-
-      const sshTarget = detail.publicIp !== '-' ? detail.publicIp : detail.privateIp
-      onRunTerminalCommand(`ssh -i ${quoteSshArg(resolvedKey.value)} ${sshUser}@${sshTarget}`)
-      setMsg(
-        resolvedKey.vaultEntryName
-          ? `Temporary public key sent and SSH opened using vault key ${resolvedKey.vaultEntryName}`
-          : 'Temporary public key sent and SSH opened'
-      )
-    })
-  }
-
   async function doSshConnect() {
     if (!detail || !onRunTerminalCommand) {
       return
@@ -1579,13 +1545,26 @@ export function Ec2Console({
 
     try {
       const resolvedKey = await resolveCurrentSshKeyInput()
+      let usedEc2InstanceConnect = false
+
+      try {
+        await markSelectedPemUsed('ec2-instance-connect', resolvedKey.vaultEntryId)
+        usedEc2InstanceConnect = await sendSshPublicKey(connection, selectedId, sshUser, resolvedKey.value, detail.availabilityZone)
+      } catch {
+        usedEc2InstanceConnect = false
+      }
+
       await markSelectedPemUsed('ec2-ssh-connect', resolvedKey.vaultEntryId)
       const sshTarget = detail.publicIp !== '-' ? detail.publicIp : detail.privateIp
       onRunTerminalCommand(`ssh -i ${quoteSshArg(resolvedKey.value)} ${sshUser}@${sshTarget}`)
       setMsg(
-        resolvedKey.vaultEntryName
-          ? `SSH command opened in terminal using vault key ${resolvedKey.vaultEntryName}`
-          : 'SSH command opened in terminal'
+        usedEc2InstanceConnect
+          ? resolvedKey.vaultEntryName
+            ? `SSH command opened with temporary EC2 Instance Connect key using vault key ${resolvedKey.vaultEntryName}`
+            : 'SSH command opened with temporary EC2 Instance Connect key'
+          : resolvedKey.vaultEntryName
+            ? `SSH command opened in terminal using vault key ${resolvedKey.vaultEntryName}`
+            : 'SSH command opened in terminal'
       )
     } catch (err) {
       setMsg(err instanceof Error ? err.message : 'Failed to prepare SSH command')
@@ -2436,22 +2415,11 @@ export function Ec2Console({
                           onClick={() => void doOpenSsmShell()}
                         >SSM Connect</button>
                         <button
-                          className="ec2-action-btn"
-                          type="button"
-                          disabled={!sshKey}
-                          onClick={() => void doSendKey()}
-                        >Send Key</button>
-                        <button
-                          className="ec2-action-btn apply"
-                          type="button"
-                          disabled={!onRunTerminalCommand || !sshKey}
-                          onClick={() => void doEc2InstanceConnectSsh()}
-                        >EIC + SSH</button>
-                        <button
                           className="ec2-action-btn ssh"
                           type="button"
+                          disabled={!onRunTerminalCommand || !sshKey}
                           onClick={() => void doSshConnect()}
-                        >Direct SSH</button>
+                        >SSH Connect</button>
                       </div>
                     </div>
                   </div>
