@@ -94,6 +94,7 @@ import { ComplianceCenter } from './ComplianceCenter'
 import { CloudTrailConsole } from './CloudTrailConsole'
 import { CloudWatchConsole } from './CloudWatchConsole'
 import { DirectResourceConsole } from './DirectResourceConsole'
+import { GcpCompareWorkspace } from './GcpCompareWorkspace'
 import { useAwsPageConnection } from './AwsPage'
 import { EcsConsole } from './EcsConsole'
 import { Ec2Console } from './Ec2Console'
@@ -5670,6 +5671,19 @@ export function App() {
       }
 
       if (activeProviderId !== 'aws' && targetScreen !== 'settings') {
+        if (activeProviderId === 'gcp' && targetScreen === 'compare' && activeGcpConnectionDraft) {
+          return (
+            <GcpCompareWorkspace
+              projectId={activeGcpConnectionDraft.projectId.trim()}
+              location={activeGcpConnectionDraft.location.trim()}
+              catalogProjects={gcpCatalogProjects}
+              locationOptions={gcpLocationOptions}
+              refreshNonce={pageRefreshNonceByScreen.compare ?? 0}
+              onNavigate={(serviceId) => navigateToService(serviceId)}
+            />
+          )
+        }
+
         if (isProviderService(targetService ?? null, activeProviderId)) {
           return renderCatalogPlaceholder(targetService!)
         }
