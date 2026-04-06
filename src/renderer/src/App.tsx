@@ -1462,6 +1462,10 @@ export function App() {
     }
   }
 
+  function handleOpenReleasePage(): void {
+    void openExternalUrl(releaseInfo?.latestRelease.url || releaseInfo?.releaseUrl || 'https://github.com/BoraKostem/AWS-Lens/releases/')
+  }
+
   async function handleRefreshEnvironmentHealth(): Promise<void> {
     setEnvironmentBusy(true)
     setToolchainBusy(true)
@@ -2054,9 +2058,9 @@ export function App() {
                   <button
                     type="button"
                     className="app-update-indicator"
-                    aria-label={`Update available. Latest version is ${releaseInfo.latestVersion}. Open releases page.`}
+                    aria-label={`Update available. Latest version is ${releaseInfo.latestVersion}. Open settings.`}
                     title={`Update available: v${releaseInfo.latestVersion}`}
-                    onClick={() => void openExternalUrl(releaseInfo.releaseUrl)}
+                    onClick={() => setScreen('settings')}
                   >
                     ↑
                   </button>
