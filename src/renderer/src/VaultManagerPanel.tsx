@@ -798,16 +798,13 @@ export function VaultManagerPanel({
     }))
   }
 
-  const summaryChips = allEntries.length > 0
+  const typeSummaryChips = allEntries.length > 0
     ? [
         `Total ${countsByKind.total}`,
         `AWS ${countsByKind['aws-profile']}`,
         `DB ${countsByKind['db-credential']}`,
         `API ${countsByKind['api-token']}`,
         `Kube ${countsByKind['kubeconfig-fragment']}`,
-        `Due ${rotationSummary.due}`,
-        `Expired ${rotationSummary.expired}`,
-        `Recent use ${rotationSummary.recentlyUsed}`,
         `SSH ${countsByKind['ssh-key']}`,
         `PEM ${countsByKind.pem}`,
         `Keys ${countsByKind['access-key']}`
@@ -820,13 +817,32 @@ export function VaultManagerPanel({
         `Keys ${securitySummary?.vaultEntryCounts.accessKeys ?? 0}`
       ]
 
+  const lifecycleSummaryChips = [
+    `Due ${rotationSummary.due}`,
+    `Expired ${rotationSummary.expired}`,
+    `Recent use ${rotationSummary.recentlyUsed}`,
+    `${visibleEntries.length} visible`
+  ]
+
   return (
     <div className="vault-manager">
-      <div className="settings-security-inline">
-        {summaryChips.map((chip) => (
-          <span key={chip}>{chip}</span>
-        ))}
-        <span>{visibleEntries.length} visible</span>
+      <div className="vault-manager-summary">
+        <div className="vault-manager-summary__group">
+          <div className="vault-manager-summary__label">Types</div>
+          <div className="settings-security-inline">
+            {typeSummaryChips.map((chip) => (
+              <span key={chip}>{chip}</span>
+            ))}
+          </div>
+        </div>
+        <div className="vault-manager-summary__group">
+          <div className="vault-manager-summary__label">Lifecycle</div>
+          <div className="settings-security-inline">
+            {lifecycleSummaryChips.map((chip) => (
+              <span key={chip}>{chip}</span>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="vault-manager-toolbar">
