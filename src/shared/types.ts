@@ -1573,6 +1573,56 @@ export type AppDiagnosticsExportResult = {
   generatedAt: string
 }
 
+export type AppDiagnosticsScreen = 'profiles' | 'settings' | 'direct-access' | ServiceId
+
+export type AppDiagnosticsConnectionSummary = {
+  status: 'connected' | 'disconnected'
+  kind: AwsConnection['kind'] | ''
+  label: string
+  profile: string
+  sourceProfile: string
+  region: string
+  sessionId: string
+  accountId: string
+  roleArn: string
+  assumedRoleArn: string
+}
+
+export type AppDiagnosticsFocusSummary = {
+  service: NavigationFocus['service']
+  resourceId: string
+  summary: string
+}
+
+export type AppDiagnosticsActiveContext = {
+  capturedAt: string
+  screen: AppDiagnosticsScreen
+  screenLabel: string
+  connection: AppDiagnosticsConnectionSummary
+  focus: AppDiagnosticsFocusSummary | null
+}
+
+export type AppDiagnosticsFailureInput = {
+  method: string
+  action: string
+  serviceId: ServiceId | ''
+  connection: AppDiagnosticsConnectionSummary | null
+  errorTitle: string
+  errorMessage: string
+  rawError: string
+}
+
+export type AppDiagnosticsFailedAction = AppDiagnosticsFailureInput & {
+  capturedAt: string
+  activeContext: AppDiagnosticsActiveContext | null
+}
+
+export type AppDiagnosticsSnapshot = {
+  updatedAt: string
+  activeContext: AppDiagnosticsActiveContext | null
+  lastFailedAction: AppDiagnosticsFailedAction | null
+}
+
 /* ── Navigation Focus ────────────────────────────────────── */
 
 export type NavigationFocus =
