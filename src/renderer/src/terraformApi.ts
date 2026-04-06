@@ -2,6 +2,7 @@ import type {
   AwsConnection,
   ObservabilityPostureReport,
   TerraformAdoptionDetectionResult,
+  TerraformAdoptionMappingResult,
   TerraformAdoptionTarget,
   TerraformCliInfo,
   TerraformCommandLog,
@@ -71,6 +72,15 @@ export async function detectAdoption(
   target: TerraformAdoptionTarget
 ): Promise<TerraformAdoptionDetectionResult> {
   return unwrap(await bridge().detectAdoption(profileName, connection, target) as Wrapped<TerraformAdoptionDetectionResult>)
+}
+
+export async function mapAdoption(
+  profileName: string,
+  projectId: string,
+  connection: AwsConnection | undefined,
+  target: TerraformAdoptionTarget
+): Promise<TerraformAdoptionMappingResult> {
+  return unwrap(await bridge().mapAdoption(profileName, projectId, connection, target) as Wrapped<TerraformAdoptionMappingResult>)
 }
 
 export async function chooseProjectDirectory(): Promise<string> {

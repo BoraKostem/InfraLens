@@ -3929,6 +3929,15 @@ export type TerraformAdoptionTarget = {
   arn: string
   name: string
   tags?: Record<string, string>
+  resourceContext?: {
+    vpcId?: string
+    subnetId?: string
+    securityGroupIds?: string[]
+    iamInstanceProfile?: string
+    availabilityZone?: string
+    instanceType?: string
+    imageId?: string
+  }
 }
 
 export type TerraformAdoptionStateMatch = {
@@ -3967,6 +3976,50 @@ export type TerraformAdoptionDetectionResult = {
   managedProjectCount: number
   configHintProjectCount: number
   projects: TerraformAdoptionProjectSignal[]
+}
+
+export type TerraformAdoptionMappingSource = 'related-resource' | 'existing-resource-type' | 'default'
+
+export type TerraformAdoptionMappingConfidence = 'high' | 'medium' | 'low'
+
+export type TerraformAdoptionRelatedResourceMatch = {
+  address: string
+  resourceType: string
+  modulePath: string
+  mode: 'managed' | 'data'
+  matchedOn: 'subnet-id' | 'vpc-id' | 'security-group' | 'iam-instance-profile' | 'eks-nodegroup'
+  matchedValue: string
+}
+
+export type TerraformAdoptionModuleSuggestion = {
+  modulePath: string
+  displayPath: string
+  source: TerraformAdoptionMappingSource
+}
+
+export type TerraformAdoptionProviderSuggestion = {
+  providerAddress: string
+  alias: string
+  displayName: string
+  source: TerraformAdoptionMappingSource
+}
+
+export type TerraformAdoptionMappingResult = {
+  supported: boolean
+  checkedAt: string
+  projectId: string
+  projectName: string
+  target: TerraformAdoptionTarget
+  recommendedResourceType: string
+  importId: string
+  suggestedResourceName: string
+  suggestedAddress: string
+  module: TerraformAdoptionModuleSuggestion
+  provider: TerraformAdoptionProviderSuggestion
+  confidence: TerraformAdoptionMappingConfidence
+  reasons: string[]
+  warnings: string[]
+  relatedResources: TerraformAdoptionRelatedResourceMatch[]
 }
 
 export type TerraformProgressEvent = {

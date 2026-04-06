@@ -34,6 +34,7 @@ import type {
   SsmSessionSummary,
   SubnetSummary,
   TerraformAdoptionDetectionResult,
+  TerraformAdoptionMappingResult,
   TerraformAdoptionTarget,
   TerraformProjectListItem,
   VaultEntrySummary
@@ -97,7 +98,7 @@ import {
   terminateEc2Instance
 } from './ec2Api'
 import { ConfirmButton } from './ConfirmButton'
-import { detectAdoption, listProjects as listTerraformProjects } from './terraformApi'
+import { detectAdoption, listProjects as listTerraformProjects, mapAdoption } from './terraformApi'
 
 type MainTab = 'instances' | 'volumes' | 'snapshots'
 type SideTab = 'overview' | 'ssm' | 'timeline'
@@ -240,8 +241,27 @@ function buildEc2AdoptionTarget(connection: AwsConnection, instance: Ec2Instance
     identifier: instance.instanceId,
     arn: '',
     name: instance.name && instance.name !== '-' ? instance.name : '',
-    tags: instance.tags
+    tags: instance.tags,
+    resourceContext: {
+      vpcId: instance.vpcId,
+      subnetId: instance.subnetId,
+      securityGroupIds: instance.securityGroups.map((group) => group.id),
+      iamInstanceProfile: instance.iamProfile,
+      availabilityZone: instance.availabilityZone,
+      instanceType: instance.type,
+      imageId: instance.imageId
+    }
   }
+}
+
+function adoptionConfidenceLabel(confidence: TerraformAdoptionMappingResult['confidence']): string {
+  return confidence.charAt(0).toUpperCase() + confidence.slice(1)
+}
+
+function adoptionSourceLabel(source: TerraformAdoptionMappingResult['module']['source']): string {
+  if (source === 'related-resource') return 'Related resources'
+  if (source === 'existing-resource-type') return 'Existing resources'
+  return 'Fallback'
 }
 
 type CompatibilityTone = 'match' | 'warning' | 'unknown'
@@ -685,6 +705,10 @@ export function Ec2Console({
   const [projectPickerProjects, setProjectPickerProjects] = useState<TerraformProjectListItem[]>([])
   const [selectedProjectCandidateId, setSelectedProjectCandidateId] = useState('')
   const [selectedAdoptionProject, setSelectedAdoptionProject] = useState<TerraformProjectListItem | null>(null)
+  const [adoptionMapping, setAdoptionMapping] = useState<TerraformAdoptionMappingResult | null>(null)
+  const [adoptionMappingLoading, setAdoptionMappingLoading] = useState(false)
+  const [adoptionMappingError, setAdoptionMappingError] = useState('')
+  const adoptionMappingRequestRef = useRef(0)
 
   /* ── Snapshots state ─────────────────────────────────────── */
   const [snapshots, setSnapshots] = useState<Ec2SnapshotSummary[]>([])
@@ -931,6 +955,46 @@ export function Ec2Console({
     }
   }
 
+  async function loadAdoptionMapping(
+    nextDetail: Ec2InstanceDetail | null,
+    project: TerraformProjectListItem | null
+  ): Promise<void> {
+    const requestId = adoptionMappingRequestRef.current + 1
+    adoptionMappingRequestRef.current = requestId
+
+    if (!nextDetail || !project || adoptionDetection?.managedProjectCount !== 0) {
+      if (requestId === adoptionMappingRequestRef.current) {
+        setAdoptionMapping(null)
+        setAdoptionMappingError('')
+        setAdoptionMappingLoading(false)
+      }
+      return
+    }
+
+    setAdoptionMappingLoading(true)
+    setAdoptionMappingError('')
+    try {
+      const result = await mapAdoption(
+        terraformContextKey(connection),
+        project.id,
+        connection,
+        buildEc2AdoptionTarget(connection, nextDetail)
+      )
+      if (requestId === adoptionMappingRequestRef.current) {
+        setAdoptionMapping(result)
+      }
+    } catch (error) {
+      if (requestId === adoptionMappingRequestRef.current) {
+        setAdoptionMapping(null)
+        setAdoptionMappingError(error instanceof Error ? error.message : 'Terraform resource mapping failed.')
+      }
+    } finally {
+      if (requestId === adoptionMappingRequestRef.current) {
+        setAdoptionMappingLoading(false)
+      }
+    }
+  }
+
   function handleManageInTerraform(): void {
     adoptionSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     if (!detail) return
@@ -979,11 +1043,18 @@ export function Ec2Console({
   }, [connection.region, connection.sessionId, detail?.instanceId, detail?.name])
 
   useEffect(() => {
+    void loadAdoptionMapping(detail, selectedAdoptionProject)
+  }, [connection.region, connection.sessionId, detail?.instanceId, selectedAdoptionProject?.id, adoptionDetection?.managedProjectCount])
+
+  useEffect(() => {
     setSelectedAdoptionProject(null)
     setSelectedProjectCandidateId('')
     setShowProjectPicker(false)
     setProjectPickerProjects([])
     setProjectPickerError('')
+    setAdoptionMapping(null)
+    setAdoptionMappingError('')
+    setAdoptionMappingLoading(false)
   }, [detail?.instanceId])
 
   /* ── Recommendations state ──────────────────────────────── */
@@ -2479,6 +2550,77 @@ export function Ec2Console({
                             <small>
                               Workspace {selectedAdoptionProject.currentWorkspace || 'default'} | Region {selectedAdoptionProject.environment.region || '-'}
                             </small>
+                          </div>
+                        )}
+                        {selectedAdoptionProject && adoptionDetection.managedProjectCount === 0 && (
+                          <div className="ec2-adoption-mapping">
+                            <div className="ec2-adoption-mapping-head">
+                              <div>
+                                <h4>Resource Mapping</h4>
+                                <div className="ec2-sidebar-hint">
+                                  Match this EC2 instance to a Terraform address, provider alias, and module placement before generating code.
+                                </div>
+                              </div>
+                              {adoptionMappingLoading && <span className="ec2-adoption-pill config">Mapping...</span>}
+                              {!adoptionMappingLoading && adoptionMapping && (
+                                <span className={`ec2-adoption-pill ${adoptionMapping.confidence === 'high' ? 'managed' : adoptionMapping.confidence === 'medium' ? 'config' : 'unmanaged'}`}>
+                                  {adoptionConfidenceLabel(adoptionMapping.confidence)} confidence
+                                </span>
+                              )}
+                            </div>
+                            {adoptionMappingError && <div className="ec2-sidebar-hint ec2-adoption-error">{adoptionMappingError}</div>}
+                            {adoptionMapping && (
+                              <>
+                                <div className="ec2-adoption-mapping-grid">
+                                  <div className="ec2-adoption-row">
+                                    <span className="ec2-adoption-label">Address</span>
+                                    <code>{adoptionMapping.suggestedAddress}</code>
+                                    <small>{adoptionMapping.recommendedResourceType} | import id {adoptionMapping.importId}</small>
+                                  </div>
+                                  <div className="ec2-adoption-row">
+                                    <span className="ec2-adoption-label config">Placement</span>
+                                    <code>{adoptionMapping.module.displayPath}</code>
+                                    <small>{adoptionSourceLabel(adoptionMapping.module.source)}</small>
+                                  </div>
+                                  <div className="ec2-adoption-row">
+                                    <span className="ec2-adoption-label config">Provider</span>
+                                    <code>{adoptionMapping.provider.displayName}</code>
+                                    <small>{adoptionSourceLabel(adoptionMapping.provider.source)}</small>
+                                  </div>
+                                </div>
+                                {adoptionMapping.reasons.length > 0 && (
+                                  <div className="ec2-adoption-list">
+                                    {adoptionMapping.reasons.map((reason) => (
+                                      <div key={reason} className="ec2-adoption-row">
+                                        <span className="ec2-adoption-label">Why</span>
+                                        <small>{reason}</small>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                                {adoptionMapping.relatedResources.length > 0 && (
+                                  <div className="ec2-adoption-list">
+                                    {adoptionMapping.relatedResources.map((resource) => (
+                                      <div key={`${resource.address}:${resource.matchedOn}:${resource.matchedValue}`} className="ec2-adoption-row">
+                                        <span className="ec2-adoption-label config">Related</span>
+                                        <code>{resource.address}</code>
+                                        <small>{resource.matchedOn} via {resource.modulePath === 'root' ? 'root module' : resource.modulePath}</small>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                                {adoptionMapping.warnings.length > 0 && (
+                                  <div className="ec2-adoption-list">
+                                    {adoptionMapping.warnings.map((warning) => (
+                                      <div key={warning} className="ec2-adoption-row">
+                                        <span className="ec2-adoption-label config">Review</span>
+                                        <small>{warning}</small>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </>
+                            )}
                           </div>
                         )}
                         {adoptionDetection.projects.length === 0 ? (

@@ -403,6 +403,35 @@
   color: #9ca7b7;
 }
 
+.ec2-adoption-mapping {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(145, 176, 207, 0.14);
+  background: rgba(15, 25, 38, 0.82);
+}
+
+.ec2-adoption-mapping-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ec2-adoption-mapping-head h4 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  color: #edf1f6;
+}
+
+.ec2-adoption-mapping-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .ec2-project-picker-dialog {
   width: min(920px, 100%);
 }
@@ -2361,6 +2390,7 @@
 }
 
 @media (max-width: 900px) {
+  .ec2-adoption-mapping-grid,
   .ec2-project-picker-summary,
   .ec2-project-picker-compat {
     grid-template-columns: 1fr;
