@@ -5,6 +5,19 @@
   min-width: 0;
 }
 
+.gcp-compare-console .compare-shell-hero,
+.gcp-compare-console .compare-detail-hero {
+  background:
+    radial-gradient(circle at top left, rgba(55, 184, 113, 0.18), transparent 32%),
+    radial-gradient(circle at bottom right, rgba(125, 211, 252, 0.14), transparent 28%),
+    linear-gradient(180deg, rgba(16, 31, 27, 0.98), rgba(8, 17, 16, 0.98));
+}
+
+.gcp-compare-console .compare-shell-stat-card-accent {
+  border-color: rgba(86, 196, 127, 0.24);
+  background: linear-gradient(180deg, rgba(26, 77, 53, 0.92), rgba(12, 37, 28, 0.92));
+}
+
 .compare-shell-hero,
 .compare-detail-hero {
   display: grid;
