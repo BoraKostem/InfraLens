@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './terraform.css'
 import { CollapsibleInfoPanel } from './CollapsibleInfoPanel'
+import { IncidentTimelineTab } from './IncidentTimelineTab'
 import { SvcState, variantForError } from './SvcState'
 import { FreshnessIndicator, useFreshnessState } from './freshness'
 
@@ -73,7 +74,7 @@ import {
 } from './terraformApi'
 import { ObservabilityResilienceLab } from './ObservabilityResilienceLab'
 
-type DetailTab = 'operations' | 'actions' | 'state' | 'resources' | 'drift' | 'lab' | 'history'
+type DetailTab = 'operations' | 'timeline' | 'actions' | 'state' | 'resources' | 'drift' | 'lab' | 'history'
 
 type StateOperationDraft =
   | { mode: 'import'; importAddress: string; importId: string }
@@ -199,6 +200,7 @@ function OperationsCenterTab({
   driftLoading,
   driftError,
   lastLog,
+  onOpenTimeline,
   onOpenActions,
   onOpenDrift,
   onOpenState,
@@ -209,6 +211,7 @@ function OperationsCenterTab({
   driftLoading: boolean
   driftError: string
   lastLog: TerraformCommandLog | null
+  onOpenTimeline: () => void
   onOpenActions: () => void
   onOpenDrift: () => void
   onOpenState: () => void
@@ -229,11 +232,12 @@ function OperationsCenterTab({
             <div className="tf-section-hint">
               Plan, drift, and state posture for the current project in one operating surface.
             </div>
-          </div>
-          <div className="tf-drift-actions">
-            <button type="button" className="tf-toolbar-btn" onClick={onOpenActions}>Open Actions</button>
-            <button type="button" className="tf-toolbar-btn" onClick={onOpenDrift}>Open Drift</button>
-            <button type="button" className="tf-toolbar-btn" onClick={onOpenState}>Open State</button>
+        </div>
+        <div className="tf-drift-actions">
+          <button type="button" className="tf-toolbar-btn accent" onClick={onOpenTimeline}>Open Timeline</button>
+          <button type="button" className="tf-toolbar-btn" onClick={onOpenActions}>Open Actions</button>
+          <button type="button" className="tf-toolbar-btn" onClick={onOpenDrift}>Open Drift</button>
+          <button type="button" className="tf-toolbar-btn" onClick={onOpenState}>Open State</button>
             <button type="button" className="tf-toolbar-btn" onClick={onOpenHistory}>Open History</button>
           </div>
         </div>
@@ -3535,7 +3539,8 @@ export function TerraformConsole({
   observabilityLabEnabled = true,
   onRunTerminalCommand,
   onNavigateService,
-  onNavigateCloudWatch
+  onNavigateCloudWatch,
+  onNavigateCloudTrail
 }: {
   connection: AwsConnection
   refreshNonce?: number
@@ -3543,6 +3548,7 @@ export function TerraformConsole({
   onRunTerminalCommand?: (command: string) => void
   onNavigateService?: (serviceId: ServiceId, resourceId?: string) => void
   onNavigateCloudWatch?: (focus: { logGroupNames?: string[]; queryString?: string; sourceLabel?: string; serviceHint?: ServiceId | '' }) => void
+  onNavigateCloudTrail?: (focus: { resourceName?: string; startTime?: string; endTime?: string; filter?: string }) => void
 }) {
   const [uiState, setUiState] = useState<TerraformUiState>(() => loadTerraformUiState())
   const [cliInfo, setCliInfo] = useState<TerraformCliInfo | null>(null)
@@ -4581,6 +4587,7 @@ export function TerraformConsole({
 
               <div className="tf-detail-tabs">
                 <button className={detailTab === 'operations' ? 'active' : ''} onClick={() => setDetailTab('operations')}>Operations</button>
+                <button className={detailTab === 'timeline' ? 'active' : ''} onClick={() => setDetailTab('timeline')}>Timeline</button>
                 <button className={detailTab === 'actions' ? 'active' : ''} onClick={() => setDetailTab('actions')}>Actions</button>
                 <button className={detailTab === 'state' ? 'active' : ''} onClick={() => setDetailTab('state')}>State</button>
                 <button className={detailTab === 'resources' ? 'active' : ''} onClick={() => setDetailTab('resources')}>Resources</button>
@@ -4662,10 +4669,23 @@ export function TerraformConsole({
                   driftLoading={driftLoading}
                   driftError={driftError}
                   lastLog={lastLog}
+                  onOpenTimeline={() => setDetailTab('timeline')}
                   onOpenActions={() => setDetailTab('actions')}
                   onOpenDrift={() => setDetailTab('drift')}
                   onOpenState={() => setDetailTab('state')}
                   onOpenHistory={() => setDetailTab('history')}
+                />
+              )}
+              {detailTab === 'timeline' && (
+                <IncidentTimelineTab
+                  project={detail}
+                  connection={projectConnection}
+                  driftReport={driftReport}
+                  onOpenHistory={() => setDetailTab('history')}
+                  onOpenDrift={() => setDetailTab('drift')}
+                  onNavigateService={onNavigateService}
+                  onNavigateCloudWatch={onNavigateCloudWatch}
+                  onNavigateCloudTrail={onNavigateCloudTrail}
                 />
               )}
               {detailTab === 'actions' && (

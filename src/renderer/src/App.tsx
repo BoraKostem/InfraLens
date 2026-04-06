@@ -1888,6 +1888,7 @@ export function App() {
               onRunTerminalCommand={handleOpenTerminalCommand}
               onNavigateService={navigateToServiceWithResourceId}
               onNavigateCloudWatch={(focus) => navigateWithFocus({ service: 'cloudwatch', ...focus })}
+              onNavigateCloudTrail={(focus) => navigateWithFocus({ service: 'cloudtrail', ...focus })}
             />
           )}
         </ConnectedServiceScreen>
