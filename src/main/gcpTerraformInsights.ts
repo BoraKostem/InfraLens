@@ -22,11 +22,25 @@ import type {
 import { getCachedCliInfo, getProject } from './terraform'
 import {
   getGcpBillingOverview,
+  getGcpComputeInstanceDetail,
   getGcpIamOverview,
+  getGcpGkeClusterDetail,
   getGcpProjectOverview,
+  getGcpSqlInstanceDetail,
   listGcpComputeInstances,
+  listGcpEnabledApis,
+  listGcpFirewallRules,
   listGcpGkeClusters,
+  listGcpGkeNodePools,
+  listGcpGlobalAddresses,
+  listGcpNetworks,
+  listGcpRouters,
+  listGcpServiceAccounts,
+  listGcpServiceNetworkingConnections,
+  listGcpSqlDatabasesForInstances,
   listGcpSqlInstances,
+  listGcpSqlUsers,
+  listGcpSubnetworks,
   listGcpStorageBuckets
 } from './gcpSdk'
 
@@ -34,10 +48,24 @@ type GcpTerraformContext = { projectId: string; location: string }
 type GcpLiveData = {
   projectOverview?: Awaited<ReturnType<typeof getGcpProjectOverview>>
   iamOverview?: Awaited<ReturnType<typeof getGcpIamOverview>>
+  enabledApis?: Awaited<ReturnType<typeof listGcpEnabledApis>>
+  serviceAccounts?: Awaited<ReturnType<typeof listGcpServiceAccounts>>
   computeInstances?: Awaited<ReturnType<typeof listGcpComputeInstances>>
+  computeInstanceDetails?: Record<string, Awaited<ReturnType<typeof getGcpComputeInstanceDetail>>>
+  firewallRules?: Awaited<ReturnType<typeof listGcpFirewallRules>>
   gkeClusters?: Awaited<ReturnType<typeof listGcpGkeClusters>>
+  gkeClusterDetails?: Record<string, Awaited<ReturnType<typeof getGcpGkeClusterDetail>>>
+  gkeNodePoolsByCluster?: Record<string, Awaited<ReturnType<typeof listGcpGkeNodePools>>>
+  networks?: Awaited<ReturnType<typeof listGcpNetworks>>
+  subnetworks?: Awaited<ReturnType<typeof listGcpSubnetworks>>
+  routers?: Awaited<ReturnType<typeof listGcpRouters>>
+  globalAddresses?: Awaited<ReturnType<typeof listGcpGlobalAddresses>>
+  serviceNetworkingConnections?: Awaited<ReturnType<typeof listGcpServiceNetworkingConnections>>
   storageBuckets?: Awaited<ReturnType<typeof listGcpStorageBuckets>>
   sqlInstances?: Awaited<ReturnType<typeof listGcpSqlInstances>>
+  sqlInstanceDetails?: Record<string, Awaited<ReturnType<typeof getGcpSqlInstanceDetail>>>
+  sqlDatabases?: Awaited<ReturnType<typeof listGcpSqlDatabasesForInstances>>
+  sqlUsers?: Awaited<ReturnType<typeof listGcpSqlUsers>>
   billingOverview?: Awaited<ReturnType<typeof getGcpBillingOverview>>
 }
 type GcpLiveErrors = Partial<Record<keyof GcpLiveData, string>>
@@ -52,6 +80,18 @@ function bool(value: unknown): boolean {
 
 function unique<T>(items: T[]): T[] {
   return [...new Set(items)]
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value.map((item) => str(item)).filter(Boolean)
+}
+
+function sortedStringList(value: unknown): string[] {
+  return unique(stringList(value).map((item) => normalizeResourceBasename(item))).sort()
 }
 
 function firstLocationSegment(value: string): string {
@@ -132,14 +172,33 @@ function serviceConsoleUrl(resourceType: string, logicalName: string, context: G
       return gcpConsoleUrl(`iam-admin/serviceaccounts/details/${encodeURIComponent(logicalName)}`, context.projectId)
     case 'google_project_iam_member':
       return gcpConsoleUrl('iam-admin/iam', context.projectId)
+    case 'google_compute_firewall':
+      return gcpConsoleUrl('networking/firewalls/list', context.projectId)
+    case 'google_compute_network':
+      return gcpConsoleUrl(`networking/networks/details/${encodeURIComponent(logicalName)}`, context.projectId)
+    case 'google_compute_subnetwork':
+      return gcpConsoleUrl(`networking/subnetworks/details/${encodeURIComponent(locationHint)}/${encodeURIComponent(logicalName)}`, context.projectId)
+    case 'google_compute_router':
+    case 'google_compute_router_nat':
+      return gcpConsoleUrl('hybrid/cloudrouters/list', context.projectId)
+    case 'google_compute_global_address':
+      return gcpConsoleUrl('networking/addresses/list', context.projectId)
     case 'google_compute_instance':
       return gcpConsoleUrl(`compute/instancesDetail/zones/${encodeURIComponent(locationHint)}/instances/${encodeURIComponent(logicalName)}`, context.projectId)
     case 'google_container_cluster':
       return gcpConsoleUrl(`kubernetes/clusters/details/${encodeURIComponent(locationHint)}/${encodeURIComponent(logicalName)}`, context.projectId)
+    case 'google_container_node_pool':
+      return gcpConsoleUrl('kubernetes/list/overview', context.projectId)
+    case 'google_service_networking_connection':
+      return gcpConsoleUrl('networking/servicenetworking', context.projectId)
     case 'google_storage_bucket':
       return gcpConsoleUrl(`storage/browser/${encodeURIComponent(logicalName)}`, context.projectId)
     case 'google_sql_database_instance':
       return gcpConsoleUrl(`sql/instances/${encodeURIComponent(logicalName)}/overview`, context.projectId)
+    case 'google_sql_database':
+      return gcpConsoleUrl(`sql/instances/${encodeURIComponent(locationHint)}/databases`, context.projectId)
+    case 'google_sql_user':
+      return gcpConsoleUrl(`sql/instances/${encodeURIComponent(locationHint)}/users`, context.projectId)
     default:
       return gcpConsoleUrl('home/dashboard', context.projectId)
   }
@@ -189,11 +248,464 @@ function getPathValue(source: unknown, path: Array<string | number>): unknown {
   return current
 }
 
+function terraformFlatPathKey(path: Array<string | number>): string {
+  return path.map((segment) => String(segment)).join('.')
+}
+
+function getTerraformPathValue(source: unknown, path: Array<string | number>): unknown {
+  const nestedValue = getPathValue(source, path)
+  if (nestedValue !== undefined) {
+    return nestedValue
+  }
+
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    return undefined
+  }
+
+  return (source as Record<string, unknown>)[terraformFlatPathKey(path)]
+}
+
+function setPathValue(target: Record<string, unknown> | unknown[], path: Array<string | number>, value: unknown): void {
+  let current: Record<string, unknown> | unknown[] = target
+
+  for (let index = 0; index < path.length; index += 1) {
+    const segment = path[index]
+    const isLast = index === path.length - 1
+    const nextSegment = path[index + 1]
+
+    if (typeof segment === 'number') {
+      if (!Array.isArray(current)) {
+        return
+      }
+
+      if (isLast) {
+        current[segment] = value
+        return
+      }
+
+      let nextValue = current[segment]
+      if (!nextValue || typeof nextValue !== 'object') {
+        nextValue = typeof nextSegment === 'number' ? [] : {}
+        current[segment] = nextValue
+      }
+      current = nextValue as Record<string, unknown> | unknown[]
+      continue
+    }
+
+    if (Array.isArray(current)) {
+      return
+    }
+
+    if (isLast) {
+      current[segment] = value
+      return
+    }
+
+    let nextValue = current[segment]
+    if (!nextValue || typeof nextValue !== 'object') {
+      nextValue = typeof nextSegment === 'number' ? [] : {}
+      current[segment] = nextValue
+    }
+    current = nextValue as Record<string, unknown> | unknown[]
+  }
+}
+
+function getTerraformObjectArray(source: unknown, path: Array<string | number>): Record<string, unknown>[] {
+  const directValue = getTerraformPathValue(source, path)
+  if (Array.isArray(directValue)) {
+    return directValue
+      .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry))
+  }
+
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    return []
+  }
+
+  const prefix = `${terraformFlatPathKey(path)}.`
+  const grouped = new Map<number, Record<string, unknown>>()
+  for (const [key, value] of Object.entries(source as Record<string, unknown>)) {
+    if (!key.startsWith(prefix)) {
+      continue
+    }
+
+    const remainder = key.slice(prefix.length)
+    const match = remainder.match(/^(\d+)\.(.+)$/)
+    if (!match) {
+      continue
+    }
+
+    const index = Number(match[1])
+    const nestedPath = match[2]
+      .split('.')
+      .map((segment) => /^\d+$/.test(segment) ? Number(segment) : segment)
+    const current = grouped.get(index) ?? {}
+    setPathValue(current, nestedPath, value)
+    grouped.set(index, current)
+  }
+
+  return [...grouped.entries()]
+    .sort((left, right) => left[0] - right[0])
+    .map(([, value]) => value)
+}
+
+function getTerraformStringList(source: unknown, path: Array<string | number>): string[] {
+  const directValue = getTerraformPathValue(source, path)
+  if (Array.isArray(directValue)) {
+    return stringList(directValue)
+  }
+
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    return []
+  }
+
+  const record = source as Record<string, unknown>
+  const prefix = terraformFlatPathKey(path)
+  const indexedEntries = Object.entries(record)
+    .map(([key, value]) => {
+      const match = key.match(new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.(\\d+)$`))
+      if (!match) {
+        return null
+      }
+
+      return { index: Number(match[1]), value: str(value) }
+    })
+    .filter((entry): entry is { index: number; value: string } => Boolean(entry?.value))
+    .sort((left, right) => left.index - right.index)
+
+  return indexedEntries.map((entry) => entry.value)
+}
+
 function normalizeResourceBasename(value: string): string {
   const trimmed = str(value)
   if (!trimmed) return ''
   const segments = trimmed.split('/')
   return segments[segments.length - 1] || trimmed
+}
+
+function compareSortedLists(differences: TerraformDriftDifference[], key: string, label: string, terraformValues: string[], liveValues: string[]) {
+  compareValues(differences, key, label, terraformValues.join(', '), liveValues.join(', '))
+}
+
+function normalizeStringMap(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {}
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .map(([key, item]) => [key.trim(), str(item)])
+      .filter(([key, item]) => key && item)
+      .sort((left, right) => left[0].localeCompare(right[0]))
+  )
+}
+
+function normalizeComparableGcpLabelMap(value: unknown): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(normalizeStringMap(value))
+      .filter(([key]) => !key.toLowerCase().startsWith('goog-'))
+  )
+}
+
+function mapEntries(value: Record<string, string>): string[] {
+  return Object.entries(value)
+    .map(([key, item]) => `${key}=${item}`)
+    .sort((left, right) => left.localeCompare(right))
+}
+
+function compareStringMaps(differences: TerraformDriftDifference[], key: string, label: string, terraformValue: Record<string, string>, liveValue: Record<string, string>) {
+  compareSortedLists(differences, key, label, mapEntries(terraformValue), mapEntries(liveValue))
+}
+
+function compareBooleanPath(differences: TerraformDriftDifference[], source: Record<string, unknown>, path: Array<string | number>, key: string, label: string, liveValue: boolean) {
+  const terraformValue = getTerraformPathValue(source, path)
+  if (terraformValue === undefined || terraformValue === null) {
+    return
+  }
+
+  const normalized = typeof terraformValue === 'boolean'
+    ? String(terraformValue)
+    : typeof terraformValue === 'string'
+      ? terraformValue.trim().toLowerCase()
+      : typeof terraformValue === 'number'
+        ? String(terraformValue !== 0)
+        : ''
+  if (normalized !== 'true' && normalized !== 'false') {
+    return
+  }
+
+  compareValues(differences, key, label, normalized, String(liveValue))
+}
+
+function recordKey(regionOrZone: string, name: string): string {
+  return `${regionOrZone.trim().toLowerCase()}::${name.trim().toLowerCase()}`
+}
+
+function extractAuthorizedNetworks(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .map((item) => {
+      const cidr = str(getPathValue(item, ['value']))
+      const name = str(getPathValue(item, ['name']))
+      return cidr || name
+    })
+    .filter(Boolean)
+    .sort()
+}
+
+function resolveSqlInstanceName(item: TerraformResourceInventoryItem): string {
+  return str(item.values.instance) || str(item.values.instance_name)
+}
+
+function toNumberString(value: unknown): string {
+  return typeof value === 'number'
+    ? String(value)
+    : typeof value === 'string' && value.trim()
+      ? value.trim()
+      : ''
+}
+
+function toScalarString(value: unknown): string {
+  return typeof value === 'string'
+    ? value.trim()
+    : typeof value === 'number' || typeof value === 'boolean'
+      ? String(value)
+      : ''
+}
+
+function firstDefinedPathValue(source: unknown, paths: Array<Array<string | number>>): unknown {
+  for (const path of paths) {
+    const value = getTerraformPathValue(source, path)
+    if (value !== undefined && value !== null && !(typeof value === 'string' && !value.trim())) {
+      return value
+    }
+  }
+
+  return undefined
+}
+
+function nodePoolDesiredSizeValue(source: unknown): string {
+  return toNumberString(firstDefinedPathValue(source, [
+    ['node_count'],
+    ['nodeCount'],
+    ['initial_node_count'],
+    ['initialNodeCount']
+  ]))
+}
+
+function nodePoolMinSizeValue(source: unknown): string {
+  return toNumberString(firstDefinedPathValue(source, [
+    ['autoscaling', 0, 'min_node_count'],
+    ['autoscaling', 'min_node_count'],
+    ['autoscaling', 0, 'minNodeCount'],
+    ['autoscaling', 'minNodeCount'],
+    ['min_node_count'],
+    ['minNodeCount']
+  ]))
+}
+
+function nodePoolMaxSizeValue(source: unknown): string {
+  return toNumberString(firstDefinedPathValue(source, [
+    ['autoscaling', 0, 'max_node_count'],
+    ['autoscaling', 'max_node_count'],
+    ['autoscaling', 0, 'maxNodeCount'],
+    ['autoscaling', 'maxNodeCount'],
+    ['max_node_count'],
+    ['maxNodeCount']
+  ]))
+}
+
+function gkeClusterLocation(item: TerraformResourceInventoryItem, context: GcpTerraformContext): string {
+  return str(item.values.location) || str(item.values.region) || str(item.values.zone) || context.location
+}
+
+function gkeClusterName(item: TerraformResourceInventoryItem): string {
+  if (item.type === 'google_container_node_pool') {
+    return normalizeResourceBasename(str(item.values.cluster))
+  }
+  return normalizeResourceBasename(str(item.values.name) || item.name)
+}
+
+function gkeNodePoolKey(location: string, clusterName: string): string {
+  return `${location.trim().toLowerCase()}::${clusterName.trim().toLowerCase()}`
+}
+
+type TerraformGkeNodePoolSpec = {
+  name: string
+  clusterName: string
+  location: string
+  nodeCount: string
+  compareDesiredSize: boolean
+  autoscalingConfigured: boolean
+  minNodeCount: string
+  maxNodeCount: string
+  machineType: string
+  imageType: string
+  diskSizeGb: string
+  version: string
+  autoUpgradeEnabled: string
+  autoRepairEnabled: string
+  spotEnabled: string
+  preemptible: string
+  locations: string[]
+}
+
+function buildTerraformGkeNodePoolSpecs(item: TerraformResourceInventoryItem, context: GcpTerraformContext): TerraformGkeNodePoolSpec[] {
+  if (item.type === 'google_container_node_pool') {
+    const autoscalingConfigured = firstDefinedPathValue(item.values, [
+      ['autoscaling', 0, 'min_node_count'],
+      ['autoscaling', 'min_node_count'],
+      ['autoscaling', 0, 'max_node_count'],
+      ['autoscaling', 'max_node_count'],
+      ['autoscaling', 0, 'minNodeCount'],
+      ['autoscaling', 'minNodeCount'],
+      ['autoscaling', 0, 'maxNodeCount'],
+      ['autoscaling', 'maxNodeCount'],
+      ['min_node_count'],
+      ['minNodeCount'],
+      ['max_node_count'],
+      ['maxNodeCount']
+    ]) !== undefined
+
+    return [{
+      name: str(item.values.name) || item.name,
+      clusterName: normalizeResourceBasename(str(item.values.cluster)),
+      location: gkeClusterLocation(item, context),
+      nodeCount: nodePoolDesiredSizeValue(item.values),
+      compareDesiredSize: firstDefinedPathValue(item.values, [['node_count'], ['nodeCount']]) !== undefined,
+      autoscalingConfigured,
+      minNodeCount: nodePoolMinSizeValue(item.values),
+      maxNodeCount: nodePoolMaxSizeValue(item.values),
+      machineType: toScalarString(getTerraformPathValue(item.values, ['node_config', 0, 'machine_type'])),
+      imageType: toScalarString(getTerraformPathValue(item.values, ['node_config', 0, 'image_type'])),
+      diskSizeGb: toNumberString(getTerraformPathValue(item.values, ['node_config', 0, 'disk_size_gb'])),
+      version: toScalarString(getTerraformPathValue(item.values, ['version'])),
+      autoUpgradeEnabled: toScalarString(getTerraformPathValue(item.values, ['management', 0, 'auto_upgrade'])),
+      autoRepairEnabled: toScalarString(getTerraformPathValue(item.values, ['management', 0, 'auto_repair'])),
+      spotEnabled: toScalarString(getTerraformPathValue(item.values, ['node_config', 0, 'spot'])),
+      preemptible: toScalarString(getTerraformPathValue(item.values, ['node_config', 0, 'preemptible'])),
+      locations: getTerraformStringList(item.values, ['node_locations']).sort()
+    }].filter((entry) => entry.name && entry.clusterName)
+  }
+
+  if (item.type !== 'google_container_cluster') {
+    return []
+  }
+
+  const clusterName = gkeClusterName(item)
+  const location = gkeClusterLocation(item, context)
+  const nodePools = getTerraformObjectArray(item.values, ['node_pool'])
+  if (nodePools.length === 0) {
+    return []
+  }
+
+  return nodePools
+    .map((pool) => {
+      const autoscalingConfigured = firstDefinedPathValue(pool, [
+        ['autoscaling', 0, 'min_node_count'],
+        ['autoscaling', 'min_node_count'],
+        ['autoscaling', 0, 'max_node_count'],
+        ['autoscaling', 'max_node_count'],
+        ['autoscaling', 0, 'minNodeCount'],
+        ['autoscaling', 'minNodeCount'],
+        ['autoscaling', 0, 'maxNodeCount'],
+        ['autoscaling', 'maxNodeCount'],
+        ['min_node_count'],
+        ['minNodeCount'],
+        ['max_node_count'],
+        ['maxNodeCount']
+      ]) !== undefined
+
+      return {
+        name: toScalarString(getTerraformPathValue(pool, ['name'])),
+        clusterName,
+        location,
+        nodeCount: nodePoolDesiredSizeValue(pool),
+        compareDesiredSize: firstDefinedPathValue(pool, [['node_count'], ['nodeCount']]) !== undefined,
+        autoscalingConfigured,
+        minNodeCount: nodePoolMinSizeValue(pool),
+        maxNodeCount: nodePoolMaxSizeValue(pool),
+        machineType: toScalarString(getTerraformPathValue(pool, ['node_config', 0, 'machine_type'])),
+        imageType: toScalarString(getTerraformPathValue(pool, ['node_config', 0, 'image_type'])),
+        diskSizeGb: toNumberString(getTerraformPathValue(pool, ['node_config', 0, 'disk_size_gb'])),
+        version: toScalarString(getTerraformPathValue(pool, ['version'])),
+        autoUpgradeEnabled: toScalarString(getTerraformPathValue(pool, ['management', 0, 'auto_upgrade'])),
+        autoRepairEnabled: toScalarString(getTerraformPathValue(pool, ['management', 0, 'auto_repair'])),
+        spotEnabled: toScalarString(getTerraformPathValue(pool, ['node_config', 0, 'spot'])),
+        preemptible: toScalarString(getTerraformPathValue(pool, ['node_config', 0, 'preemptible'])),
+        locations: getTerraformStringList(pool, ['node_locations']).sort()
+      }
+    })
+    .filter((entry) => entry.name)
+}
+
+function compareGkeNodePoolSpecs(
+  differences: TerraformDriftDifference[],
+  specs: TerraformGkeNodePoolSpec[],
+  liveNodePools: Array<{
+    name: string
+    nodeCount: number
+    minNodeCount: number
+    maxNodeCount: number
+    machineType: string
+    imageType: string
+    diskSizeGb: string
+    version: string
+    autoUpgradeEnabled: boolean
+    autoRepairEnabled: boolean
+    spotEnabled: boolean
+    preemptible: boolean
+    locations: string[]
+  }>
+) {
+  for (const spec of specs) {
+    const liveNodePool = liveNodePools.find((entry) => entry.name === spec.name)
+    if (!liveNodePool) {
+      differences.push(createDifference(`nodePool:${spec.name}:exists`, `Node Pool ${spec.name}`, 'present in Terraform', 'missing in GKE'))
+      continue
+    }
+
+    const liveAutoscalingEnabled = liveNodePool.minNodeCount > 0 || liveNodePool.maxNodeCount > 0
+
+    if (spec.compareDesiredSize && spec.nodeCount) {
+      compareValues(differences, `nodePool:${spec.name}:nodeCount`, `Node Pool ${spec.name} Desired Size`, spec.nodeCount, String(liveNodePool.nodeCount))
+    }
+    if (spec.minNodeCount) {
+      compareValues(differences, `nodePool:${spec.name}:minNodeCount`, `Node Pool ${spec.name} Min Size`, spec.minNodeCount, String(liveNodePool.minNodeCount))
+    } else if (!spec.autoscalingConfigured && liveAutoscalingEnabled && liveNodePool.minNodeCount > 0) {
+      differences.push(createDifference(`nodePool:${spec.name}:minNodeCount`, `Node Pool ${spec.name} Min Size`, 'not configured in Terraform', String(liveNodePool.minNodeCount)))
+    }
+    if (spec.maxNodeCount) {
+      compareValues(differences, `nodePool:${spec.name}:maxNodeCount`, `Node Pool ${spec.name} Max Size`, spec.maxNodeCount, String(liveNodePool.maxNodeCount))
+    } else if (!spec.autoscalingConfigured && liveAutoscalingEnabled && liveNodePool.maxNodeCount > 0) {
+      differences.push(createDifference(`nodePool:${spec.name}:maxNodeCount`, `Node Pool ${spec.name} Max Size`, 'not configured in Terraform', String(liveNodePool.maxNodeCount)))
+    }
+    compareValues(differences, `nodePool:${spec.name}:machineType`, `Node Pool ${spec.name} Machine Type`, spec.machineType, String(liveNodePool.machineType))
+    compareValues(differences, `nodePool:${spec.name}:imageType`, `Node Pool ${spec.name} Image Type`, spec.imageType, String(liveNodePool.imageType))
+    compareValues(differences, `nodePool:${spec.name}:diskSizeGb`, `Node Pool ${spec.name} Disk Size (GB)`, spec.diskSizeGb, String(liveNodePool.diskSizeGb))
+    compareValues(differences, `nodePool:${spec.name}:version`, `Node Pool ${spec.name} Version`, spec.version, String(liveNodePool.version))
+    compareValues(differences, `nodePool:${spec.name}:autoUpgradeEnabled`, `Node Pool ${spec.name} Auto Upgrade`, spec.autoUpgradeEnabled, String(liveNodePool.autoUpgradeEnabled))
+    compareValues(differences, `nodePool:${spec.name}:autoRepairEnabled`, `Node Pool ${spec.name} Auto Repair`, spec.autoRepairEnabled, String(liveNodePool.autoRepairEnabled))
+    compareValues(differences, `nodePool:${spec.name}:spotEnabled`, `Node Pool ${spec.name} Spot`, spec.spotEnabled, String(liveNodePool.spotEnabled))
+    compareValues(differences, `nodePool:${spec.name}:preemptible`, `Node Pool ${spec.name} Preemptible`, spec.preemptible, String(liveNodePool.preemptible))
+    compareSortedLists(differences, `nodePool:${spec.name}:locations`, `Node Pool ${spec.name} Locations`, spec.locations, [...liveNodePool.locations].sort())
+  }
+}
+
+function isManagedGkeNodeInstance(name: string, managedClusterNames: string[]): boolean {
+  return managedClusterNames.some((clusterName) => clusterName && name.startsWith(`gke-${clusterName}-`))
+}
+
+function shouldIgnoreUnmanagedServiceAccount(email: string, displayName: string): boolean {
+  const normalizedEmail = email.trim().toLowerCase()
+  const normalizedDisplayName = displayName.trim().toLowerCase()
+
+  return /^\d+-compute@developer\.gserviceaccount\.com$/.test(normalizedEmail)
+    || normalizedEmail.endsWith('@cloudservices.gserviceaccount.com')
+    || normalizedEmail.includes('gcp-sa-')
+    || normalizedDisplayName.includes('default service account')
 }
 
 function coverageItem(resourceType: string, verifiedChecks: string[], inferredChecks: string[], notes: string[]): TerraformDriftCoverageItem {
@@ -265,8 +777,15 @@ async function loadLiveData(context: GcpTerraformContext): Promise<{ data: GcpLi
   const loaders: Array<[keyof GcpLiveData, () => Promise<unknown>]> = [
     ['projectOverview', () => getGcpProjectOverview(context.projectId)],
     ['iamOverview', () => getGcpIamOverview(context.projectId)],
+    ['enabledApis', () => listGcpEnabledApis(context.projectId)],
+    ['serviceAccounts', () => listGcpServiceAccounts(context.projectId)],
     ['computeInstances', () => listGcpComputeInstances(context.projectId, context.location)],
+    ['firewallRules', () => listGcpFirewallRules(context.projectId)],
     ['gkeClusters', () => listGcpGkeClusters(context.projectId, context.location)],
+    ['networks', () => listGcpNetworks(context.projectId)],
+    ['subnetworks', () => listGcpSubnetworks(context.projectId, context.location)],
+    ['routers', () => listGcpRouters(context.projectId, context.location)],
+    ['globalAddresses', () => listGcpGlobalAddresses(context.projectId)],
     ['storageBuckets', () => listGcpStorageBuckets(context.projectId, context.location)],
     ['sqlInstances', () => listGcpSqlInstances(context.projectId, context.location)],
     ['billingOverview', () => getGcpBillingOverview(context.projectId, [context.projectId])]
@@ -288,16 +807,28 @@ async function loadLiveData(context: GcpTerraformContext): Promise<{ data: GcpLi
 }
 
 function buildSupportedCoverage(): TerraformDriftCoverageItem[] {
-  return [
+  const items: TerraformDriftCoverageItem[] = [
     coverageItem('google_project', ['Project exists', 'Display name'], [], ['Confirms the selected project still exists and the display name matches Terraform inputs when set.']),
     coverageItem('google_project_service', ['API enabled state'], [], ['Focuses on live enablement only. Default Google-managed services are not backfilled as unmanaged noise.']),
     coverageItem('google_service_account', ['Service account exists', 'Display name', 'Disabled flag'], [], ['Email is derived from Terraform when only account_id is available.']),
     coverageItem('google_project_iam_member', ['Role/member binding exists'], [], ['Treats additive IAM changes outside Terraform as manual review, not unmanaged live inventory.']),
+    coverageItem('google_compute_firewall', ['Firewall rule exists', 'Network', 'Direction'], [], ['Priority is included when it is explicitly declared in Terraform.']),
+    coverageItem('google_compute_global_address', ['Global address exists', 'Address type', 'Purpose', 'Reserved prefix length'], [], ['Private service ranges are validated from the global address inventory.']),
     coverageItem('google_compute_instance', ['Instance exists', 'Zone', 'Machine type'], [], ['Operational runtime flags such as current status are kept as evidence, not config drift.']),
-    coverageItem('google_container_cluster', ['Cluster exists', 'Location', 'Release channel when declared'], [], ['Control-plane runtime version changes are not treated as Terraform drift.']),
+    coverageItem('google_compute_network', ['VPC network exists', 'Auto subnet mode', 'Routing mode'], [], ['Only top-level network posture is checked in this slice.']),
+    coverageItem('google_compute_router', ['Cloud Router exists', 'Region', 'Network'], [], ['BGP runtime state is intentionally excluded from Terraform drift.']),
+    coverageItem('google_compute_router_nat', ['Cloud NAT exists', 'Region', 'Router', 'IP allocation mode'], [], ['NAT address reservations are validated separately through global addresses.']),
+    coverageItem('google_compute_subnetwork', ['Subnet exists', 'Region', 'Network', 'CIDR range', 'Private Google access'], [], ['Secondary ranges and flow logs are out of scope for this slice.']),
+    coverageItem('google_container_cluster', ['Cluster exists', 'Location', 'Release channel when declared', 'Inline node pool min/max sizing when declared'], [], ['Control-plane runtime version changes are not treated as Terraform drift.']),
+    coverageItem('google_container_node_pool', ['Node pool exists', 'Desired size when fixed', 'Autoscaling min/max'], [], ['Desired size is compared only for non-autoscaled pools to avoid flagging autoscaler runtime behavior as drift.']),
+    coverageItem('google_service_networking_connection', ['Private service connection exists', 'Reserved peering ranges'], [], ['The service endpoint is validated against Service Networking connections on the target VPC.']),
     coverageItem('google_storage_bucket', ['Bucket exists', 'Location', 'Storage class', 'Versioning', 'Uniform bucket-level access'], [], ['Lifecycle rules and IAM are out of scope for this slice.']),
-    coverageItem('google_sql_database_instance', ['Instance exists', 'Region', 'Database version', 'Availability type', 'Deletion protection'], [], ['Flags only fields that are typically set directly in Terraform.'])
-  ].sort((left, right) => left.resourceType.localeCompare(right.resourceType))
+    coverageItem('google_sql_database', ['Database exists', 'Charset', 'Collation'], [], ['Databases are resolved against their parent Cloud SQL instance.']),
+    coverageItem('google_sql_database_instance', ['Instance exists', 'Region', 'Database version', 'Availability type', 'Deletion protection'], [], ['Flags only fields that are typically set directly in Terraform.']),
+    coverageItem('google_sql_user', ['User exists', 'Host', 'Type'], [], ['Passwords and IAM auth wiring are intentionally excluded from drift output.'])
+  ]
+
+  return items.sort((left, right) => left.resourceType.localeCompare(right.resourceType))
 }
 
 function compareValues(differences: TerraformDriftDifference[], key: string, label: string, terraformValue: string, liveValue: string) {
@@ -396,6 +927,114 @@ export async function getGcpTerraformDriftReport(
   const items: TerraformDriftItem[] = []
   const coverage = buildSupportedCoverage()
   const managedInventory = project.inventory.filter((item) => item.mode === 'managed')
+  const sqlInstanceTargets = unique(managedInventory
+    .filter((item) => item.type === 'google_sql_database' || item.type === 'google_sql_user')
+    .map((item) => resolveSqlInstanceName(item))
+    .filter(Boolean))
+  const serviceNetworkingTargets = unique(managedInventory
+    .filter((item) => item.type === 'google_service_networking_connection')
+    .map((item) => normalizeResourceBasename(str(item.values.network)))
+    .filter(Boolean))
+  const gkeNodePoolTargets = new Map<string, { location: string; clusterName: string }>()
+  const computeDetailTargets = new Map<string, { zone: string; name: string }>()
+  const sqlDetailTargets = new Map<string, string>()
+  const gkeDetailTargets = new Map<string, { location: string; clusterName: string }>()
+
+  for (const item of managedInventory) {
+    if (item.type !== 'google_container_cluster' && item.type !== 'google_container_node_pool') {
+      if (item.type === 'google_compute_instance') {
+        const zone = normalizeResourceBasename(str(item.values.zone))
+        const name = str(item.values.name) || item.name
+        if (zone && name) {
+          computeDetailTargets.set(recordKey(zone, name), { zone, name })
+        }
+      }
+
+      if (item.type === 'google_sql_database_instance') {
+        const name = str(item.values.name) || item.name
+        if (name) {
+          sqlDetailTargets.set(name.toLowerCase(), name)
+        }
+      }
+
+      continue
+    }
+
+    const clusterName = gkeClusterName(item)
+    const location = gkeClusterLocation(item, context)
+    if (!clusterName || !location) {
+      continue
+    }
+
+    gkeNodePoolTargets.set(gkeNodePoolKey(location, clusterName), { location, clusterName })
+    gkeDetailTargets.set(gkeNodePoolKey(location, clusterName), { location, clusterName })
+  }
+
+  if (sqlInstanceTargets.length > 0) {
+    try {
+      live.sqlDatabases = await listGcpSqlDatabasesForInstances(context.projectId, sqlInstanceTargets)
+    } catch (error) {
+      errors.sqlDatabases = error instanceof Error ? error.message : String(error)
+    }
+
+    try {
+      live.sqlUsers = await listGcpSqlUsers(context.projectId, sqlInstanceTargets)
+    } catch (error) {
+      errors.sqlUsers = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  if (serviceNetworkingTargets.length > 0) {
+    try {
+      live.serviceNetworkingConnections = await listGcpServiceNetworkingConnections(context.projectId, serviceNetworkingTargets)
+    } catch (error) {
+      errors.serviceNetworkingConnections = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  if (gkeNodePoolTargets.size > 0) {
+    live.gkeNodePoolsByCluster = {}
+    await Promise.all([...gkeNodePoolTargets.entries()].map(async ([key, target]) => {
+      try {
+        live.gkeNodePoolsByCluster![key] = await listGcpGkeNodePools(context.projectId, target.location, target.clusterName)
+      } catch (error) {
+        errors.gkeNodePoolsByCluster = error instanceof Error ? error.message : String(error)
+      }
+    }))
+  }
+
+  if (computeDetailTargets.size > 0) {
+    live.computeInstanceDetails = {}
+    await Promise.all([...computeDetailTargets.entries()].map(async ([key, target]) => {
+      try {
+        live.computeInstanceDetails![key] = await getGcpComputeInstanceDetail(context.projectId, target.zone, target.name)
+      } catch (error) {
+        errors.computeInstanceDetails = error instanceof Error ? error.message : String(error)
+      }
+    }))
+  }
+
+  if (sqlDetailTargets.size > 0) {
+    live.sqlInstanceDetails = {}
+    await Promise.all([...sqlDetailTargets.entries()].map(async ([key, name]) => {
+      try {
+        live.sqlInstanceDetails![key] = await getGcpSqlInstanceDetail(context.projectId, name)
+      } catch (error) {
+        errors.sqlInstanceDetails = error instanceof Error ? error.message : String(error)
+      }
+    }))
+  }
+
+  if (gkeDetailTargets.size > 0) {
+    live.gkeClusterDetails = {}
+    await Promise.all([...gkeDetailTargets.entries()].map(async ([key, target]) => {
+      try {
+        live.gkeClusterDetails![key] = await getGcpGkeClusterDetail(context.projectId, target.location, target.clusterName)
+      } catch (error) {
+        errors.gkeClusterDetails = error instanceof Error ? error.message : String(error)
+      }
+    }))
+  }
 
   for (const item of managedInventory) {
     switch (item.type) {
@@ -420,12 +1059,12 @@ export async function getGcpTerraformDriftReport(
         break
       }
       case 'google_project_service': {
-        if (errors.projectOverview) {
-          items.push(unsupportedItem(item, context, `Enabled API inventory could not be loaded: ${errors.projectOverview}`))
+        if (errors.enabledApis) {
+          items.push(unsupportedItem(item, context, `Enabled API inventory could not be loaded: ${errors.enabledApis}`))
           break
         }
         const serviceName = str(item.values.service) || str(item.values.service_name) || item.name
-        const enabled = (live.projectOverview?.enabledApis ?? []).some((entry) => entry.name === serviceName)
+        const enabled = (live.enabledApis ?? []).some((entry) => entry.name === serviceName)
         items.push(buildTerraformItem(item, context, {
           exists: enabled,
           cloudIdentifier: serviceName,
@@ -437,13 +1076,13 @@ export async function getGcpTerraformDriftReport(
         break
       }
       case 'google_service_account': {
-        if (errors.iamOverview) {
-          items.push(unsupportedItem(item, context, `IAM service account inventory could not be loaded: ${errors.iamOverview}`))
+        if (errors.serviceAccounts) {
+          items.push(unsupportedItem(item, context, `IAM service account inventory could not be loaded: ${errors.serviceAccounts}`))
           break
         }
         const accountId = str(item.values.account_id)
         const email = str(item.values.email) || (accountId ? `${accountId}@${context.projectId}.iam.gserviceaccount.com` : '')
-        const match = (live.iamOverview?.serviceAccounts ?? []).find((entry) => entry.email === email)
+        const match = (live.serviceAccounts ?? []).find((entry) => entry.email === email)
         const differences: TerraformDriftDifference[] = []
         compareValues(differences, 'displayName', 'Display Name', str(item.values.display_name), str(match?.displayName))
         if (typeof getPathValue(item.values, ['disabled']) === 'boolean') {
@@ -480,43 +1119,226 @@ export async function getGcpTerraformDriftReport(
         }))
         break
       }
+      case 'google_compute_firewall': {
+        if (errors.firewallRules) {
+          items.push(unsupportedItem(item, context, `Firewall inventory could not be loaded: ${errors.firewallRules}`))
+          break
+        }
+        const name = str(item.values.name) || item.name
+        const liveFirewall = (live.firewallRules ?? []).find((entry) => entry.name === name)
+        const differences: TerraformDriftDifference[] = []
+        compareValues(differences, 'network', 'Network', normalizeResourceBasename(str(item.values.network)), str(liveFirewall?.network))
+        compareValues(differences, 'direction', 'Direction', str(item.values.direction), str(liveFirewall?.direction))
+        compareValues(differences, 'priority', 'Priority', str(item.values.priority), str(liveFirewall?.priority))
+        items.push(buildTerraformItem(item, context, {
+          exists: Boolean(liveFirewall),
+          cloudIdentifier: name,
+          explanation: liveFirewall
+            ? differences.length > 0
+              ? 'The live firewall rule differs from the Terraform network posture.'
+              : 'The live firewall rule matches the tracked Terraform attributes.'
+            : 'Terraform tracks a firewall rule that is not present in the live VPC inventory.',
+          evidence: liveFirewall ? unique([liveFirewall.network ? `Network: ${liveFirewall.network}` : '', liveFirewall.direction ? `Direction: ${liveFirewall.direction}` : '']).filter(Boolean) : [],
+          differences
+        }))
+        break
+      }
+      case 'google_compute_global_address': {
+        if (errors.globalAddresses) {
+          items.push(unsupportedItem(item, context, `Global address inventory could not be loaded: ${errors.globalAddresses}`))
+          break
+        }
+        const name = str(item.values.name) || item.name
+        const liveAddress = (live.globalAddresses ?? []).find((entry) => entry.name === name)
+        const differences: TerraformDriftDifference[] = []
+        compareValues(differences, 'addressType', 'Address Type', str(item.values.address_type), str(liveAddress?.addressType))
+        compareValues(differences, 'purpose', 'Purpose', str(item.values.purpose), str(liveAddress?.purpose))
+        compareValues(differences, 'prefixLength', 'Prefix Length', str(item.values.prefix_length), str(liveAddress?.prefixLength))
+        compareValues(differences, 'network', 'Network', normalizeResourceBasename(str(item.values.network)), str(liveAddress?.network))
+        items.push(buildTerraformItem(item, context, {
+          exists: Boolean(liveAddress),
+          cloudIdentifier: liveAddress?.address || name,
+          explanation: liveAddress
+            ? differences.length > 0
+              ? 'The live global address differs from the Terraform reservation posture.'
+              : 'The live global address matches the Terraform reservation.'
+            : 'Terraform tracks a global address that is not present in the live project.',
+          evidence: unique([liveAddress?.address ? `Address: ${liveAddress.address}` : '', liveAddress?.purpose ? `Purpose: ${liveAddress.purpose}` : '']).filter(Boolean),
+          differences
+        }))
+        break
+      }
+      case 'google_compute_network': {
+        if (errors.networks) {
+          items.push(unsupportedItem(item, context, `VPC network inventory could not be loaded: ${errors.networks}`))
+          break
+        }
+        const name = str(item.values.name) || item.name
+        const liveNetwork = (live.networks ?? []).find((entry) => entry.name === name)
+        const differences: TerraformDriftDifference[] = []
+        if (typeof getPathValue(item.values, ['auto_create_subnetworks']) === 'boolean') {
+          compareValues(differences, 'autoCreateSubnetworks', 'Auto Create Subnetworks', String(bool(item.values.auto_create_subnetworks)), String(Boolean(liveNetwork?.autoCreateSubnetworks)))
+        }
+        compareValues(differences, 'routingMode', 'Routing Mode', str(item.values.routing_mode), str(liveNetwork?.routingMode))
+        items.push(buildTerraformItem(item, context, {
+          exists: Boolean(liveNetwork),
+          cloudIdentifier: name,
+          explanation: liveNetwork
+            ? differences.length > 0
+              ? 'The live VPC network differs from the Terraform network posture.'
+              : 'The live VPC network matches the tracked Terraform attributes.'
+            : 'Terraform tracks a VPC network that is not present in the live project.',
+          differences
+        }))
+        break
+      }
+      case 'google_compute_subnetwork': {
+        if (errors.subnetworks) {
+          items.push(unsupportedItem(item, context, `Subnetwork inventory could not be loaded: ${errors.subnetworks}`))
+          break
+        }
+        const name = str(item.values.name) || item.name
+        const region = normalizeResourceBasename(str(item.values.region))
+        const liveSubnetwork = (live.subnetworks ?? []).find((entry) => entry.name === name && (!region || entry.region === region))
+        const differences: TerraformDriftDifference[] = []
+        compareValues(differences, 'region', 'Region', region, str(liveSubnetwork?.region))
+        compareValues(differences, 'network', 'Network', normalizeResourceBasename(str(item.values.network)), str(liveSubnetwork?.network))
+        compareValues(differences, 'ipCidrRange', 'CIDR Range', str(item.values.ip_cidr_range), str(liveSubnetwork?.ipCidrRange))
+        if (typeof getPathValue(item.values, ['private_ip_google_access']) === 'boolean') {
+          compareValues(differences, 'privateIpGoogleAccess', 'Private Google Access', String(bool(item.values.private_ip_google_access)), String(Boolean(liveSubnetwork?.privateIpGoogleAccess)))
+        }
+        items.push(buildTerraformItem(item, context, {
+          exists: Boolean(liveSubnetwork),
+          cloudIdentifier: name,
+          region: liveSubnetwork?.region || region || context.location,
+          explanation: liveSubnetwork
+            ? differences.length > 0
+              ? 'The live subnet differs from the Terraform network posture.'
+              : 'The live subnet matches the tracked Terraform attributes.'
+            : 'Terraform tracks a subnet that is not present in the live project.',
+          differences
+        }))
+        break
+      }
+      case 'google_compute_router': {
+        if (errors.routers) {
+          items.push(unsupportedItem(item, context, `Cloud Router inventory could not be loaded: ${errors.routers}`))
+          break
+        }
+        const name = str(item.values.name) || item.name
+        const region = normalizeResourceBasename(str(item.values.region))
+        const liveRouter = (live.routers?.routers ?? []).find((entry) => entry.name === name && (!region || entry.region === region))
+        const differences: TerraformDriftDifference[] = []
+        compareValues(differences, 'region', 'Region', region, str(liveRouter?.region))
+        compareValues(differences, 'network', 'Network', normalizeResourceBasename(str(item.values.network)), str(liveRouter?.network))
+        items.push(buildTerraformItem(item, context, {
+          exists: Boolean(liveRouter),
+          cloudIdentifier: name,
+          region: liveRouter?.region || region || context.location,
+          explanation: liveRouter
+            ? differences.length > 0
+              ? 'The live Cloud Router differs from the Terraform network attachment.'
+              : 'The live Cloud Router matches the tracked Terraform attributes.'
+            : 'Terraform tracks a Cloud Router that is not present in the live project.',
+          differences
+        }))
+        break
+      }
+      case 'google_compute_router_nat': {
+        if (errors.routers) {
+          items.push(unsupportedItem(item, context, `Cloud NAT inventory could not be loaded: ${errors.routers}`))
+          break
+        }
+        const name = str(item.values.name) || item.name
+        const routerName = normalizeResourceBasename(str(item.values.router))
+        const region = normalizeResourceBasename(str(item.values.region))
+        const liveNat = (live.routers?.nats ?? []).find((entry) => entry.name === name && (!routerName || entry.router === routerName) && (!region || entry.region === region))
+        const differences: TerraformDriftDifference[] = []
+        compareValues(differences, 'router', 'Router', routerName, str(liveNat?.router))
+        compareValues(differences, 'region', 'Region', region, str(liveNat?.region))
+        compareValues(differences, 'natIpAllocateOption', 'IP Allocation Mode', str(item.values.nat_ip_allocate_option), str(liveNat?.natIpAllocateOption))
+        items.push(buildTerraformItem(item, context, {
+          exists: Boolean(liveNat),
+          cloudIdentifier: name,
+          region: liveNat?.region || region || context.location,
+          explanation: liveNat
+            ? differences.length > 0
+              ? 'The live Cloud NAT differs from the Terraform router attachment or IP allocation mode.'
+              : 'The live Cloud NAT matches the tracked Terraform attributes.'
+            : 'Terraform tracks a Cloud NAT that is not present in the live project.',
+          differences
+        }))
+        break
+      }
       case 'google_compute_instance': {
-        if (errors.computeInstances) {
-          items.push(unsupportedItem(item, context, `Compute Engine inventory could not be loaded: ${errors.computeInstances}`))
+        if (errors.computeInstances || errors.computeInstanceDetails) {
+          items.push(unsupportedItem(item, context, `Compute Engine inventory could not be loaded: ${errors.computeInstances || errors.computeInstanceDetails}`))
           break
         }
         const name = str(item.values.name) || item.name
         const zone = normalizeResourceBasename(str(item.values.zone))
         const liveInstance = (live.computeInstances ?? []).find((entry) => entry.name === name)
+        const liveDetail = live.computeInstanceDetails?.[recordKey(zone || liveInstance?.zone || '', name)] ?? null
         const differences: TerraformDriftDifference[] = []
         compareValues(differences, 'zone', 'Zone', zone, str(liveInstance?.zone))
         compareValues(differences, 'machineType', 'Machine Type', normalizeResourceBasename(str(item.values.machine_type)), str(liveInstance?.machineType))
+        compareValues(differences, 'network', 'Network', normalizeResourceBasename(str(getPathValue(item.values, ['network_interface', 0, 'network']))), str(liveDetail?.networks[0]?.network))
+        compareValues(differences, 'subnetwork', 'Subnetwork', normalizeResourceBasename(str(getPathValue(item.values, ['network_interface', 0, 'subnetwork']))), str(liveDetail?.networks[0]?.subnetwork))
+        compareValues(differences, 'internalIp', 'Internal IP', str(getPathValue(item.values, ['network_interface', 0, 'network_ip'])), str(liveDetail?.internalIp))
+        compareValues(differences, 'externalIp', 'External IP', str(getPathValue(item.values, ['network_interface', 0, 'access_config', 0, 'nat_ip'])), str(liveDetail?.externalIp))
+        compareBooleanPath(differences, item.values, ['can_ip_forward'], 'canIpForward', 'Can IP Forward', Boolean(liveDetail?.canIpForward))
+        compareBooleanPath(differences, item.values, ['deletion_protection'], 'deletionProtection', 'Deletion Protection', Boolean(liveDetail?.deletionProtection))
+        compareBooleanPath(differences, item.values, ['shielded_instance_config', 0, 'enable_secure_boot'], 'shieldedSecureBoot', 'Shielded Secure Boot', Boolean(liveDetail?.shieldedSecureBoot))
+        compareBooleanPath(differences, item.values, ['shielded_instance_config', 0, 'enable_vtpm'], 'shieldedVtpm', 'Shielded vTPM', Boolean(liveDetail?.shieldedVtpm))
+        compareBooleanPath(differences, item.values, ['shielded_instance_config', 0, 'enable_integrity_monitoring'], 'shieldedIntegrityMonitoring', 'Shielded Integrity Monitoring', Boolean(liveDetail?.shieldedIntegrityMonitoring))
+        compareSortedLists(differences, 'tags', 'Network Tags', stringList(getPathValue(item.values, ['tags'])).sort(), liveDetail?.tags ?? [])
+        compareStringMaps(differences, 'labels', 'Labels', normalizeComparableGcpLabelMap(getPathValue(item.values, ['labels'])), normalizeComparableGcpLabelMap(Object.fromEntries((liveDetail?.labels ?? []).map((entry) => [entry.key, entry.value]))))
+        compareStringMaps(differences, 'metadata', 'Metadata', normalizeStringMap(getPathValue(item.values, ['metadata'])), Object.fromEntries((liveDetail?.metadata ?? []).map((entry) => [entry.key, entry.value])))
+        compareValues(differences, 'serviceAccountEmail', 'Service Account', str(getPathValue(item.values, ['service_account', 0, 'email'])), str(liveDetail?.serviceAccounts[0]?.email))
+        compareSortedLists(differences, 'serviceAccountScopes', 'Service Account Scopes', stringList(getPathValue(item.values, ['service_account', 0, 'scopes'])).sort(), [...(liveDetail?.serviceAccounts[0]?.scopes ?? [])].sort())
+        compareValues(differences, 'bootDiskSizeGb', 'Boot Disk Size (GB)', str(getPathValue(item.values, ['boot_disk', 0, 'initialize_params', 0, 'size'])), str(liveDetail?.disks.find((entry) => entry.boot)?.sizeGb))
+        compareBooleanPath(differences, item.values, ['boot_disk', 0, 'auto_delete'], 'bootDiskAutoDelete', 'Boot Disk Auto Delete', Boolean(liveDetail?.disks.find((entry) => entry.boot)?.autoDelete))
         items.push(buildTerraformItem(item, context, {
           exists: Boolean(liveInstance),
           cloudIdentifier: name,
           region: liveInstance?.zone || zone,
           explanation: liveInstance
             ? differences.length > 0
-              ? 'The live VM differs from the Terraform machine shape or placement.'
+              ? 'The live VM differs from the Terraform-declared instance configuration.'
               : 'The live VM matches the tracked Terraform attributes.'
             : 'Terraform tracks a VM that is not present in the live Compute Engine inventory.',
-          evidence: unique([liveInstance?.status ? `Status: ${liveInstance.status}` : '', liveInstance?.internalIp ? `Internal IP: ${liveInstance.internalIp}` : '', liveInstance?.externalIp ? `External IP: ${liveInstance.externalIp}` : '']).filter(Boolean),
+          evidence: unique([liveInstance?.status ? `Status: ${liveInstance.status}` : '', liveDetail?.cpuPlatform ? `CPU platform: ${liveDetail.cpuPlatform}` : '', liveInstance?.internalIp ? `Internal IP: ${liveInstance.internalIp}` : '', liveInstance?.externalIp ? `External IP: ${liveInstance.externalIp}` : '']).filter(Boolean),
           differences
         }))
         break
       }
       case 'google_container_cluster': {
-        if (errors.gkeClusters) {
-          items.push(unsupportedItem(item, context, `GKE cluster inventory could not be loaded: ${errors.gkeClusters}`))
+        if (errors.gkeClusters || errors.gkeNodePoolsByCluster || errors.gkeClusterDetails) {
+          items.push(unsupportedItem(item, context, `GKE cluster inventory could not be loaded: ${errors.gkeClusters || errors.gkeNodePoolsByCluster || errors.gkeClusterDetails}`))
           break
         }
         const name = str(item.values.name) || item.name
-        const location = str(item.values.location) || str(item.values.region) || str(item.values.zone)
+        const location = gkeClusterLocation(item, context)
         const liveCluster = (live.gkeClusters ?? []).find((entry) => entry.name === name)
+        const liveDetail = live.gkeClusterDetails?.[gkeNodePoolKey(location, name)]
+        const liveNodePools = live.gkeNodePoolsByCluster?.[gkeNodePoolKey(location, name)] ?? []
         const differences: TerraformDriftDifference[] = []
         compareValues(differences, 'location', 'Location', location, str(liveCluster?.location))
         const releaseChannel = str(getPathValue(item.values, ['release_channel', 0, 'channel'])) || str(item.values.release_channel)
         compareValues(differences, 'releaseChannel', 'Release Channel', releaseChannel, str(liveCluster?.releaseChannel))
+        compareValues(differences, 'network', 'Network', normalizeResourceBasename(str(item.values.network)), normalizeResourceBasename(str(liveDetail?.network)))
+        compareValues(differences, 'subnetwork', 'Subnetwork', normalizeResourceBasename(str(item.values.subnetwork)), normalizeResourceBasename(str(liveDetail?.subnetwork)))
+        compareValues(differences, 'workloadIdentityPool', 'Workload Identity Pool', str(getPathValue(item.values, ['workload_identity_config', 0, 'workload_pool'])), str(liveDetail?.workloadIdentityPool))
+        compareBooleanPath(differences, item.values, ['private_cluster_config', 0, 'enable_private_nodes'], 'privateClusterEnabled', 'Private Nodes', Boolean(liveDetail?.privateClusterEnabled))
+        compareBooleanPath(differences, item.values, ['shielded_nodes', 0, 'enabled'], 'shieldedNodesEnabled', 'Shielded Nodes', Boolean(liveDetail?.shieldedNodesEnabled))
+        compareBooleanPath(differences, item.values, ['vertical_pod_autoscaling', 0, 'enabled'], 'verticalPodAutoscalingEnabled', 'Vertical Pod Autoscaling', Boolean(liveDetail?.verticalPodAutoscalingEnabled))
+        compareBooleanPath(differences, item.values, ['enable_autopilot'], 'autopilotEnabled', 'Autopilot', Boolean(liveDetail?.autopilotEnabled))
+        compareValues(differences, 'loggingService', 'Logging Service', str(item.values.logging_service), str(liveDetail?.loggingService))
+        compareValues(differences, 'monitoringService', 'Monitoring Service', str(item.values.monitoring_service), str(liveDetail?.monitoringService))
+        compareValues(differences, 'clusterIpv4Cidr', 'Cluster IPv4 CIDR', str(item.values.cluster_ipv4_cidr), str(liveDetail?.clusterIpv4Cidr))
+        compareValues(differences, 'servicesIpv4Cidr', 'Services IPv4 CIDR', str(item.values.services_ipv4_cidr), str(liveDetail?.servicesIpv4Cidr))
+        compareStringMaps(differences, 'resourceLabels', 'Resource Labels', normalizeComparableGcpLabelMap(getPathValue(item.values, ['resource_labels'])), normalizeComparableGcpLabelMap(liveDetail?.resourceLabels ?? {}))
+        compareGkeNodePoolSpecs(differences, buildTerraformGkeNodePoolSpecs(item, context), liveNodePools)
         items.push(buildTerraformItem(item, context, {
           exists: Boolean(liveCluster),
           cloudIdentifier: name,
@@ -527,6 +1349,57 @@ export async function getGcpTerraformDriftReport(
               : 'The live GKE cluster matches the Terraform placement signals.'
             : 'Terraform tracks a cluster that is not present in the live GKE inventory.',
           evidence: unique([liveCluster?.status ? `Status: ${liveCluster.status}` : '', liveCluster?.masterVersion ? `Master version: ${liveCluster.masterVersion}` : '', liveCluster?.nodeCount ? `Node count: ${liveCluster.nodeCount}` : '']).filter(Boolean),
+          differences
+        }))
+        break
+      }
+      case 'google_container_node_pool': {
+        if (errors.gkeNodePoolsByCluster) {
+          items.push(unsupportedItem(item, context, `GKE node pool inventory could not be loaded: ${errors.gkeNodePoolsByCluster}`))
+          break
+        }
+        const name = str(item.values.name) || item.name
+        const clusterName = gkeClusterName(item)
+        const location = gkeClusterLocation(item, context)
+        const liveNodePool = (live.gkeNodePoolsByCluster?.[gkeNodePoolKey(location, clusterName)] ?? []).find((entry) => entry.name === name)
+        const differences: TerraformDriftDifference[] = []
+        compareGkeNodePoolSpecs(differences, buildTerraformGkeNodePoolSpecs(item, context), liveNodePool ? [liveNodePool] : [])
+        items.push(buildTerraformItem(item, context, {
+          exists: Boolean(liveNodePool),
+          cloudIdentifier: `${clusterName}/${name}`,
+          region: location,
+          explanation: liveNodePool
+            ? differences.length > 0
+              ? 'The live GKE node pool sizing differs from Terraform.'
+              : 'The live GKE node pool sizing matches Terraform.'
+            : 'Terraform tracks a GKE node pool that is not present in the live cluster.',
+          evidence: liveNodePool ? unique([
+            liveNodePool.autoscaling ? `Autoscaling: ${liveNodePool.autoscaling}` : '',
+            liveNodePool.nodeCount >= 0 ? `Desired size: ${liveNodePool.nodeCount}` : ''
+          ].filter(Boolean)) : [],
+          differences
+        }))
+        break
+      }
+      case 'google_service_networking_connection': {
+        if (errors.serviceNetworkingConnections) {
+          items.push(unsupportedItem(item, context, `Private service connection inventory could not be loaded: ${errors.serviceNetworkingConnections}`))
+          break
+        }
+        const networkName = normalizeResourceBasename(str(item.values.network))
+        const reservedRanges = sortedStringList(item.values.reserved_peering_ranges)
+        const liveConnection = (live.serviceNetworkingConnections ?? []).find((entry) => entry.network === networkName)
+        const differences: TerraformDriftDifference[] = []
+        compareSortedLists(differences, 'reservedPeeringRanges', 'Reserved Peering Ranges', reservedRanges, liveConnection?.reservedPeeringRanges ?? [])
+        items.push(buildTerraformItem(item, context, {
+          exists: Boolean(liveConnection),
+          cloudIdentifier: `${networkName}:${liveConnection?.service || 'servicenetworking.googleapis.com'}`,
+          explanation: liveConnection
+            ? differences.length > 0
+              ? 'The private service networking connection differs from the Terraform-declared reserved ranges.'
+              : 'The private service networking connection matches the tracked Terraform attributes.'
+            : 'Terraform expects a private service networking connection that is not visible on the target VPC.',
+          evidence: unique([liveConnection?.service ? `Service: ${liveConnection.service}` : '', liveConnection?.peering ? `Peering: ${liveConnection.peering}` : '']).filter(Boolean),
           differences
         }))
         break
@@ -568,12 +1441,13 @@ export async function getGcpTerraformDriftReport(
         break
       }
       case 'google_sql_database_instance': {
-        if (errors.sqlInstances) {
-          items.push(unsupportedItem(item, context, `Cloud SQL inventory could not be loaded: ${errors.sqlInstances}`))
+        if (errors.sqlInstances || errors.sqlInstanceDetails) {
+          items.push(unsupportedItem(item, context, `Cloud SQL inventory could not be loaded: ${errors.sqlInstances || errors.sqlInstanceDetails}`))
           break
         }
         const name = str(item.values.name) || item.name
         const liveSql = (live.sqlInstances ?? []).find((entry) => entry.name === name)
+        const liveDetail = live.sqlInstanceDetails?.[name.toLowerCase()]
         const differences: TerraformDriftDifference[] = []
         compareValues(differences, 'region', 'Region', str(item.values.region), str(liveSql?.region))
         compareValues(differences, 'databaseVersion', 'Database Version', str(item.values.database_version), str(liveSql?.databaseVersion))
@@ -582,13 +1456,34 @@ export async function getGcpTerraformDriftReport(
         if (typeof deletionProtection === 'boolean') {
           compareValues(differences, 'deletionProtection', 'Deletion Protection', String(deletionProtection), String(Boolean(liveSql?.deletionProtectionEnabled)))
         }
+        compareValues(differences, 'diskSizeGb', 'Disk Size (GB)', toNumberString(getPathValue(item.values, ['settings', 0, 'disk_size'])), str(liveDetail?.diskSizeGb))
+        compareBooleanPath(differences, item.values, ['settings', 0, 'disk_autoresize'], 'storageAutoResizeEnabled', 'Storage Auto Resize', Boolean(liveDetail?.storageAutoResizeEnabled))
+        compareValues(differences, 'diskType', 'Disk Type', str(getPathValue(item.values, ['settings', 0, 'disk_type'])), str(liveDetail?.diskType))
+        compareValues(differences, 'activationPolicy', 'Activation Policy', str(getPathValue(item.values, ['settings', 0, 'activation_policy'])), str(liveDetail?.activationPolicy))
+        compareValues(differences, 'pricingPlan', 'Pricing Plan', str(getPathValue(item.values, ['settings', 0, 'pricing_plan'])), str(liveDetail?.pricingPlan))
+        compareValues(differences, 'connectorEnforcement', 'Connector Enforcement', str(getPathValue(item.values, ['settings', 0, 'connector_enforcement'])), str(liveDetail?.connectorEnforcement))
+        compareValues(differences, 'sslMode', 'SSL Mode', str(getPathValue(item.values, ['settings', 0, 'ip_configuration', 0, 'ssl_mode'])), str(liveDetail?.sslMode))
+        compareBooleanPath(differences, item.values, ['settings', 0, 'backup_configuration', 0, 'enabled'], 'backupEnabled', 'Backups Enabled', Boolean(liveDetail?.backupEnabled))
+        compareBooleanPath(differences, item.values, ['settings', 0, 'backup_configuration', 0, 'binary_log_enabled'], 'binaryLogEnabled', 'Binary Log Enabled', Boolean(liveDetail?.binaryLogEnabled))
+        compareBooleanPath(differences, item.values, ['settings', 0, 'backup_configuration', 0, 'point_in_time_recovery_enabled'], 'pointInTimeRecoveryEnabled', 'Point In Time Recovery', Boolean(liveDetail?.pointInTimeRecoveryEnabled))
+        compareSortedLists(differences, 'authorizedNetworks', 'Authorized Networks', extractAuthorizedNetworks(getPathValue(item.values, ['settings', 0, 'ip_configuration', 0, 'authorized_networks'])), [...(liveDetail?.authorizedNetworks ?? [])].sort())
+        const ipv4Enabled = getPathValue(item.values, ['settings', 0, 'ip_configuration', 0, 'ipv4_enabled'])
+        if (typeof ipv4Enabled === 'boolean') {
+          compareValues(differences, 'publicIpEnabled', 'Public IPv4', String(ipv4Enabled), String(Boolean(liveDetail?.primaryAddress)))
+        }
+        const privateNetwork = str(getPathValue(item.values, ['settings', 0, 'ip_configuration', 0, 'private_network']))
+        if (privateNetwork) {
+          compareValues(differences, 'privateNetworkAttached', 'Private Network Attached', 'true', String(Boolean(liveDetail?.privateAddress)))
+        }
+        compareValues(differences, 'primaryAddress', 'Primary Address', str(getPathValue(item.values, ['first_ip_address'])), str(liveDetail?.primaryAddress))
+        compareValues(differences, 'privateAddress', 'Private Address', str(getPathValue(item.values, ['private_ip_address'])), str(liveDetail?.privateAddress))
         items.push(buildTerraformItem(item, context, {
           exists: Boolean(liveSql),
           cloudIdentifier: name,
           region: liveSql?.region || str(item.values.region) || context.location,
           explanation: liveSql
             ? differences.length > 0
-              ? 'The live Cloud SQL instance differs from key Terraform database settings.'
+              ? 'The live Cloud SQL instance differs from the Terraform-declared database posture.'
               : 'The live Cloud SQL instance matches the tracked Terraform posture.'
             : 'Terraform tracks a Cloud SQL instance that is not present in the live inventory.',
           evidence: unique([
@@ -601,13 +1496,69 @@ export async function getGcpTerraformDriftReport(
         }))
         break
       }
+      case 'google_sql_database': {
+        if (errors.sqlDatabases) {
+          items.push(unsupportedItem(item, context, `Cloud SQL database inventory could not be loaded: ${errors.sqlDatabases}`))
+          break
+        }
+        const name = str(item.values.name) || item.name
+        const instanceName = resolveSqlInstanceName(item)
+        const liveDatabase = (live.sqlDatabases ?? []).find((entry) => entry.instance === instanceName && entry.name === name)
+        const differences: TerraformDriftDifference[] = []
+        compareValues(differences, 'charset', 'Charset', str(item.values.charset), str(liveDatabase?.charset))
+        compareValues(differences, 'collation', 'Collation', str(item.values.collation), str(liveDatabase?.collation))
+        items.push(buildTerraformItem(item, context, {
+          exists: Boolean(liveDatabase),
+          cloudIdentifier: `${instanceName}/${name}`,
+          region: instanceName || context.location,
+          explanation: liveDatabase
+            ? differences.length > 0
+              ? 'The live Cloud SQL database differs from the Terraform-declared charset or collation.'
+              : 'The live Cloud SQL database matches the tracked Terraform attributes.'
+            : 'Terraform tracks a Cloud SQL database that is not present on the target instance.',
+          differences
+        }))
+        break
+      }
+      case 'google_sql_user': {
+        if (errors.sqlUsers) {
+          items.push(unsupportedItem(item, context, `Cloud SQL user inventory could not be loaded: ${errors.sqlUsers}`))
+          break
+        }
+        const name = str(item.values.name) || item.name
+        const host = str(item.values.host)
+        const instanceName = resolveSqlInstanceName(item)
+        const liveUser = (live.sqlUsers ?? []).find((entry) => entry.instance === instanceName && entry.name === name && (!host || entry.host === host))
+        const differences: TerraformDriftDifference[] = []
+        compareValues(differences, 'host', 'Host', host, str(liveUser?.host))
+        compareValues(differences, 'type', 'Type', str(item.values.type), str(liveUser?.type))
+        items.push(buildTerraformItem(item, context, {
+          exists: Boolean(liveUser),
+          cloudIdentifier: `${instanceName}/${name}${host ? `@${host}` : ''}`,
+          region: instanceName || context.location,
+          explanation: liveUser
+            ? differences.length > 0
+              ? 'The live Cloud SQL user differs from the Terraform host or type.'
+              : 'The live Cloud SQL user matches the tracked Terraform attributes.'
+            : 'Terraform tracks a Cloud SQL user that is not present on the target instance.',
+          differences
+        }))
+        break
+      }
       default:
         items.push(unsupportedItem(item, context, 'Live drift coverage for this Google resource type has not been implemented yet.'))
     }
   }
 
   const managedAddressSet = new Set(managedInventory.map((item) => `${item.type}:${str(item.values.name) || str(item.values.account_id) || item.name}`))
+  const managedClusterNames = managedInventory
+    .filter((item) => item.type === 'google_container_cluster')
+    .map((item) => str(item.values.name) || item.name)
+    .filter(Boolean)
   for (const entry of live.computeInstances ?? []) {
+    if (isManagedGkeNodeInstance(entry.name, managedClusterNames)) {
+      continue
+    }
     if (!managedAddressSet.has(`google_compute_instance:${entry.name}`)) {
       items.push(buildUnmanagedItem('google_compute_instance', entry.name, entry.name, entry.zone || context.location, context, [`Status: ${entry.status}`, `Machine type: ${entry.machineType}`], 'A live Compute Engine instance was found without a matching Terraform-managed resource.'))
     }
@@ -627,7 +1578,10 @@ export async function getGcpTerraformDriftReport(
       items.push(buildUnmanagedItem('google_sql_database_instance', entry.name, entry.name, entry.region || context.location, context, [`State: ${entry.state}`, `Engine: ${entry.databaseVersion}`], 'A live Cloud SQL instance exists outside the current Terraform inventory.'))
     }
   }
-  for (const entry of live.iamOverview?.serviceAccounts ?? []) {
+  for (const entry of live.serviceAccounts ?? []) {
+    if (shouldIgnoreUnmanagedServiceAccount(entry.email, entry.displayName)) {
+      continue
+    }
     const emailKey = `google_service_account:${entry.email}`
     const accountKey = `google_service_account:${entry.email.split('@')[0] || entry.email}`
     if (!managedAddressSet.has(emailKey) && !managedAddressSet.has(accountKey)) {

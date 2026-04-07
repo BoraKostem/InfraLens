@@ -931,6 +931,144 @@ textarea {
   box-shadow: 0 0 0 1px rgba(52, 168, 83, 0.08);
 }
 
+.gcp-overview-console .overview-hero-card {
+  background:
+    radial-gradient(circle at top left, rgba(52, 168, 83, 0.18), transparent 32%),
+    radial-gradient(circle at bottom right, rgba(113, 204, 138, 0.14), transparent 28%),
+    linear-gradient(180deg, rgba(17, 31, 25, 0.98), rgba(8, 17, 14, 0.98));
+  border-color: rgba(52, 168, 83, 0.16);
+}
+
+.gcp-overview-console .overview-glance-card-accent,
+.gcp-overview-console .overview-tile.highlight,
+.gcp-overview-console button.overview-tile.clickable.active,
+.gcp-overview-console .overview-service-chip.active {
+  border-color: rgba(52, 168, 83, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(52, 168, 83, 0.16), transparent 42%),
+    linear-gradient(180deg, rgba(24, 46, 32, 0.96), rgba(14, 30, 20, 0.96));
+}
+
+.gcp-overview-console .overview-glance-card-accent strong,
+.gcp-overview-console .overview-hint-kicker,
+.gcp-overview-console .eyebrow,
+.gcp-overview-console .overview-tile.highlight strong,
+.gcp-overview-console button.overview-tile.clickable.active strong,
+.gcp-overview-console .overview-service-chip.active span {
+  color: #9ce2ae;
+}
+
+.gcp-overview-console .overview-meta-pill,
+.gcp-overview-console .overview-account-card,
+.gcp-overview-console .overview-hint-card,
+.gcp-overview-console .overview-ownership-card,
+.gcp-overview-console .overview-tile,
+.gcp-overview-console .overview-service-chip,
+.gcp-overview-console .global-overview-bar {
+  border-color: rgba(52, 168, 83, 0.14);
+}
+
+.gcp-overview-console .overview-note-item,
+.gcp-overview-console .overview-linked-account-row,
+.gcp-overview-console .overview-ownership-value {
+  background: linear-gradient(180deg, rgba(18, 31, 25, 0.94), rgba(10, 20, 15, 0.94));
+  border-color: rgba(52, 168, 83, 0.1);
+}
+
+.gcp-overview-console .overview-note-item strong {
+  display: block;
+  margin-bottom: 0.18rem;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  letter-spacing: -0.02em;
+  color: #edf4fb;
+}
+
+.gcp-overview-console .overview-note-item span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+
+.gcp-overview-console .overview-hint-card.info {
+  border-color: rgba(52, 168, 83, 0.2);
+  background:
+    radial-gradient(circle at top right, rgba(52, 168, 83, 0.12), transparent 34%),
+    linear-gradient(180deg, rgba(18, 22, 29, 0.96), rgba(11, 15, 21, 0.96));
+}
+
+.gcp-overview-console .overview-hint-card.warning {
+  border-color: rgba(140, 198, 108, 0.22);
+  background:
+    radial-gradient(circle at top right, rgba(140, 198, 108, 0.12), transparent 34%),
+    linear-gradient(180deg, rgba(18, 22, 29, 0.96), rgba(11, 15, 21, 0.96));
+}
+
+.gcp-overview-console .overview-hint-card.error {
+  border-color: rgba(214, 90, 90, 0.22);
+  background:
+    radial-gradient(circle at top right, rgba(214, 90, 90, 0.12), transparent 34%),
+    linear-gradient(180deg, rgba(18, 22, 29, 0.96), rgba(11, 15, 21, 0.96));
+}
+
+.gcp-overview-console .global-overview-bar {
+  background:
+    radial-gradient(circle at top right, rgba(52, 168, 83, 0.12), transparent 30%),
+    linear-gradient(180deg, rgba(17, 28, 22, 0.96), rgba(11, 17, 14, 0.96));
+}
+
+.gcp-overview-service-bar .overview-service-chip:hover,
+.gcp-overview-console .overview-tile:hover,
+.gcp-overview-console button.overview-tile.clickable:hover,
+.gcp-overview-console .overview-tile-action:hover,
+.gcp-overview-console .ghost:hover {
+  border-color: rgba(52, 168, 83, 0.28);
+  box-shadow: 0 0 0 1px rgba(52, 168, 83, 0.08);
+}
+
+.gcp-overview-console .overview-service-chip:hover {
+  background: linear-gradient(180deg, rgba(26, 40, 31, 0.96), rgba(16, 26, 21, 0.96));
+}
+
+.gcp-overview-chip-detail {
+  margin-top: 0.48rem;
+}
+
+.gcp-overview-console .overview-bottom-row,
+.gcp-overview-console .overview-data-panel,
+.gcp-overview-console .overview-insights-panel {
+  border-color: rgba(52, 168, 83, 0.14);
+  background:
+    linear-gradient(180deg, rgba(17, 28, 22, 0.96), rgba(11, 17, 14, 0.96)),
+    radial-gradient(circle at top right, rgba(52, 168, 83, 0.08), transparent 28%);
+}
+
+.gcp-overview-console .overview-data-panel .table-head {
+  background: linear-gradient(180deg, rgba(46, 90, 58, 0.52), rgba(28, 52, 35, 0.52));
+  border-color: rgba(154, 226, 175, 0.1);
+  color: #bdf2cb;
+}
+
+.gcp-overview-console .overview-table-row {
+  border-color: rgba(52, 168, 83, 0.08);
+  background: linear-gradient(180deg, rgba(12, 22, 16, 0.98), rgba(10, 17, 14, 0.98));
+}
+
+.gcp-overview-console .insight-card {
+  border-color: rgba(52, 168, 83, 0.12);
+  background: linear-gradient(180deg, rgba(12, 22, 16, 0.98), rgba(10, 17, 14, 0.98));
+}
+
+.gcp-overview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.2rem;
+}
+
+.gcp-overview-actions button {
+  min-width: 0;
+}
+
 .overview-tiles {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -1358,6 +1496,22 @@ textarea {
   color: var(--muted);
   font-size: 0.74rem;
   letter-spacing: 0.02em;
+}
+
+.overview-tile-action {
+  margin-top: 0.8rem;
+  align-self: flex-start;
+  padding: 0.55rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(23, 31, 28, 0.96), rgba(16, 21, 19, 0.96));
+  color: #edf4fb;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
 }
 
 .overview-tile.highlight {
@@ -2277,6 +2431,112 @@ button.overview-tile.clickable.active strong {
   white-space: nowrap;
   min-width: 0;
   font-weight: 500;
+}
+
+.recent-error-card {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  align-items: flex-start;
+  gap: 0.9rem;
+  min-height: 0;
+}
+
+.recent-errors-scroll {
+  max-height: 540px;
+  overflow-y: auto;
+  padding-right: 0.35rem;
+}
+
+.recent-errors-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+
+.recent-errors-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(98, 122, 145, 0.34);
+  border: 2px solid rgba(10, 16, 24, 0.92);
+}
+
+.recent-errors-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.recent-error-content {
+  min-width: 0;
+}
+
+.recent-error-card .insight-card-message {
+  overflow: visible;
+  text-overflow: unset;
+  white-space: normal;
+  line-height: 1.35;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.recent-error-card .insight-card-service {
+  display: block;
+  width: 100%;
+  max-width: 132px;
+  overflow: visible;
+  text-overflow: unset;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.3;
+  color: #a7b7cc;
+  word-break: break-word;
+}
+
+.recent-error-card .insight-card-badge {
+  width: 132px;
+  min-width: 132px;
+  align-items: stretch;
+}
+
+.recent-error-token-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.38rem;
+  margin-top: 0.42rem;
+}
+
+.recent-error-token {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 0.22rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid rgba(145, 176, 207, 0.12);
+  background: rgba(20, 27, 35, 0.92);
+  color: #dce6f3;
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+
+.recent-error-resource {
+  margin-top: 0.42rem;
+  color: #b9c8d9;
+  font-size: 0.76rem;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.recent-error-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.8rem;
+  margin-top: 0.45rem;
+  color: #a7b7cc;
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+}
+
+.recent-error-detail {
+  margin-top: 0.42rem;
+  color: #90a3ba;
+  font-size: 0.74rem;
+  line-height: 1.45;
+  word-break: break-word;
 }
 
 .column {

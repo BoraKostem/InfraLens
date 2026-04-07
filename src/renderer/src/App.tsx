@@ -92,7 +92,9 @@ import { DirectResourceConsole } from './DirectResourceConsole'
 import { GcpCompareWorkspace } from './GcpCompareWorkspace'
 import { GcpComplianceCenter } from './GcpComplianceCenter'
 import { GcpDirectAccessWorkspace } from './GcpDirectAccessWorkspace'
-import { GcpCloudSqlConsolePage, GcpComputeEngineConsolePage, GcpGkeConsolePage } from './GcpRuntimeConsoles'
+import { GcpOverviewConsole } from './GcpOverviewConsole'
+import { GcpCloudSqlConsolePage, GcpComputeEngineConsolePage } from './GcpRuntimeConsoles'
+import { GcpGkeConsolePage } from './GcpGkeConsole'
 import { GcpSessionHub } from './GcpSessionHub'
 import { useAwsPageConnection } from './AwsPage'
 import { EcsConsole } from './EcsConsole'
@@ -5216,6 +5218,20 @@ export function App() {
               locationOptions={gcpLocationOptions}
               refreshNonce={pageRefreshNonceByScreen.compare ?? 0}
               onNavigate={(serviceId) => navigateToService(serviceId)}
+            />
+          )
+        }
+
+        if (activeProviderId === 'gcp' && targetScreen === 'overview' && activeGcpConnectionDraft) {
+          return (
+            <GcpOverviewConsole
+              projectId={activeGcpConnectionDraft.projectId.trim()}
+              location={activeGcpConnectionDraft.location.trim()}
+              catalogProjects={gcpCatalogProjects}
+              refreshNonce={pageRefreshNonceByScreen.overview ?? 0}
+              onNavigate={(serviceId) => navigateToService(serviceId)}
+              onRunTerminalCommand={handleOpenTerminalCommand}
+              canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
             />
           )
         }

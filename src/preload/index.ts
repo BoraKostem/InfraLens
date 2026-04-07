@@ -21,6 +21,7 @@ import type {
   DbConnectionPresetInput,
   DbVaultCredentialInput,
   EksUpgradePlannerRequest,
+  GcpComputeInstanceAction,
   Ec2BulkInstanceAction,
   Ec2InstanceAction,
   EbsVolumeAttachRequest,
@@ -107,7 +108,28 @@ const awsLensApi = {
   getGcpProjectOverview: (projectId: string) => ipcRenderer.invoke('gcp:projects:get-overview', projectId),
   getGcpIamOverview: (projectId: string) => ipcRenderer.invoke('gcp:iam:get-overview', projectId),
   listGcpComputeInstances: (projectId: string, location: string) => ipcRenderer.invoke('gcp:compute-engine:list', projectId, location),
+  getGcpComputeInstanceDetail: (projectId: string, zone: string, instanceName: string) =>
+    ipcRenderer.invoke('gcp:compute-engine:get-detail', projectId, zone, instanceName),
+  listGcpComputeMachineTypes: (projectId: string, zone: string) =>
+    ipcRenderer.invoke('gcp:compute-engine:list-machine-types', projectId, zone),
+  runGcpComputeInstanceAction: (projectId: string, zone: string, instanceName: string, action: GcpComputeInstanceAction) =>
+    ipcRenderer.invoke('gcp:compute-engine:action', projectId, zone, instanceName, action),
+  resizeGcpComputeInstance: (projectId: string, zone: string, instanceName: string, machineType: string) =>
+    ipcRenderer.invoke('gcp:compute-engine:resize', projectId, zone, instanceName, machineType),
+  updateGcpComputeInstanceLabels: (projectId: string, zone: string, instanceName: string, labels: Record<string, string>) =>
+    ipcRenderer.invoke('gcp:compute-engine:update-labels', projectId, zone, instanceName, labels),
+  deleteGcpComputeInstance: (projectId: string, zone: string, instanceName: string) =>
+    ipcRenderer.invoke('gcp:compute-engine:delete', projectId, zone, instanceName),
+  getGcpComputeSerialOutput: (projectId: string, zone: string, instanceName: string, port?: number, start?: number) =>
+    ipcRenderer.invoke('gcp:compute-engine:get-serial-output', projectId, zone, instanceName, port, start),
   listGcpGkeClusters: (projectId: string, location: string) => ipcRenderer.invoke('gcp:gke:list', projectId, location),
+  getGcpGkeClusterDetail: (projectId: string, location: string, clusterName: string) => ipcRenderer.invoke('gcp:gke:get-detail', projectId, location, clusterName),
+  listGcpGkeNodePools: (projectId: string, location: string, clusterName: string) => ipcRenderer.invoke('gcp:gke:list-node-pools', projectId, location, clusterName),
+  getGcpGkeClusterCredentials: (projectId: string, location: string, clusterName: string, contextName?: string, kubeconfigPath?: string) =>
+    ipcRenderer.invoke('gcp:gke:get-credentials', projectId, location, clusterName, contextName, kubeconfigPath),
+  listGcpGkeOperations: (projectId: string, location: string, clusterName: string) => ipcRenderer.invoke('gcp:gke:list-operations', projectId, location, clusterName),
+  updateGcpGkeNodePoolScaling: (projectId: string, location: string, clusterName: string, nodePoolName: string, minimum: number, desired: number, maximum: number) =>
+    ipcRenderer.invoke('gcp:gke:update-node-pool-scaling', projectId, location, clusterName, nodePoolName, minimum, desired, maximum),
   listGcpStorageBuckets: (projectId: string, location: string) => ipcRenderer.invoke('gcp:cloud-storage:list', projectId, location),
   listGcpStorageObjects: (projectId: string, bucketName: string, prefix: string) => ipcRenderer.invoke('gcp:cloud-storage:objects:list', projectId, bucketName, prefix),
   getGcpStorageObjectContent: (projectId: string, bucketName: string, key: string) => ipcRenderer.invoke('gcp:cloud-storage:object:get-content', projectId, bucketName, key),
@@ -117,6 +139,9 @@ const awsLensApi = {
   deleteGcpStorageObject: (projectId: string, bucketName: string, key: string) => ipcRenderer.invoke('gcp:cloud-storage:object:delete', projectId, bucketName, key),
   listGcpLogEntries: (projectId: string, location: string, query: string, windowHours?: number) => ipcRenderer.invoke('gcp:logging:list', projectId, location, query, windowHours),
   listGcpSqlInstances: (projectId: string, location: string) => ipcRenderer.invoke('gcp:cloud-sql:list', projectId, location),
+  getGcpSqlInstanceDetail: (projectId: string, instanceName: string) => ipcRenderer.invoke('gcp:cloud-sql:get-detail', projectId, instanceName),
+  listGcpSqlDatabases: (projectId: string, instanceName: string) => ipcRenderer.invoke('gcp:cloud-sql:databases:list', projectId, instanceName),
+  listGcpSqlOperations: (projectId: string, instanceName: string) => ipcRenderer.invoke('gcp:cloud-sql:operations:list', projectId, instanceName),
   getGcpBillingOverview: (projectId: string, catalogProjectIds: string[]) => ipcRenderer.invoke('gcp:billing:get-overview', projectId, catalogProjectIds),
   checkForAppUpdates: () => ipcRenderer.invoke('app:update:check'),
   downloadAppUpdate: () => ipcRenderer.invoke('app:update:download'),

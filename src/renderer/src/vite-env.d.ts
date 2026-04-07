@@ -20,6 +20,7 @@ import type {
   DbConnectionPresetFilter,
   DbConnectionPresetInput,
   DbVaultCredentialInput,
+  GcpComputeInstanceAction,
   Ec2BulkInstanceAction,
   Ec2InstanceAction,
   EbsTempInspectionProgress,
@@ -94,7 +95,19 @@ declare global {
       getGcpProjectOverview: (projectId: string) => Promise<unknown>
       getGcpIamOverview: (projectId: string) => Promise<unknown>
       listGcpComputeInstances: (projectId: string, location: string) => Promise<unknown>
+      getGcpComputeInstanceDetail: (projectId: string, zone: string, instanceName: string) => Promise<unknown>
+      listGcpComputeMachineTypes: (projectId: string, zone: string) => Promise<unknown>
+      runGcpComputeInstanceAction: (projectId: string, zone: string, instanceName: string, action: GcpComputeInstanceAction) => Promise<unknown>
+      resizeGcpComputeInstance: (projectId: string, zone: string, instanceName: string, machineType: string) => Promise<unknown>
+      updateGcpComputeInstanceLabels: (projectId: string, zone: string, instanceName: string, labels: Record<string, string>) => Promise<unknown>
+      deleteGcpComputeInstance: (projectId: string, zone: string, instanceName: string) => Promise<unknown>
+      getGcpComputeSerialOutput: (projectId: string, zone: string, instanceName: string, port?: number, start?: number) => Promise<unknown>
       listGcpGkeClusters: (projectId: string, location: string) => Promise<unknown>
+      getGcpGkeClusterDetail: (projectId: string, location: string, clusterName: string) => Promise<unknown>
+      listGcpGkeNodePools: (projectId: string, location: string, clusterName: string) => Promise<unknown>
+      getGcpGkeClusterCredentials: (projectId: string, location: string, clusterName: string, contextName?: string, kubeconfigPath?: string) => Promise<unknown>
+      listGcpGkeOperations: (projectId: string, location: string, clusterName: string) => Promise<unknown>
+      updateGcpGkeNodePoolScaling: (projectId: string, location: string, clusterName: string, nodePoolName: string, minimum: number, desired: number, maximum: number) => Promise<unknown>
       listGcpStorageBuckets: (projectId: string, location: string) => Promise<unknown>
       listGcpStorageObjects: (projectId: string, bucketName: string, prefix: string) => Promise<unknown>
       getGcpStorageObjectContent: (projectId: string, bucketName: string, key: string) => Promise<unknown>
@@ -104,6 +117,9 @@ declare global {
       deleteGcpStorageObject: (projectId: string, bucketName: string, key: string) => Promise<unknown>
       listGcpLogEntries: (projectId: string, location: string, query: string, windowHours?: number) => Promise<unknown>
       listGcpSqlInstances: (projectId: string, location: string) => Promise<unknown>
+      getGcpSqlInstanceDetail: (projectId: string, instanceName: string) => Promise<unknown>
+      listGcpSqlDatabases: (projectId: string, instanceName: string) => Promise<unknown>
+      listGcpSqlOperations: (projectId: string, instanceName: string) => Promise<unknown>
       getGcpBillingOverview: (projectId: string, catalogProjectIds: string[]) => Promise<unknown>
       checkForAppUpdates: () => Promise<unknown>
       downloadAppUpdate: () => Promise<unknown>

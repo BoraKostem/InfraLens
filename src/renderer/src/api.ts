@@ -19,12 +19,25 @@ import type {
   EnvironmentHealthReport,
   GcpCliContext,
   GcpBillingOverview,
+  GcpComputeInstanceAction,
+  GcpComputeInstanceDetail,
+  GcpComputeMachineTypeOption,
+  GcpComputeOperationResult,
+  GcpComputeSerialOutput,
   GcpIamOverview,
   GcpComputeInstanceSummary,
+  GcpGkeClusterCredentials,
+  GcpGkeClusterDetail,
+  GcpGkeOperationResult,
+  GcpGkeOperationSummary,
   GcpGkeClusterSummary,
+  GcpGkeNodePoolSummary,
   GcpLogQueryResult,
   GcpProjectOverview,
+  GcpSqlDatabaseSummary,
+  GcpSqlInstanceDetail,
   GcpSqlInstanceSummary,
+  GcpSqlOperationSummary,
   GcpStorageObjectContent,
   GcpStorageObjectSummary,
   GcpStorageBucketSummary,
@@ -1182,8 +1195,83 @@ export async function listGcpComputeInstances(projectId: string, location: strin
   return unwrap((await rawAwsBridge().listGcpComputeInstances(projectId, location)) as Wrapped<GcpComputeInstanceSummary[]>)
 }
 
+export async function getGcpComputeInstanceDetail(projectId: string, zone: string, instanceName: string): Promise<GcpComputeInstanceDetail | null> {
+  return unwrap((await rawAwsBridge().getGcpComputeInstanceDetail(projectId, zone, instanceName)) as Wrapped<GcpComputeInstanceDetail | null>)
+}
+
+export async function listGcpComputeMachineTypes(projectId: string, zone: string): Promise<GcpComputeMachineTypeOption[]> {
+  return unwrap((await rawAwsBridge().listGcpComputeMachineTypes(projectId, zone)) as Wrapped<GcpComputeMachineTypeOption[]>)
+}
+
+export async function runGcpComputeInstanceAction(
+  projectId: string,
+  zone: string,
+  instanceName: string,
+  action: GcpComputeInstanceAction
+): Promise<GcpComputeOperationResult> {
+  return unwrap((await rawAwsBridge().runGcpComputeInstanceAction(projectId, zone, instanceName, action)) as Wrapped<GcpComputeOperationResult>)
+}
+
+export async function resizeGcpComputeInstance(
+  projectId: string,
+  zone: string,
+  instanceName: string,
+  machineType: string
+): Promise<GcpComputeOperationResult> {
+  return unwrap((await rawAwsBridge().resizeGcpComputeInstance(projectId, zone, instanceName, machineType)) as Wrapped<GcpComputeOperationResult>)
+}
+
+export async function updateGcpComputeInstanceLabels(
+  projectId: string,
+  zone: string,
+  instanceName: string,
+  labels: Record<string, string>
+): Promise<GcpComputeOperationResult> {
+  return unwrap((await rawAwsBridge().updateGcpComputeInstanceLabels(projectId, zone, instanceName, labels)) as Wrapped<GcpComputeOperationResult>)
+}
+
+export async function deleteGcpComputeInstance(projectId: string, zone: string, instanceName: string): Promise<GcpComputeOperationResult> {
+  return unwrap((await rawAwsBridge().deleteGcpComputeInstance(projectId, zone, instanceName)) as Wrapped<GcpComputeOperationResult>)
+}
+
+export async function getGcpComputeSerialOutput(
+  projectId: string,
+  zone: string,
+  instanceName: string,
+  port?: number,
+  start?: number
+): Promise<GcpComputeSerialOutput> {
+  return unwrap((await rawAwsBridge().getGcpComputeSerialOutput(projectId, zone, instanceName, port, start)) as Wrapped<GcpComputeSerialOutput>)
+}
+
 export async function listGcpGkeClusters(projectId: string, location: string): Promise<GcpGkeClusterSummary[]> {
   return unwrap((await rawAwsBridge().listGcpGkeClusters(projectId, location)) as Wrapped<GcpGkeClusterSummary[]>)
+}
+
+export async function getGcpGkeClusterDetail(projectId: string, location: string, clusterName: string): Promise<GcpGkeClusterDetail> {
+  return unwrap((await rawAwsBridge().getGcpGkeClusterDetail(projectId, location, clusterName)) as Wrapped<GcpGkeClusterDetail>)
+}
+
+export async function listGcpGkeNodePools(projectId: string, location: string, clusterName: string): Promise<GcpGkeNodePoolSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpGkeNodePools(projectId, location, clusterName)) as Wrapped<GcpGkeNodePoolSummary[]>)
+}
+
+export async function getGcpGkeClusterCredentials(
+  projectId: string,
+  location: string,
+  clusterName: string,
+  contextName?: string,
+  kubeconfigPath?: string
+): Promise<GcpGkeClusterCredentials> {
+  return unwrap((await rawAwsBridge().getGcpGkeClusterCredentials(projectId, location, clusterName, contextName, kubeconfigPath)) as Wrapped<GcpGkeClusterCredentials>)
+}
+
+export async function listGcpGkeOperations(projectId: string, location: string, clusterName: string): Promise<GcpGkeOperationSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpGkeOperations(projectId, location, clusterName)) as Wrapped<GcpGkeOperationSummary[]>)
+}
+
+export async function updateGcpGkeNodePoolScaling(projectId: string, location: string, clusterName: string, nodePoolName: string, minimum: number, desired: number, maximum: number): Promise<GcpGkeOperationResult> {
+  return unwrap((await rawAwsBridge().updateGcpGkeNodePoolScaling(projectId, location, clusterName, nodePoolName, minimum, desired, maximum)) as Wrapped<GcpGkeOperationResult>)
 }
 
 export async function listGcpStorageBuckets(projectId: string, location: string): Promise<GcpStorageBucketSummary[]> {
@@ -1220,6 +1308,18 @@ export async function listGcpLogEntries(projectId: string, location: string, que
 
 export async function listGcpSqlInstances(projectId: string, location: string): Promise<GcpSqlInstanceSummary[]> {
   return unwrap((await rawAwsBridge().listGcpSqlInstances(projectId, location)) as Wrapped<GcpSqlInstanceSummary[]>)
+}
+
+export async function getGcpSqlInstanceDetail(projectId: string, instanceName: string): Promise<GcpSqlInstanceDetail> {
+  return unwrap((await rawAwsBridge().getGcpSqlInstanceDetail(projectId, instanceName)) as Wrapped<GcpSqlInstanceDetail>)
+}
+
+export async function listGcpSqlDatabases(projectId: string, instanceName: string): Promise<GcpSqlDatabaseSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpSqlDatabases(projectId, instanceName)) as Wrapped<GcpSqlDatabaseSummary[]>)
+}
+
+export async function listGcpSqlOperations(projectId: string, instanceName: string): Promise<GcpSqlOperationSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpSqlOperations(projectId, instanceName)) as Wrapped<GcpSqlOperationSummary[]>)
 }
 
 export async function getGcpBillingOverview(projectId: string, catalogProjectIds: string[]): Promise<GcpBillingOverview> {

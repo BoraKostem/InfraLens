@@ -5,7 +5,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { dialog, ipcMain, shell, app, type BrowserWindow, type OpenDialogOptions } from 'electron'
 
-import type { AppDiagnosticsSnapshot, AppSecuritySummary, AppSettings, AwsConnection, CloudProviderId, Ec2ChosenSshKey, TerraformCommandRequest, TerraformInputConfiguration, TerraformRunHistoryFilter } from '@shared/types'
+import type { AppDiagnosticsSnapshot, AppSecuritySummary, AppSettings, AwsConnection, CloudProviderId, Ec2ChosenSshKey, GcpComputeInstanceAction, TerraformCommandRequest, TerraformInputConfiguration, TerraformRunHistoryFilter } from '@shared/types'
 import { getAppSettings, resetAppSettings, updateAppSettings } from './appSettings'
 import { importAwsConfigFile } from './aws/profiles'
 import { getWorkspaceCatalog, listServiceCatalog } from './catalog'
@@ -447,8 +447,44 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('gcp:compute-engine:list', async (_event, projectId: string, location: string) =>
     wrap(async () => (await loadGcpSdk()).listGcpComputeInstances(projectId, location))
   )
+  ipcMain.handle('gcp:compute-engine:get-detail', async (_event, projectId: string, zone: string, instanceName: string) =>
+    wrap(async () => (await loadGcpSdk()).getGcpComputeInstanceDetail(projectId, zone, instanceName))
+  )
+  ipcMain.handle('gcp:compute-engine:list-machine-types', async (_event, projectId: string, zone: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpComputeMachineTypes(projectId, zone))
+  )
+  ipcMain.handle('gcp:compute-engine:action', async (_event, projectId: string, zone: string, instanceName: string, action: GcpComputeInstanceAction) =>
+    wrap(async () => (await loadGcpSdk()).runGcpComputeInstanceAction(projectId, zone, instanceName, action))
+  )
+  ipcMain.handle('gcp:compute-engine:resize', async (_event, projectId: string, zone: string, instanceName: string, machineType: string) =>
+    wrap(async () => (await loadGcpSdk()).resizeGcpComputeInstance(projectId, zone, instanceName, machineType))
+  )
+  ipcMain.handle('gcp:compute-engine:update-labels', async (_event, projectId: string, zone: string, instanceName: string, labels: Record<string, string>) =>
+    wrap(async () => (await loadGcpSdk()).updateGcpComputeInstanceLabels(projectId, zone, instanceName, labels))
+  )
+  ipcMain.handle('gcp:compute-engine:delete', async (_event, projectId: string, zone: string, instanceName: string) =>
+    wrap(async () => (await loadGcpSdk()).deleteGcpComputeInstance(projectId, zone, instanceName))
+  )
+  ipcMain.handle('gcp:compute-engine:get-serial-output', async (_event, projectId: string, zone: string, instanceName: string, port?: number, start?: number) =>
+    wrap(async () => (await loadGcpSdk()).getGcpComputeSerialOutput(projectId, zone, instanceName, port, start))
+  )
   ipcMain.handle('gcp:gke:list', async (_event, projectId: string, location: string) =>
     wrap(async () => (await loadGcpSdk()).listGcpGkeClusters(projectId, location))
+  )
+  ipcMain.handle('gcp:gke:get-detail', async (_event, projectId: string, location: string, clusterName: string) =>
+    wrap(async () => (await loadGcpSdk()).getGcpGkeClusterDetail(projectId, location, clusterName))
+  )
+  ipcMain.handle('gcp:gke:list-node-pools', async (_event, projectId: string, location: string, clusterName: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpGkeNodePools(projectId, location, clusterName))
+  )
+  ipcMain.handle('gcp:gke:get-credentials', async (_event, projectId: string, location: string, clusterName: string, contextName?: string, kubeconfigPath?: string) =>
+    wrap(async () => (await loadGcpSdk()).getGcpGkeClusterCredentials(projectId, location, clusterName, contextName, kubeconfigPath))
+  )
+  ipcMain.handle('gcp:gke:list-operations', async (_event, projectId: string, location: string, clusterName: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpGkeOperations(projectId, location, clusterName))
+  )
+  ipcMain.handle('gcp:gke:update-node-pool-scaling', async (_event, projectId: string, location: string, clusterName: string, nodePoolName: string, minimum: number, desired: number, maximum: number) =>
+    wrap(async () => (await loadGcpSdk()).updateGcpGkeNodePoolScaling(projectId, location, clusterName, nodePoolName, minimum, desired, maximum))
   )
   ipcMain.handle('gcp:cloud-storage:list', async (_event, projectId: string, location: string) =>
     wrap(async () => (await loadGcpSdk()).listGcpStorageBuckets(projectId, location))
@@ -476,6 +512,15 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   )
   ipcMain.handle('gcp:cloud-sql:list', async (_event, projectId: string, location: string) =>
     wrap(async () => (await loadGcpSdk()).listGcpSqlInstances(projectId, location))
+  )
+  ipcMain.handle('gcp:cloud-sql:get-detail', async (_event, projectId: string, instanceName: string) =>
+    wrap(async () => (await loadGcpSdk()).getGcpSqlInstanceDetail(projectId, instanceName))
+  )
+  ipcMain.handle('gcp:cloud-sql:databases:list', async (_event, projectId: string, instanceName: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpSqlDatabases(projectId, instanceName))
+  )
+  ipcMain.handle('gcp:cloud-sql:operations:list', async (_event, projectId: string, instanceName: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpSqlOperations(projectId, instanceName))
   )
   ipcMain.handle('gcp:billing:get-overview', async (_event, projectId: string, catalogProjectIds: string[]) =>
     wrap(async () => (await loadGcpSdk()).getGcpBillingOverview(projectId, catalogProjectIds))

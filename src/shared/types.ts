@@ -647,6 +647,90 @@ export type GcpComputeInstanceSummary = {
   externalIp: string
 }
 
+export type GcpLabelEntry = {
+  key: string
+  value: string
+}
+
+export type GcpMetadataEntry = {
+  key: string
+  value: string
+}
+
+export type GcpComputeNetworkInterfaceSummary = {
+  name: string
+  network: string
+  subnetwork: string
+  internalIp: string
+  externalIp: string
+  stackType: string
+}
+
+export type GcpComputeDiskSummary = {
+  deviceName: string
+  type: string
+  sizeGb: string
+  status: string
+  mode: string
+  interface: string
+  boot: boolean
+  autoDelete: boolean
+}
+
+export type GcpComputeServiceAccountDetail = {
+  email: string
+  scopes: string[]
+}
+
+export type GcpComputeInstanceDetail = {
+  id: string
+  name: string
+  zone: string
+  status: string
+  machineType: string
+  cpuPlatform: string
+  internalIp: string
+  externalIp: string
+  canIpForward: boolean
+  deletionProtection: boolean
+  creationTimestamp: string
+  lastStartTimestamp: string
+  lastStopTimestamp: string
+  scheduling: string
+  tags: string[]
+  labels: GcpLabelEntry[]
+  metadata: GcpMetadataEntry[]
+  networks: GcpComputeNetworkInterfaceSummary[]
+  disks: GcpComputeDiskSummary[]
+  serviceAccounts: GcpComputeServiceAccountDetail[]
+  shieldedIntegrityMonitoring: boolean
+  shieldedSecureBoot: boolean
+  shieldedVtpm: boolean
+}
+
+export type GcpComputeMachineTypeOption = {
+  name: string
+  guestCpus: number
+  memoryMb: number
+  description: string
+  isSharedCpu: boolean
+}
+
+export type GcpComputeSerialOutput = {
+  contents: string
+  nextStart: number
+  port: number
+}
+
+export type GcpComputeInstanceAction = 'start' | 'stop' | 'reset' | 'resume' | 'suspend'
+
+export type GcpComputeOperationResult = {
+  operationName: string
+  completed: boolean
+  status: string
+  summary: string
+}
+
 export type GcpGkeClusterSummary = {
   name: string
   location: string
@@ -655,6 +739,83 @@ export type GcpGkeClusterSummary = {
   nodeCount: string
   releaseChannel: string
   endpoint: string
+}
+
+export type GcpGkeClusterDetail = {
+  name: string
+  location: string
+  status: string
+  endpoint: string
+  masterVersion: string
+  nodeVersion: string
+  releaseChannel: string
+  autopilotEnabled: boolean
+  privateClusterEnabled: boolean
+  shieldedNodesEnabled: boolean
+  verticalPodAutoscalingEnabled: boolean
+  currentNodeCount: number
+  nodePoolCount: number
+  workloadIdentityPool: string
+  network: string
+  subnetwork: string
+  clusterIpv4Cidr: string
+  servicesIpv4Cidr: string
+  controlPlaneIpv4Cidr: string
+  loggingService: string
+  monitoringService: string
+  maintenanceWindow: string
+  maintenanceExclusions: string[]
+  resourceLabels: Record<string, string>
+}
+
+export type GcpGkeNodePoolSummary = {
+  name: string
+  status: string
+  version: string
+  nodeCount: number
+  minNodeCount: number
+  maxNodeCount: number
+  machineType: string
+  imageType: string
+  diskSizeGb: string
+  autoscaling: string
+  autoUpgradeEnabled: boolean
+  autoRepairEnabled: boolean
+  spotEnabled: boolean
+  preemptible: boolean
+  locations: string[]
+}
+
+export type GcpGkeOperationSummary = {
+  id: string
+  type: string
+  status: string
+  detail: string
+  target: string
+  location: string
+  startedAt: string
+  endedAt: string
+}
+
+export type GcpGkeOperationResult = {
+  operationName: string
+  completed: boolean
+  status: string
+  summary: string
+}
+
+export type GcpGkeClusterCredentials = {
+  clusterName: string
+  location: string
+  endpoint: string
+  contextName: string
+  kubeconfigPath: string
+  authProvider: string
+  tokenPreview: string
+  tokenExpiresAt: string
+  certificateAuthorityData: string
+  bearerToken: string
+  kubeconfigYaml: string
 }
 
 export type GcpStorageBucketSummary = {
@@ -694,6 +855,48 @@ export type GcpSqlInstanceSummary = {
   diskSizeGb: string
   deletionProtectionEnabled: boolean
   maintenanceWindow: string
+}
+
+export type GcpSqlInstanceDetail = {
+  name: string
+  region: string
+  zone: string
+  state: string
+  databaseVersion: string
+  availabilityType: string
+  primaryAddress: string
+  privateAddress: string
+  diskSizeGb: string
+  storageAutoResizeEnabled: boolean
+  deletionProtectionEnabled: boolean
+  maintenanceWindow: string
+  activationPolicy: string
+  pricingPlan: string
+  diskType: string
+  connectorEnforcement: string
+  sslMode: string
+  backupEnabled: boolean
+  binaryLogEnabled: boolean
+  pointInTimeRecoveryEnabled: boolean
+  authorizedNetworks: string[]
+}
+
+export type GcpSqlDatabaseSummary = {
+  name: string
+  charset: string
+  collation: string
+}
+
+export type GcpSqlOperationSummary = {
+  id: string
+  operationType: string
+  status: string
+  targetId: string
+  targetProject: string
+  user: string
+  insertTime: string
+  endTime: string
+  error: string
 }
 
 export type GcpLogEntryDetail = {
@@ -757,6 +960,36 @@ export type GcpBillingOwnershipHint = {
 
 export type GcpBillingVisibility = 'full' | 'billing-account-only' | 'project-only'
 
+export type GcpBillingSpendTelemetryStatus =
+  | 'available'
+  | 'billing-disabled'
+  | 'missing-export'
+  | 'access-limited'
+  | 'error'
+
+export type GcpBillingSpendBreakdownEntry = {
+  service: string
+  amount: number
+  currency: string
+  sharePercent: number
+}
+
+export type GcpBillingSpendTelemetry = {
+  status: GcpBillingSpendTelemetryStatus
+  source: 'bigquery-export' | 'metadata-only'
+  periodLabel: string
+  periodStart: string
+  periodEnd: string
+  totalAmount: number
+  currency: string
+  serviceBreakdown: GcpBillingSpendBreakdownEntry[]
+  exportProjectId: string
+  exportDatasetId: string
+  exportTableId: string
+  message: string
+  lastUpdatedAt: string
+}
+
 export type GcpBillingOverview = {
   projectId: string
   projectNumber: string
@@ -769,6 +1002,7 @@ export type GcpBillingOverview = {
   linkedProjects: GcpBillingLinkedProjectSummary[]
   capabilityHints: GcpBillingCapabilityHint[]
   ownershipHints: GcpBillingOwnershipHint[]
+  spendTelemetry: GcpBillingSpendTelemetry
   notes: string[]
   projectLabelCount: number
   linkedProjectLabelCoveragePercent: number

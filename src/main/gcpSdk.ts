@@ -8,23 +8,38 @@ import type {
   GcpBillingCapabilityHint,
   GcpBillingLinkedProjectSummary,
   GcpBillingOverview,
+  GcpComputeInstanceAction,
+  GcpComputeInstanceDetail,
   GcpBillingOwnershipHint,
   GcpBillingOwnershipValue,
+  GcpBillingSpendBreakdownEntry,
+  GcpBillingSpendTelemetry,
+  GcpComputeMachineTypeOption,
+  GcpComputeOperationResult,
+  GcpComputeSerialOutput,
   GcpEnabledApiSummary,
   GcpIamBindingSummary,
   GcpIamCapabilityHint,
   GcpIamOverview,
   GcpIamPrincipalSummary,
   GcpComputeInstanceSummary,
+  GcpGkeClusterCredentials,
+  GcpGkeClusterDetail,
+  GcpGkeOperationResult,
+  GcpGkeOperationSummary,
   GcpLogEntryDetail,
   GcpGkeClusterSummary,
+  GcpGkeNodePoolSummary,
   GcpLogEntrySummary,
   GcpLogFacetCount,
   GcpLogQueryResult,
   GcpProjectCapabilityHint,
   GcpProjectOverview,
   GcpServiceAccountSummary,
+  GcpSqlDatabaseSummary,
+  GcpSqlInstanceDetail,
   GcpSqlInstanceSummary,
+  GcpSqlOperationSummary,
   GcpStorageBucketSummary,
   GcpStorageObjectContent,
   GcpStorageObjectSummary
@@ -69,12 +84,95 @@ type GcpStorageObjectRecord = {
   storageClass: string
 }
 
+type GcpFirewallRuleSummary = {
+  name: string
+  network: string
+  direction: string
+  priority: string
+}
+
+type GcpNetworkSummary = {
+  name: string
+  autoCreateSubnetworks: boolean
+  routingMode: string
+}
+
+type GcpSubnetworkSummary = {
+  name: string
+  region: string
+  network: string
+  ipCidrRange: string
+  privateIpGoogleAccess: boolean
+}
+
+type GcpRouterSummary = {
+  name: string
+  region: string
+  network: string
+}
+
+type GcpRouterNatSummary = {
+  name: string
+  region: string
+  router: string
+  natIpAllocateOption: string
+}
+
+type GcpGlobalAddressSummary = {
+  name: string
+  address: string
+  addressType: string
+  purpose: string
+  network: string
+  prefixLength: string
+}
+
+type GcpServiceNetworkingConnectionSummary = {
+  network: string
+  service: string
+  peering: string
+  reservedPeeringRanges: string[]
+}
+
+type GcpSqlScopedDatabaseSummary = {
+  instance: string
+  name: string
+  charset: string
+  collation: string
+}
+
+type GcpSqlUserSummary = {
+  instance: string
+  name: string
+  host: string
+  type: string
+}
+
 type GcpRequestOptions = {
   data?: unknown
   headers?: Record<string, string>
   method?: 'DELETE' | 'GET' | 'POST'
   responseType?: 'arraybuffer' | 'json' | 'text'
   url: string
+}
+
+type GcpBigQueryDatasetRecord = {
+  projectId: string
+  datasetId: string
+  location: string
+}
+
+type GcpBigQueryExportTableRecord = {
+  projectId: string
+  datasetId: string
+  tableId: string
+  location: string
+  priority: number
+}
+
+type GcpBigQuerySchemaField = {
+  name: string
+  fields: GcpBigQuerySchemaField[]
 }
 
 function asString(value: unknown): string {
@@ -111,6 +209,20 @@ function normalizeNumber(value: unknown): number {
   return 0
 }
 
+function normalizeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .map((item) => asString(item))
+    .filter(Boolean)
+}
+
 function normalizeStringRecord(value: unknown): Record<string, string> {
   if (!value || typeof value !== 'object') {
     return {}
@@ -121,6 +233,144 @@ function normalizeStringRecord(value: unknown): Record<string, string> {
       .map(([key, item]) => [key.trim(), asString(item)])
       .filter((entry) => entry[0] && entry[1])
   )
+}
+
+function maskSecret(value: string): string {
+  const normalized = value.trim()
+  if (!normalized) {
+    return ''
+  }
+
+  if (normalized.length <= 12) {
+    return normalized
+  }
+
+  return `${normalized.slice(0, 8)}...${normalized.slice(-6)}`
+}
+
+function quoteYamlScalar(value: string): string {
+  return JSON.stringify(value)
+}
+
+function buildGkeContextName(projectId: string, location: string, clusterName: string): string {
+  return `gke_${projectId.trim()}_${location.trim()}_${clusterName.trim()}`
+}
+
+function buildGkeKubeconfigYaml(contextName: string, endpoint: string, certificateAuthorityData: string, bearerToken: string): string {
+  const lines = [
+    'apiVersion: v1',
+    'kind: Config',
+    'clusters:',
+    `- name: ${quoteYamlScalar(contextName)}`,
+    '  cluster:',
+    `    server: ${quoteYamlScalar(`https://${endpoint}`)}`
+  ]
+
+  if (certificateAuthorityData.trim()) {
+    lines.push(`    certificate-authority-data: ${quoteYamlScalar(certificateAuthorityData.trim())}`)
+  }
+
+  lines.push(
+    'contexts:',
+    `- name: ${quoteYamlScalar(contextName)}`,
+    '  context:',
+    `    cluster: ${quoteYamlScalar(contextName)}`,
+    `    user: ${quoteYamlScalar(contextName)}`,
+    `current-context: ${quoteYamlScalar(contextName)}`,
+    'users:',
+    `- name: ${quoteYamlScalar(contextName)}`,
+    '  user:',
+    `    token: ${quoteYamlScalar(bearerToken)}`
+  )
+
+  return `${lines.join('\n')}\n`
+}
+
+function buildContainerApiUrl(pathname: string, query: Record<string, number | string | undefined> = {}): string {
+  const url = new URL(`https://container.googleapis.com/v1/${pathname.replace(/^\/+/, '')}`)
+
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === '') {
+      continue
+    }
+
+    url.searchParams.set(key, String(value))
+  }
+
+  return url.toString()
+}
+
+function formatMaintenanceWindow(value: unknown): string {
+  const record = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+  const recurringWindow = record.recurringWindow && typeof record.recurringWindow === 'object'
+    ? record.recurringWindow as Record<string, unknown>
+    : {}
+  const windowRecord = recurringWindow.window && typeof recurringWindow.window === 'object'
+    ? recurringWindow.window as Record<string, unknown>
+    : {}
+  const startTime = asString(windowRecord.startTime)
+  const endTime = asString(windowRecord.endTime)
+  const recurrence = asString(recurringWindow.recurrence)
+  const dailyWindow = record.dailyMaintenanceWindow && typeof record.dailyMaintenanceWindow === 'object'
+    ? record.dailyMaintenanceWindow as Record<string, unknown>
+    : {}
+  const dailyStart = asString(dailyWindow.startTime)
+
+  if (startTime || endTime || recurrence) {
+    return [startTime && endTime ? `${startTime} -> ${endTime}` : startTime || endTime, recurrence]
+      .filter(Boolean)
+      .join(' | ')
+  }
+
+  return dailyStart ? `Daily at ${dailyStart}` : ''
+}
+
+function normalizeMaintenanceExclusions(value: unknown): string[] {
+  if (!value || typeof value !== 'object') {
+    return []
+  }
+
+  return Object.entries(value as Record<string, unknown>)
+    .map(([name, raw]) => {
+      const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
+      const windowRecord = record.startTime || record.endTime
+        ? record
+        : record.maintenanceExclusionWindow && typeof record.maintenanceExclusionWindow === 'object'
+          ? record.maintenanceExclusionWindow as Record<string, unknown>
+          : {}
+      const startTime = asString(windowRecord.startTime)
+      const endTime = asString(windowRecord.endTime)
+      const scope = record.exclusionOptions && typeof record.exclusionOptions === 'object'
+        ? asString((record.exclusionOptions as Record<string, unknown>).scope)
+        : ''
+      const summary = [name.trim(), startTime && endTime ? `${startTime} -> ${endTime}` : startTime || endTime, scope].filter(Boolean).join(' | ')
+      return summary
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right))
+}
+
+function extractGkeOperationError(operation: unknown): string {
+  const record = operation && typeof operation === 'object' ? operation as Record<string, unknown> : {}
+  const statusMessage = asString(record.statusMessage)
+  if (statusMessage) {
+    return statusMessage
+  }
+
+  const errorRecord = record.error && typeof record.error === 'object' ? record.error as Record<string, unknown> : {}
+  const message = asString(errorRecord.message)
+  if (message) {
+    return message
+  }
+
+  const details = Array.isArray(errorRecord.details) ? errorRecord.details : []
+  return details
+    .map((entry) => {
+      const item = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {}
+      return asString(item.message) || asString(item.details)
+    })
+    .filter(Boolean)
+    .join(' | ')
 }
 
 function titleFromApiName(value: string): string {
@@ -251,6 +501,35 @@ function buildStorageApiUrl(pathname: string, query: Record<string, number | str
   return url.toString()
 }
 
+function buildComputeApiUrl(projectId: string, pathname: string, query: Record<string, number | string | undefined> = {}): string {
+  const normalizedPath = pathname.replace(/^\/+/, '')
+  const url = new URL(`https://compute.googleapis.com/compute/v1/projects/${encodeURIComponent(projectId)}/${normalizedPath}`)
+
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === '') {
+      continue
+    }
+
+    url.searchParams.set(key, String(value))
+  }
+
+  return url.toString()
+}
+
+function buildBigQueryApiUrl(pathname: string, query: Record<string, number | string | undefined> = {}): string {
+  const url = new URL(`https://bigquery.googleapis.com/bigquery/v2/${pathname.replace(/^\/+/, '')}`)
+
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === '') {
+      continue
+    }
+
+    url.searchParams.set(key, String(value))
+  }
+
+  return url.toString()
+}
+
 function encodeStorageObjectKey(value: string): string {
   return encodeURIComponent(value.trim())
 }
@@ -319,6 +598,143 @@ function normalizeStorageBucket(entry: unknown): GcpStorageBucketSummary | null 
     versioningEnabled: asBoolean(versioning.enabled),
     uniformBucketLevelAccessEnabled: asBoolean(uniformBucketLevelAccess.enabled),
     labelCount: labels.length
+  }
+}
+
+function normalizeFirewallRule(entry: unknown): GcpFirewallRuleSummary | null {
+  const record = toRecord(entry)
+  const name = asString(record.name)
+  if (!name) {
+    return null
+  }
+
+  return {
+    name,
+    network: resourceBasename(asString(record.network)),
+    direction: asString(record.direction),
+    priority: asString(record.priority)
+  }
+}
+
+function normalizeNetwork(entry: unknown): GcpNetworkSummary | null {
+  const record = toRecord(entry)
+  const name = asString(record.name)
+  if (!name) {
+    return null
+  }
+
+  const routingConfig = toRecord(record.routingConfig)
+  return {
+    name,
+    autoCreateSubnetworks: asBoolean(record.autoCreateSubnetworks ?? record.auto_create_subnetworks),
+    routingMode: asString(routingConfig.routingMode ?? record.routing_mode)
+  }
+}
+
+function normalizeSubnetwork(entry: unknown): GcpSubnetworkSummary | null {
+  const record = toRecord(entry)
+  const name = asString(record.name)
+  if (!name) {
+    return null
+  }
+
+  return {
+    name,
+    region: resourceBasename(asString(record.region)),
+    network: resourceBasename(asString(record.network)),
+    ipCidrRange: asString(record.ipCidrRange ?? record.ip_cidr_range),
+    privateIpGoogleAccess: asBoolean(record.privateIpGoogleAccess ?? record.private_ip_google_access)
+  }
+}
+
+function normalizeRouter(entry: unknown): GcpRouterSummary | null {
+  const record = toRecord(entry)
+  const name = asString(record.name)
+  if (!name) {
+    return null
+  }
+
+  return {
+    name,
+    region: resourceBasename(asString(record.region)),
+    network: resourceBasename(asString(record.network))
+  }
+}
+
+function normalizeRouterNat(entry: unknown, routerName: string, region: string): GcpRouterNatSummary | null {
+  const record = toRecord(entry)
+  const name = asString(record.name)
+  if (!name) {
+    return null
+  }
+
+  return {
+    name,
+    region,
+    router: routerName,
+    natIpAllocateOption: asString(record.natIpAllocateOption ?? record.nat_ip_allocate_option)
+  }
+}
+
+function normalizeGlobalAddress(entry: unknown): GcpGlobalAddressSummary | null {
+  const record = toRecord(entry)
+  const name = asString(record.name)
+  if (!name) {
+    return null
+  }
+
+  return {
+    name,
+    address: asString(record.address),
+    addressType: asString(record.addressType ?? record.address_type),
+    purpose: asString(record.purpose),
+    network: resourceBasename(asString(record.network)),
+    prefixLength: asString(record.prefixLength ?? record.prefix_length)
+  }
+}
+
+function normalizeServiceNetworkingConnection(entry: unknown, networkName: string): GcpServiceNetworkingConnectionSummary | null {
+  const record = toRecord(entry)
+  const service = asString(record.service)
+  if (!service) {
+    return null
+  }
+
+  return {
+    network: networkName,
+    service,
+    peering: asString(record.peering),
+    reservedPeeringRanges: [...new Set(asStringArray(record.reservedPeeringRanges ?? record.reserved_peering_ranges).map((item) => resourceBasename(item)).filter(Boolean))].sort()
+  }
+}
+
+function normalizeScopedSqlDatabase(entry: unknown, instance: string): GcpSqlScopedDatabaseSummary | null {
+  const record = toRecord(entry)
+  const name = asString(record.name)
+  if (!name) {
+    return null
+  }
+
+  return {
+    instance,
+    name,
+    charset: asString(record.charset),
+    collation: asString(record.collation)
+  }
+}
+
+function normalizeSqlUser(entry: unknown, instance: string): GcpSqlUserSummary | null {
+  const record = toRecord(entry)
+  const name = asString(record.name)
+  if (!name) {
+    return null
+  }
+
+  return {
+    instance,
+    name,
+    host: asString(record.host),
+    type: asString(record.type)
   }
 }
 
@@ -427,7 +843,7 @@ function guessContentTypeFromKey(key: string): string {
   }
 }
 
-function formatMaintenanceWindow(day: unknown, hour: unknown): string {
+function formatSqlMaintenanceWindow(day: unknown, hour: unknown): string {
   const hourText = typeof hour === 'number' ? `${String(hour).padStart(2, '0')}:00 UTC` : ''
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
   const dayText = typeof day === 'number' && day >= 1 && day <= 7 ? dayNames[day - 1] : ''
@@ -470,7 +886,110 @@ function normalizeSqlInstance(entry: unknown): GcpSqlInstanceSummary | null {
     storageAutoResizeEnabled: asBoolean(settings.storageAutoResize),
     diskSizeGb: asString(settings.dataDiskSizeGb),
     deletionProtectionEnabled: asBoolean(record.deletionProtectionEnabled),
-    maintenanceWindow: formatMaintenanceWindow(maintenanceWindow.day, maintenanceWindow.hour)
+    maintenanceWindow: formatSqlMaintenanceWindow(maintenanceWindow.day, maintenanceWindow.hour)
+  }
+}
+
+function normalizeAuthorizedNetworks(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') {
+        return ''
+      }
+
+      const record = entry as Record<string, unknown>
+      const name = asString(record.name)
+      const cidr = asString(record.value)
+      const expirationTime = asString(record.expirationTime)
+      const parts = [name, cidr].filter(Boolean)
+      const label = parts.join(' ').trim()
+
+      return expirationTime
+        ? `${label || cidr || 'network'} (expires ${expirationTime})`
+        : (label || cidr)
+    })
+    .filter(Boolean)
+}
+
+function normalizeSqlInstanceDetail(entry: unknown): GcpSqlInstanceDetail | null {
+  const summary = normalizeSqlInstance(entry)
+  if (!summary || !entry || typeof entry !== 'object') {
+    return null
+  }
+
+  const record = entry as Record<string, unknown>
+  const settings = (record.settings && typeof record.settings === 'object' ? record.settings : {}) as Record<string, unknown>
+  const backupConfiguration = (settings.backupConfiguration && typeof settings.backupConfiguration === 'object'
+    ? settings.backupConfiguration
+    : {}) as Record<string, unknown>
+  const ipConfiguration = (settings.ipConfiguration && typeof settings.ipConfiguration === 'object'
+    ? settings.ipConfiguration
+    : {}) as Record<string, unknown>
+
+  return {
+    ...summary,
+    activationPolicy: asString(settings.activationPolicy),
+    pricingPlan: asString(settings.pricingPlan),
+    diskType: asString(settings.dataDiskType),
+    connectorEnforcement: asString(settings.connectorEnforcement),
+    sslMode: asString(settings.sslMode),
+    backupEnabled: asBoolean(backupConfiguration.enabled),
+    binaryLogEnabled: asBoolean(backupConfiguration.binaryLogEnabled),
+    pointInTimeRecoveryEnabled: asBoolean(backupConfiguration.pointInTimeRecoveryEnabled),
+    authorizedNetworks: normalizeAuthorizedNetworks(ipConfiguration.authorizedNetworks)
+  }
+}
+
+function normalizeSqlDatabase(entry: unknown): GcpSqlDatabaseSummary | null {
+  if (!entry || typeof entry !== 'object') {
+    return null
+  }
+
+  const record = entry as Record<string, unknown>
+  const name = asString(record.name)
+  if (!name) {
+    return null
+  }
+
+  return {
+    name,
+    charset: asString(record.charset),
+    collation: asString(record.collation)
+  }
+}
+
+function normalizeSqlOperation(entry: unknown): GcpSqlOperationSummary | null {
+  if (!entry || typeof entry !== 'object') {
+    return null
+  }
+
+  const record = entry as Record<string, unknown>
+  const errors = (record.error && typeof record.error === 'object'
+    ? (record.error as Record<string, unknown>).errors
+    : []) as Array<Record<string, unknown>>
+  const id = asString(record.name) || asString(record.operation) || asString(record.id)
+
+  if (!id) {
+    return null
+  }
+
+  return {
+    id,
+    operationType: asString(record.operationType),
+    status: asString(record.status),
+    targetId: asString(record.targetId) || asString(record.targetLink),
+    targetProject: asString(record.targetProject),
+    user: asString(record.user),
+    insertTime: asString(record.insertTime),
+    endTime: asString(record.endTime),
+    error: errors
+      .map((item) => [asString(item.code), asString(item.message)].filter(Boolean).join(': '))
+      .filter(Boolean)
+      .join(' | ')
   }
 }
 
@@ -724,6 +1243,32 @@ function filterSqlInstancesByLocation(instances: GcpSqlInstanceSummary[], locati
   })
 }
 
+function filterSubnetworksByLocation(subnetworks: GcpSubnetworkSummary[], location: string): GcpSubnetworkSummary[] {
+  const normalizedLocation = location.trim().toLowerCase()
+  if (!normalizedLocation || normalizedLocation === 'global') {
+    return subnetworks
+  }
+
+  const normalizedRegion = /-[a-z]$/.test(normalizedLocation)
+    ? normalizedLocation.replace(/-[a-z]$/, '')
+    : normalizedLocation
+
+  return subnetworks.filter((subnetwork) => subnetwork.region.trim().toLowerCase() === normalizedRegion)
+}
+
+function filterRoutersByLocation<T extends { region: string }>(routers: T[], location: string): T[] {
+  const normalizedLocation = location.trim().toLowerCase()
+  if (!normalizedLocation || normalizedLocation === 'global') {
+    return routers
+  }
+
+  const normalizedRegion = /-[a-z]$/.test(normalizedLocation)
+    ? normalizedLocation.replace(/-[a-z]$/, '')
+    : normalizedLocation
+
+  return routers.filter((router) => router.region.trim().toLowerCase() === normalizedRegion)
+}
+
 function filterComputeInstancesByLocation(instances: GcpComputeInstanceSummary[], location: string): GcpComputeInstanceSummary[] {
   const normalizedLocation = location.trim().toLowerCase()
   if (!normalizedLocation || normalizedLocation === 'global') {
@@ -819,7 +1364,7 @@ async function getGcpProjectMetadata(projectId: string): Promise<{
   }
 }
 
-async function listEnabledGcpApis(projectId: string): Promise<GcpEnabledApiSummary[]> {
+export async function listGcpEnabledApis(projectId: string): Promise<GcpEnabledApiSummary[]> {
   const services: GcpEnabledApiSummary[] = []
   let pageToken = ''
 
@@ -859,7 +1404,7 @@ async function getGcpProjectIamPolicy(projectId: string): Promise<Record<string,
   })
 }
 
-async function listGcpServiceAccounts(projectId: string): Promise<GcpServiceAccountSummary[]> {
+export async function listGcpServiceAccounts(projectId: string): Promise<GcpServiceAccountSummary[]> {
   const accounts: GcpServiceAccountSummary[] = []
   let pageToken = ''
 
@@ -1242,6 +1787,725 @@ function buildGcpBillingCapabilityHints(
   return hints
 }
 
+function buildGcpBillingPeriodWindow(now = new Date()): { label: string; start: string; end: string } {
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0))
+  const label = `${now.toLocaleString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })} MTD`
+
+  return {
+    label,
+    start: start.toISOString(),
+    end: now.toISOString()
+  }
+}
+
+function buildDefaultGcpSpendTelemetry(
+  status: GcpBillingSpendTelemetry['status'],
+  message: string,
+  now = new Date()
+): GcpBillingSpendTelemetry {
+  const period = buildGcpBillingPeriodWindow(now)
+
+  return {
+    status,
+    source: 'metadata-only',
+    periodLabel: period.label,
+    periodStart: period.start,
+    periodEnd: period.end,
+    totalAmount: 0,
+    currency: '',
+    serviceBreakdown: [],
+    exportProjectId: '',
+    exportDatasetId: '',
+    exportTableId: '',
+    message,
+    lastUpdatedAt: now.toISOString()
+  }
+}
+
+function scoreGcpBillingExportTable(tableId: string): number {
+  const normalized = tableId.trim().toLowerCase()
+  if (normalized.startsWith('gcp_billing_export_resource_v1_')) {
+    return 4
+  }
+
+  if (normalized.startsWith('gcp_billing_export_v1_')) {
+    return 3
+  }
+
+  if (normalized.startsWith('gcp_billing_export_')) {
+    return 2
+  }
+
+  return normalized.includes('gcp_billing_export') ? 1 : 0
+}
+
+function normalizeGcpBigQuerySchemaField(value: unknown): GcpBigQuerySchemaField | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const record = value as Record<string, unknown>
+  const name = asString(record.name)
+  if (!name) {
+    return null
+  }
+
+  return {
+    name,
+    fields: (Array.isArray(record.fields) ? record.fields : [])
+      .map((entry) => normalizeGcpBigQuerySchemaField(entry))
+      .filter((entry): entry is GcpBigQuerySchemaField => entry !== null)
+  }
+}
+
+function findGcpBigQueryField(fields: GcpBigQuerySchemaField[], fieldName: string): GcpBigQuerySchemaField | null {
+  const normalized = fieldName.trim().toLowerCase()
+  return fields.find((field) => field.name.trim().toLowerCase() === normalized) ?? null
+}
+
+function hasGcpBigQueryNestedField(fields: GcpBigQuerySchemaField[], parentName: string, childName: string): boolean {
+  const parent = findGcpBigQueryField(fields, parentName)
+  return Boolean(parent && findGcpBigQueryField(parent.fields, childName))
+}
+
+function buildGcpBillingExportQuery(table: GcpBigQueryExportTableRecord, schemaFields: GcpBigQuerySchemaField[]): string {
+  const serviceExpression = hasGcpBigQueryNestedField(schemaFields, 'service', 'description')
+    ? 'COALESCE(service.description, "Other")'
+    : findGcpBigQueryField(schemaFields, 'service_description')
+      ? 'COALESCE(service_description, "Other")'
+      : '"Other"'
+  const projectIdExpression = hasGcpBigQueryNestedField(schemaFields, 'project', 'id')
+    ? 'project.id'
+    : hasGcpBigQueryNestedField(schemaFields, 'project', 'project_id')
+      ? 'project.project_id'
+      : findGcpBigQueryField(schemaFields, 'project_id')
+        ? 'project_id'
+        : ''
+  const usageTimeExpression = findGcpBigQueryField(schemaFields, 'usage_start_time')
+    ? 'usage_start_time'
+    : findGcpBigQueryField(schemaFields, 'usage_end_time')
+      ? 'usage_end_time'
+      : ''
+  const currencyExpression = findGcpBigQueryField(schemaFields, 'currency')
+    ? 'COALESCE(ANY_VALUE(currency), "")'
+    : '""'
+  const amountExpression = findGcpBigQueryField(schemaFields, 'credits')
+    ? 'CAST(cost AS FLOAT64) + IFNULL((SELECT SUM(CAST(credit.amount AS FLOAT64)) FROM UNNEST(credits) AS credit), 0)'
+    : 'CAST(cost AS FLOAT64)'
+
+  if (!projectIdExpression || !usageTimeExpression || !findGcpBigQueryField(schemaFields, 'cost')) {
+    throw new Error(
+      `Billing export table "${table.projectId}.${table.datasetId}.${table.tableId}" uses an unsupported schema for spend aggregation.`
+    )
+  }
+
+  return `
+    SELECT
+      ${serviceExpression} AS service,
+      ROUND(SUM(${amountExpression}), 2) AS amount,
+      ${currencyExpression} AS currency
+    FROM \`${table.projectId}.${table.datasetId}.${table.tableId}\`
+    WHERE ${usageTimeExpression} >= TIMESTAMP(@periodStart)
+      AND ${usageTimeExpression} < TIMESTAMP(@periodEnd)
+      AND ${projectIdExpression} = @projectId
+    GROUP BY service
+    HAVING ABS(SUM(${amountExpression})) > 0.009
+    ORDER BY amount DESC
+    LIMIT 12
+  `.trim()
+}
+
+async function listGcpBigQueryDatasets(projectId: string): Promise<GcpBigQueryDatasetRecord[]> {
+  const datasets: GcpBigQueryDatasetRecord[] = []
+  let pageToken = ''
+
+  do {
+    const response = await requestGcp<Record<string, unknown>>(projectId, {
+      url: buildBigQueryApiUrl(`projects/${encodeURIComponent(projectId)}/datasets`, {
+        all: 'true',
+        maxResults: 1000,
+        pageToken: pageToken || undefined
+      })
+    })
+
+    for (const entry of Array.isArray(response.datasets) ? response.datasets : []) {
+      const record = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {}
+      const reference = record.datasetReference && typeof record.datasetReference === 'object'
+        ? record.datasetReference as Record<string, unknown>
+        : {}
+      const datasetId = asString(reference.datasetId)
+      if (!datasetId) {
+        continue
+      }
+
+      datasets.push({
+        projectId: asString(reference.projectId) || projectId,
+        datasetId,
+        location: asString(record.location)
+      })
+    }
+
+    pageToken = asString(response.nextPageToken)
+  } while (pageToken)
+
+  return datasets
+}
+
+async function listGcpBigQueryBillingExportTables(dataset: GcpBigQueryDatasetRecord): Promise<GcpBigQueryExportTableRecord[]> {
+  const tables: GcpBigQueryExportTableRecord[] = []
+  let pageToken = ''
+
+  do {
+    const response = await requestGcp<Record<string, unknown>>(dataset.projectId, {
+      url: buildBigQueryApiUrl(
+        `projects/${encodeURIComponent(dataset.projectId)}/datasets/${encodeURIComponent(dataset.datasetId)}/tables`,
+        {
+          maxResults: 1000,
+          pageToken: pageToken || undefined
+        }
+      )
+    })
+
+    for (const entry of Array.isArray(response.tables) ? response.tables : []) {
+      const record = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {}
+      const reference = record.tableReference && typeof record.tableReference === 'object'
+        ? record.tableReference as Record<string, unknown>
+        : {}
+      const tableId = asString(reference.tableId)
+      const priority = scoreGcpBillingExportTable(tableId)
+
+      if (!tableId || priority === 0) {
+        continue
+      }
+
+      tables.push({
+        projectId: dataset.projectId,
+        datasetId: dataset.datasetId,
+        tableId,
+        location: dataset.location,
+        priority
+      })
+    }
+
+    pageToken = asString(response.nextPageToken)
+  } while (pageToken)
+
+  return tables
+}
+
+async function discoverGcpBillingExportTable(projectId: string, candidateProjectIds: string[]): Promise<{
+  table: GcpBigQueryExportTableRecord | null
+  errors: string[]
+}> {
+  const candidates: GcpBigQueryExportTableRecord[] = []
+  const errors: string[] = []
+  const uniqueProjectIds = [...new Set(candidateProjectIds.map((value) => value.trim()).filter(Boolean))]
+
+  for (const candidateProjectId of uniqueProjectIds) {
+    try {
+      const datasets = await listGcpBigQueryDatasets(candidateProjectId)
+
+      for (const dataset of datasets) {
+        try {
+          candidates.push(...await listGcpBigQueryBillingExportTables(dataset))
+        } catch (error) {
+          errors.push(normalizeError(error))
+        }
+      }
+    } catch (error) {
+      errors.push(normalizeError(error))
+    }
+  }
+
+  const selected = candidates
+    .sort((left, right) => {
+      if (right.priority !== left.priority) {
+        return right.priority - left.priority
+      }
+
+      if (left.projectId === projectId && right.projectId !== projectId) {
+        return -1
+      }
+
+      if (right.projectId === projectId && left.projectId !== projectId) {
+        return 1
+      }
+
+      return `${left.projectId}.${left.datasetId}.${left.tableId}`.localeCompare(`${right.projectId}.${right.datasetId}.${right.tableId}`)
+    })[0] ?? null
+
+  return {
+    table: selected,
+    errors
+  }
+}
+
+async function getGcpBigQueryTableSchema(table: GcpBigQueryExportTableRecord): Promise<GcpBigQuerySchemaField[]> {
+  const response = await requestGcp<Record<string, unknown>>(table.projectId, {
+    url: buildBigQueryApiUrl(
+      `projects/${encodeURIComponent(table.projectId)}/datasets/${encodeURIComponent(table.datasetId)}/tables/${encodeURIComponent(table.tableId)}`
+    )
+  })
+  const schema = response.schema && typeof response.schema === 'object' ? response.schema as Record<string, unknown> : {}
+  return (Array.isArray(schema.fields) ? schema.fields : [])
+    .map((entry) => normalizeGcpBigQuerySchemaField(entry))
+    .filter((entry): entry is GcpBigQuerySchemaField => entry !== null)
+}
+
+async function executeGcpBigQueryQuery(
+  authProjectId: string,
+  location: string,
+  query: string,
+  parameters: Array<{ name: string; type: 'STRING' | 'TIMESTAMP'; value: string }>
+): Promise<Record<string, unknown>> {
+  const initial = await requestGcp<Record<string, unknown>>(authProjectId, {
+    url: buildBigQueryApiUrl(`projects/${encodeURIComponent(authProjectId)}/queries`),
+    method: 'POST',
+    data: {
+      query,
+      useLegacySql: false,
+      timeoutMs: 20000,
+      location: location || undefined,
+      parameterMode: 'NAMED',
+      queryParameters: parameters.map((parameter) => ({
+        name: parameter.name,
+        parameterType: { type: parameter.type },
+        parameterValue: { value: parameter.value }
+      }))
+    }
+  })
+
+  let response = initial
+  let attempts = 0
+  const jobReference = initial.jobReference && typeof initial.jobReference === 'object'
+    ? initial.jobReference as Record<string, unknown>
+    : {}
+  const jobId = asString(jobReference.jobId)
+
+  while (!asBoolean(response.jobComplete) && jobId && attempts < 12) {
+    attempts += 1
+    await sleep(500)
+    response = await requestGcp<Record<string, unknown>>(authProjectId, {
+      url: buildBigQueryApiUrl(`projects/${encodeURIComponent(authProjectId)}/queries/${encodeURIComponent(jobId)}`, {
+        location: location || undefined,
+        maxResults: 50
+      })
+    })
+  }
+
+  return response
+}
+
+function normalizeGcpBigQuerySpendRows(rows: unknown): Array<{ service: string; amount: number; currency: string }> {
+  if (!Array.isArray(rows)) {
+    return []
+  }
+
+  return rows
+    .map((entry) => {
+      const record = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {}
+      const values = Array.isArray(record.f) ? record.f : []
+      const service = asString(values[0] && typeof values[0] === 'object' ? (values[0] as Record<string, unknown>).v : '')
+      const amount = normalizeNumber(values[1] && typeof values[1] === 'object' ? (values[1] as Record<string, unknown>).v : 0)
+      const currency = asString(values[2] && typeof values[2] === 'object' ? (values[2] as Record<string, unknown>).v : '')
+
+      return service ? { service, amount, currency } : null
+    })
+    .filter((entry): entry is { service: string; amount: number; currency: string } => entry !== null)
+}
+
+function buildGcpBillingSpendEntries(rows: Array<{ service: string; amount: number; currency: string }>, totalAmount: number): GcpBillingSpendBreakdownEntry[] {
+  return rows.map((row) => ({
+    service: row.service,
+    amount: row.amount,
+    currency: row.currency,
+    sharePercent: totalAmount > 0 ? (row.amount / totalAmount) * 100 : 0
+  }))
+}
+
+function isLikelyGcpAccessLimitedError(error: unknown): boolean {
+  const detail = normalizeError(error).toLowerCase()
+  return detail.includes('permission')
+    || detail.includes('forbidden')
+    || detail.includes('access denied')
+    || detail.includes('not authorized')
+    || detail.includes('bigquery.jobs.create')
+}
+
+function isLikelyGcpBigQueryApiDisabledError(error: unknown): boolean {
+  return outputIndicatesApiDisabled(normalizeError(error))
+    || normalizeError(error).toLowerCase().includes('bigquery api')
+}
+
+async function loadGcpBillingSpendTelemetry(projectId: string, candidateProjectIds: string[], billingEnabled: boolean): Promise<GcpBillingSpendTelemetry> {
+  if (!billingEnabled) {
+    return buildDefaultGcpSpendTelemetry('billing-disabled', 'Project billing is not enabled, so spend telemetry is not available.')
+  }
+
+  const discovery = await discoverGcpBillingExportTable(projectId, candidateProjectIds)
+  if (!discovery.table) {
+    const actionableErrors = discovery.errors.filter((error) => !isLikelyGcpBigQueryApiDisabledError(error))
+
+    if (actionableErrors.length > 0) {
+      return buildDefaultGcpSpendTelemetry(
+        isLikelyGcpAccessLimitedError(actionableErrors[0]) ? 'access-limited' : 'error',
+        `Spend telemetry could not inspect billing export datasets with the current credentials. ${actionableErrors[0]}`
+      )
+    }
+
+    return buildDefaultGcpSpendTelemetry(
+      'missing-export',
+      'No BigQuery Cloud Billing export table was discovered in the linked billing scope.'
+    )
+  }
+
+  const period = buildGcpBillingPeriodWindow()
+
+  try {
+    const schemaFields = await getGcpBigQueryTableSchema(discovery.table)
+    const query = buildGcpBillingExportQuery(discovery.table, schemaFields)
+    const queryProjects = [...new Set([discovery.table.projectId, projectId].filter(Boolean))]
+    let lastError: unknown = null
+
+    for (const queryProjectId of queryProjects) {
+      try {
+        const response = await executeGcpBigQueryQuery(
+          queryProjectId,
+          discovery.table.location,
+          query,
+          [
+            { name: 'periodStart', type: 'TIMESTAMP', value: period.start },
+            { name: 'periodEnd', type: 'TIMESTAMP', value: period.end },
+            { name: 'projectId', type: 'STRING', value: projectId }
+          ]
+        )
+        const rows = normalizeGcpBigQuerySpendRows(response.rows)
+        const totalAmount = rows.reduce((sum, row) => sum + row.amount, 0)
+        const currency = rows.find((row) => row.currency)?.currency ?? ''
+
+        return {
+          status: 'available',
+          source: 'bigquery-export',
+          periodLabel: period.label,
+          periodStart: period.start,
+          periodEnd: period.end,
+          totalAmount,
+          currency,
+          serviceBreakdown: buildGcpBillingSpendEntries(rows, totalAmount),
+          exportProjectId: discovery.table.projectId,
+          exportDatasetId: discovery.table.datasetId,
+          exportTableId: discovery.table.tableId,
+          message: `Spend telemetry is sourced from BigQuery export ${discovery.table.projectId}.${discovery.table.datasetId}.${discovery.table.tableId}.`,
+          lastUpdatedAt: new Date().toISOString()
+        }
+      } catch (error) {
+        lastError = error
+      }
+    }
+
+    throw lastError ?? new Error('BigQuery query did not return a result.')
+  } catch (error) {
+    return buildDefaultGcpSpendTelemetry(
+      isLikelyGcpAccessLimitedError(error) ? 'access-limited' : 'error',
+      `Spend telemetry could not be queried from ${discovery.table.projectId}.${discovery.table.datasetId}.${discovery.table.tableId}. ${normalizeError(error)}`
+    )
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function normalizeGcpComputeLabels(labels: Record<string, string>): Array<{ key: string; value: string }> {
+  return Object.entries(labels)
+    .map(([key, value]) => ({ key: key.trim(), value: value.trim() }))
+    .filter((entry) => entry.key)
+    .sort((left, right) => left.key.localeCompare(right.key))
+}
+
+function normalizeGcpComputeMetadata(items: unknown): Array<{ key: string; value: string }> {
+  if (!Array.isArray(items)) {
+    return []
+  }
+
+  return items
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') {
+        return null
+      }
+
+      const record = entry as Record<string, unknown>
+      const key = asString(record.key)
+      if (!key) {
+        return null
+      }
+
+      return {
+        key,
+        value: asString(record.value)
+      }
+    })
+    .filter((entry): entry is { key: string; value: string } => entry !== null)
+    .sort((left, right) => left.key.localeCompare(right.key))
+}
+
+function summarizeGcpComputeScheduling(value: unknown): string {
+  if (!value || typeof value !== 'object') {
+    return ''
+  }
+
+  const scheduling = value as Record<string, unknown>
+  const parts: string[] = []
+  const provisioningModel = asString(scheduling.provisioningModel)
+  const onHostMaintenance = asString(scheduling.onHostMaintenance)
+
+  if (provisioningModel) {
+    parts.push(provisioningModel)
+  }
+  if (asBoolean(scheduling.preemptible)) {
+    parts.push('Preemptible')
+  }
+  if (onHostMaintenance) {
+    parts.push(`On host maintenance: ${onHostMaintenance}`)
+  }
+
+  return parts.join(' | ')
+}
+
+function normalizeGcpComputeInstanceDetail(instance: unknown): GcpComputeInstanceDetail | null {
+  if (!instance || typeof instance !== 'object') {
+    return null
+  }
+
+  const record = instance as Record<string, unknown>
+  const name = asString(record.name)
+  if (!name) {
+    return null
+  }
+
+  const networkInterfaces = Array.isArray(record.networkInterfaces)
+    ? record.networkInterfaces as Array<Record<string, unknown>>
+    : []
+  const firstNetwork = networkInterfaces[0] ?? {}
+  const firstAccessConfig = Array.isArray(firstNetwork.accessConfigs)
+    ? (firstNetwork.accessConfigs as Array<Record<string, unknown>>)[0] ?? {}
+    : {}
+  const disks = Array.isArray(record.disks) ? record.disks as Array<Record<string, unknown>> : []
+  const serviceAccounts = Array.isArray(record.serviceAccounts) ? record.serviceAccounts as Array<Record<string, unknown>> : []
+  const tags = record.tags && typeof record.tags === 'object'
+    ? record.tags as Record<string, unknown>
+    : {}
+  const metadata = record.metadata && typeof record.metadata === 'object'
+    ? record.metadata as Record<string, unknown>
+    : {}
+  const shielded = record.shieldedInstanceConfig && typeof record.shieldedInstanceConfig === 'object'
+    ? record.shieldedInstanceConfig as Record<string, unknown>
+    : {}
+
+  return {
+    id: asString(record.id),
+    name,
+    zone: resourceBasename(asString(record.zone)),
+    status: asString(record.status),
+    machineType: resourceBasename(asString(record.machineType)),
+    cpuPlatform: asString(record.cpuPlatform),
+    internalIp: asString(firstNetwork.networkIP),
+    externalIp: asString(firstAccessConfig.natIP),
+    canIpForward: asBoolean(record.canIpForward),
+    deletionProtection: asBoolean(record.deletionProtection),
+    creationTimestamp: asString(record.creationTimestamp),
+    lastStartTimestamp: asString(record.lastStartTimestamp),
+    lastStopTimestamp: asString(record.lastStopTimestamp),
+    scheduling: summarizeGcpComputeScheduling(record.scheduling),
+    tags: Array.isArray(tags.items) ? (tags.items as unknown[]).map(asString).filter(Boolean).sort((left, right) => left.localeCompare(right)) : [],
+    labels: normalizeGcpComputeLabels(normalizeStringRecord(record.labels)),
+    metadata: normalizeGcpComputeMetadata(metadata.items),
+    networks: networkInterfaces.map((entry) => {
+      const accessConfig = Array.isArray(entry.accessConfigs)
+        ? (entry.accessConfigs as Array<Record<string, unknown>>)[0] ?? {}
+        : {}
+
+      return {
+        name: asString(entry.name),
+        network: resourceBasename(asString(entry.network)),
+        subnetwork: resourceBasename(asString(entry.subnetwork)),
+        internalIp: asString(entry.networkIP),
+        externalIp: asString(accessConfig.natIP),
+        stackType: asString(entry.stackType)
+      }
+    }),
+    disks: disks.map((entry) => ({
+      deviceName: asString(entry.deviceName),
+      type: resourceBasename(asString(entry.type)),
+      sizeGb: asString(entry.diskSizeGb),
+      status: asString(entry.status),
+      mode: asString(entry.mode),
+      interface: asString(entry.interface),
+      boot: asBoolean(entry.boot),
+      autoDelete: asBoolean(entry.autoDelete)
+    })),
+    serviceAccounts: serviceAccounts.map((entry) => ({
+      email: asString(entry.email),
+      scopes: Array.isArray(entry.scopes) ? (entry.scopes as unknown[]).map((scope) => asString(scope)).filter(Boolean) : []
+    })),
+    shieldedIntegrityMonitoring: asBoolean(shielded.enableIntegrityMonitoring),
+    shieldedSecureBoot: asBoolean(shielded.enableSecureBoot),
+    shieldedVtpm: asBoolean(shielded.enableVtpm)
+  }
+}
+
+function normalizeGcpComputeMachineTypeOption(entry: unknown): GcpComputeMachineTypeOption | null {
+  if (!entry || typeof entry !== 'object') {
+    return null
+  }
+
+  const record = entry as Record<string, unknown>
+  const name = asString(record.name)
+  if (!name) {
+    return null
+  }
+
+  return {
+    name,
+    guestCpus: normalizeNumber(record.guestCpus),
+    memoryMb: normalizeNumber(record.memoryMb),
+    description: asString(record.description),
+    isSharedCpu: asBoolean(record.isSharedCpu)
+  }
+}
+
+function buildGcpComputeActionSummary(action: GcpComputeInstanceAction, instanceName: string, completed: boolean): string {
+  const verb = action === 'reset'
+    ? 'reset'
+    : action === 'resume'
+      ? 'resume'
+      : action === 'suspend'
+        ? 'suspend'
+        : action
+
+  return completed
+    ? `${instanceName} ${verb} completed.`
+    : `${instanceName} ${verb} request was accepted and is still in progress.`
+}
+
+function buildGcpComputeResizeSummary(instanceName: string, machineType: string, completed: boolean): string {
+  return completed
+    ? `${instanceName} resized to ${machineType}.`
+    : `${instanceName} resize to ${machineType} was accepted and is still in progress.`
+}
+
+function buildGcpComputeLabelSummary(instanceName: string, completed: boolean): string {
+  return completed
+    ? `${instanceName} labels updated.`
+    : `${instanceName} label update was accepted and is still in progress.`
+}
+
+function buildGcpComputeDeleteSummary(instanceName: string, completed: boolean): string {
+  return completed
+    ? `${instanceName} deletion completed.`
+    : `${instanceName} delete request was accepted and is still in progress.`
+}
+
+function buildGcpMachineTypeResource(zone: string, machineType: string): string {
+  const normalizedMachineType = machineType.trim()
+  if (!normalizedMachineType) {
+    return ''
+  }
+
+  return normalizedMachineType.includes('/')
+    ? normalizedMachineType
+    : `zones/${zone.trim()}/machineTypes/${normalizedMachineType}`
+}
+
+function extractGcpZoneOperationError(operation: unknown): string {
+  if (!operation || typeof operation !== 'object') {
+    return ''
+  }
+
+  const record = operation as Record<string, unknown>
+  const error = record.error && typeof record.error === 'object'
+    ? record.error as Record<string, unknown>
+    : {}
+  const errors = Array.isArray(error.errors) ? error.errors as Array<Record<string, unknown>> : []
+
+  return errors
+    .map((entry) => [asString(entry.code), asString(entry.message)].filter(Boolean).join(': '))
+    .filter(Boolean)
+    .join(' | ')
+}
+
+async function waitForGcpZoneOperation(projectId: string, zone: string, operationName: string, timeoutMs = 45000): Promise<{ completed: boolean; status: string }> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedZone = zone.trim()
+  const normalizedOperation = operationName.trim()
+
+  if (!normalizedProjectId || !normalizedZone || !normalizedOperation) {
+    return { completed: false, status: 'PENDING' }
+  }
+
+  const auth = getGcpAuth(normalizedProjectId)
+  const compute = google.compute({ version: 'v1', auth })
+  const startedAt = Date.now()
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const response = await compute.zoneOperations.get({
+      project: normalizedProjectId,
+      zone: normalizedZone,
+      operation: normalizedOperation
+    })
+    const status = asString(response.data.status) || 'PENDING'
+
+    if (status === 'DONE') {
+      const errorMessage = extractGcpZoneOperationError(response.data)
+      if (errorMessage) {
+        throw new Error(errorMessage)
+      }
+
+      return { completed: true, status }
+    }
+
+    await sleep(2000)
+  }
+
+  return { completed: false, status: 'PENDING' }
+}
+
+async function waitForGkeOperation(projectId: string, location: string, operationName: string, timeoutMs = 120000): Promise<{ completed: boolean; status: string }> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedLocation = location.trim()
+  const normalizedOperation = operationName.trim()
+
+  if (!normalizedProjectId || !normalizedLocation || !normalizedOperation) {
+    return { completed: false, status: 'PENDING' }
+  }
+
+  const auth = getGcpAuth(normalizedProjectId)
+  const container = google.container({ version: 'v1' as never, auth: auth as never })
+  const operations = (((container.projects as any)?.locations as any)?.operations ?? {}) as Record<string, (...args: unknown[]) => Promise<unknown>>
+  const startedAt = Date.now()
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const response = await operations.get?.({
+      name: `projects/${normalizedProjectId}/locations/${normalizedLocation}/operations/${normalizedOperation}`
+    }) as { data?: unknown } | undefined
+    const record = response?.data
+    const status = asString((record as Record<string, unknown> | undefined)?.status) || 'PENDING'
+
+    if (status === 'DONE') {
+      const errorMessage = extractGkeOperationError(record)
+      if (errorMessage) {
+        throw new Error(errorMessage)
+      }
+
+      return { completed: true, status }
+    }
+
+    await sleep(2500)
+  }
+
+  return { completed: false, status: 'PENDING' }
+}
+
 export async function listGcpComputeInstances(projectId: string, location: string): Promise<GcpComputeInstanceSummary[]> {
   const normalizedProjectId = projectId.trim()
   if (!normalizedProjectId) {
@@ -1283,6 +2547,504 @@ export async function listGcpComputeInstances(projectId: string, location: strin
   }
 }
 
+export async function getGcpComputeInstanceDetail(projectId: string, zone: string, instanceName: string): Promise<GcpComputeInstanceDetail | null> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedZone = zone.trim()
+  const normalizedInstanceName = instanceName.trim()
+
+  if (!normalizedProjectId || !normalizedZone || !normalizedInstanceName) {
+    return null
+  }
+
+  try {
+    const auth = getGcpAuth(normalizedProjectId)
+    const compute = google.compute({ version: 'v1', auth })
+    const response = await compute.instances.get({
+      project: normalizedProjectId,
+      zone: normalizedZone,
+      instance: normalizedInstanceName
+    })
+
+    return normalizeGcpComputeInstanceDetail(response.data)
+  } catch (error) {
+    throw buildGcpSdkError(`describing Compute Engine instance "${normalizedInstanceName}"`, error, 'compute.googleapis.com')
+  }
+}
+
+export async function listGcpComputeMachineTypes(projectId: string, zone: string): Promise<GcpComputeMachineTypeOption[]> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedZone = zone.trim()
+
+  if (!normalizedProjectId || !normalizedZone) {
+    return []
+  }
+
+  try {
+    const auth = getGcpAuth(normalizedProjectId)
+    const compute = google.compute({ version: 'v1', auth })
+    const machineTypes: GcpComputeMachineTypeOption[] = []
+    let pageToken: string | undefined
+
+    do {
+      const response = await compute.machineTypes.list({
+        project: normalizedProjectId,
+        zone: normalizedZone,
+        maxResults: 500,
+        pageToken
+      })
+
+      for (const entry of response.data.items ?? []) {
+        const normalized = normalizeGcpComputeMachineTypeOption(entry)
+        if (normalized) {
+          machineTypes.push(normalized)
+        }
+      }
+
+      pageToken = asString(response.data.nextPageToken) || undefined
+    } while (pageToken)
+
+    return machineTypes.sort((left, right) =>
+      left.guestCpus - right.guestCpus
+      || left.memoryMb - right.memoryMb
+      || left.name.localeCompare(right.name)
+    )
+  } catch (error) {
+    throw buildGcpSdkError(`listing machine types for zone "${normalizedZone}"`, error, 'compute.googleapis.com')
+  }
+}
+
+export async function runGcpComputeInstanceAction(
+  projectId: string,
+  zone: string,
+  instanceName: string,
+  action: GcpComputeInstanceAction
+): Promise<GcpComputeOperationResult> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedZone = zone.trim()
+  const normalizedInstanceName = instanceName.trim()
+
+  if (!normalizedProjectId || !normalizedZone || !normalizedInstanceName) {
+    throw new Error('Project, zone, and instance name are required.')
+  }
+
+  try {
+    const auth = getGcpAuth(normalizedProjectId)
+    const compute = google.compute({ version: 'v1', auth })
+    let response
+
+    switch (action) {
+      case 'start':
+        response = await compute.instances.start({ project: normalizedProjectId, zone: normalizedZone, instance: normalizedInstanceName })
+        break
+      case 'stop':
+        response = await compute.instances.stop({ project: normalizedProjectId, zone: normalizedZone, instance: normalizedInstanceName })
+        break
+      case 'reset':
+        response = await compute.instances.reset({ project: normalizedProjectId, zone: normalizedZone, instance: normalizedInstanceName })
+        break
+      case 'resume':
+        response = await compute.instances.resume({ project: normalizedProjectId, zone: normalizedZone, instance: normalizedInstanceName })
+        break
+      case 'suspend':
+        response = await compute.instances.suspend({ project: normalizedProjectId, zone: normalizedZone, instance: normalizedInstanceName })
+        break
+      default:
+        throw new Error(`Unsupported Compute Engine action: ${action}`)
+    }
+
+    const operationName = asString(response.data.name)
+    const result = await waitForGcpZoneOperation(normalizedProjectId, normalizedZone, operationName)
+
+    return {
+      operationName,
+      completed: result.completed,
+      status: result.status,
+      summary: buildGcpComputeActionSummary(action, normalizedInstanceName, result.completed)
+    }
+  } catch (error) {
+    throw buildGcpSdkError(`running ${action} on Compute Engine instance "${normalizedInstanceName}"`, error, 'compute.googleapis.com')
+  }
+}
+
+export async function resizeGcpComputeInstance(
+  projectId: string,
+  zone: string,
+  instanceName: string,
+  machineType: string
+): Promise<GcpComputeOperationResult> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedZone = zone.trim()
+  const normalizedInstanceName = instanceName.trim()
+  const normalizedMachineType = machineType.trim()
+
+  if (!normalizedProjectId || !normalizedZone || !normalizedInstanceName || !normalizedMachineType) {
+    throw new Error('Project, zone, instance name, and machine type are required.')
+  }
+
+  try {
+    const auth = getGcpAuth(normalizedProjectId)
+    const compute = google.compute({ version: 'v1', auth })
+    const response = await compute.instances.setMachineType({
+      project: normalizedProjectId,
+      zone: normalizedZone,
+      instance: normalizedInstanceName,
+      requestBody: {
+        machineType: buildGcpMachineTypeResource(normalizedZone, normalizedMachineType)
+      }
+    })
+
+    const operationName = asString(response.data.name)
+    const result = await waitForGcpZoneOperation(normalizedProjectId, normalizedZone, operationName)
+
+    return {
+      operationName,
+      completed: result.completed,
+      status: result.status,
+      summary: buildGcpComputeResizeSummary(normalizedInstanceName, normalizedMachineType, result.completed)
+    }
+  } catch (error) {
+    throw buildGcpSdkError(`resizing Compute Engine instance "${normalizedInstanceName}"`, error, 'compute.googleapis.com')
+  }
+}
+
+export async function updateGcpComputeInstanceLabels(
+  projectId: string,
+  zone: string,
+  instanceName: string,
+  labels: Record<string, string>
+): Promise<GcpComputeOperationResult> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedZone = zone.trim()
+  const normalizedInstanceName = instanceName.trim()
+
+  if (!normalizedProjectId || !normalizedZone || !normalizedInstanceName) {
+    throw new Error('Project, zone, and instance name are required.')
+  }
+
+  try {
+    const auth = getGcpAuth(normalizedProjectId)
+    const compute = google.compute({ version: 'v1', auth })
+    const current = await compute.instances.get({
+      project: normalizedProjectId,
+      zone: normalizedZone,
+      instance: normalizedInstanceName
+    })
+    const fingerprint = asString(current.data.labelFingerprint)
+
+    if (!fingerprint) {
+      throw new Error('The instance label fingerprint is missing. Refresh and retry.')
+    }
+
+    const normalizedLabels = Object.fromEntries(
+      Object.entries(labels)
+        .map(([key, value]) => [key.trim(), value.trim()] as const)
+        .filter(([key]) => Boolean(key))
+    )
+
+    const response = await compute.instances.setLabels({
+      project: normalizedProjectId,
+      zone: normalizedZone,
+      instance: normalizedInstanceName,
+      requestBody: {
+        labelFingerprint: fingerprint,
+        labels: normalizedLabels
+      }
+    })
+
+    const operationName = asString(response.data.name)
+    const result = await waitForGcpZoneOperation(normalizedProjectId, normalizedZone, operationName)
+
+    return {
+      operationName,
+      completed: result.completed,
+      status: result.status,
+      summary: buildGcpComputeLabelSummary(normalizedInstanceName, result.completed)
+    }
+  } catch (error) {
+    throw buildGcpSdkError(`updating labels on Compute Engine instance "${normalizedInstanceName}"`, error, 'compute.googleapis.com')
+  }
+}
+
+export async function deleteGcpComputeInstance(projectId: string, zone: string, instanceName: string): Promise<GcpComputeOperationResult> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedZone = zone.trim()
+  const normalizedInstanceName = instanceName.trim()
+
+  if (!normalizedProjectId || !normalizedZone || !normalizedInstanceName) {
+    throw new Error('Project, zone, and instance name are required.')
+  }
+
+  try {
+    const auth = getGcpAuth(normalizedProjectId)
+    const compute = google.compute({ version: 'v1', auth })
+    const response = await compute.instances.delete({
+      project: normalizedProjectId,
+      zone: normalizedZone,
+      instance: normalizedInstanceName
+    })
+
+    const operationName = asString(response.data.name)
+    const result = await waitForGcpZoneOperation(normalizedProjectId, normalizedZone, operationName)
+
+    return {
+      operationName,
+      completed: result.completed,
+      status: result.status,
+      summary: buildGcpComputeDeleteSummary(normalizedInstanceName, result.completed)
+    }
+  } catch (error) {
+    throw buildGcpSdkError(`deleting Compute Engine instance "${normalizedInstanceName}"`, error, 'compute.googleapis.com')
+  }
+}
+
+export async function getGcpComputeSerialOutput(
+  projectId: string,
+  zone: string,
+  instanceName: string,
+  port = 1,
+  start = 0
+): Promise<GcpComputeSerialOutput> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedZone = zone.trim()
+  const normalizedInstanceName = instanceName.trim()
+
+  if (!normalizedProjectId || !normalizedZone || !normalizedInstanceName) {
+    return { contents: '', nextStart: 0, port }
+  }
+
+  try {
+    const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+      url: buildComputeApiUrl(normalizedProjectId, `zones/${normalizedZone}/instances/${normalizedInstanceName}/serialPort`, {
+        port,
+        start
+      })
+    })
+
+    return {
+      contents: asString(response.contents),
+      nextStart: normalizeNumber(response.next),
+      port
+    }
+  } catch (error) {
+    throw buildGcpSdkError(`reading serial output for Compute Engine instance "${normalizedInstanceName}"`, error, 'compute.googleapis.com')
+  }
+}
+
+export async function listGcpFirewallRules(projectId: string): Promise<GcpFirewallRuleSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) {
+    return []
+  }
+
+  try {
+    const items: GcpFirewallRuleSummary[] = []
+    let pageToken = ''
+
+    do {
+      const response = await requestGcp<{ items?: unknown[]; nextPageToken?: string }>(normalizedProjectId, {
+        url: buildComputeApiUrl(normalizedProjectId, 'global/firewalls', {
+          maxResults: 500,
+          pageToken: pageToken || undefined
+        })
+      })
+
+      items.push(
+        ...(response.items ?? [])
+          .map((entry) => normalizeFirewallRule(entry))
+          .filter((entry): entry is GcpFirewallRuleSummary => entry !== null)
+      )
+
+      pageToken = asString(response.nextPageToken)
+    } while (pageToken)
+
+    return items.sort((left, right) => left.name.localeCompare(right.name))
+  } catch (error) {
+    throw buildGcpSdkError(`listing firewall rules for project "${normalizedProjectId}"`, error, 'compute.googleapis.com')
+  }
+}
+
+export async function listGcpNetworks(projectId: string): Promise<GcpNetworkSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) {
+    return []
+  }
+
+  try {
+    const items: GcpNetworkSummary[] = []
+    let pageToken = ''
+
+    do {
+      const response = await requestGcp<{ items?: unknown[]; nextPageToken?: string }>(normalizedProjectId, {
+        url: buildComputeApiUrl(normalizedProjectId, 'global/networks', {
+          maxResults: 500,
+          pageToken: pageToken || undefined
+        })
+      })
+
+      items.push(
+        ...(response.items ?? [])
+          .map((entry) => normalizeNetwork(entry))
+          .filter((entry): entry is GcpNetworkSummary => entry !== null)
+      )
+
+      pageToken = asString(response.nextPageToken)
+    } while (pageToken)
+
+    return items.sort((left, right) => left.name.localeCompare(right.name))
+  } catch (error) {
+    throw buildGcpSdkError(`listing VPC networks for project "${normalizedProjectId}"`, error, 'compute.googleapis.com')
+  }
+}
+
+export async function listGcpSubnetworks(projectId: string, location: string): Promise<GcpSubnetworkSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) {
+    return []
+  }
+
+  try {
+    const items: GcpSubnetworkSummary[] = []
+    let pageToken = ''
+
+    do {
+      const response = await requestGcp<{ items?: Record<string, { subnetworks?: unknown[] }>; nextPageToken?: string }>(normalizedProjectId, {
+        url: buildComputeApiUrl(normalizedProjectId, 'aggregated/subnetworks', {
+          maxResults: 500,
+          pageToken: pageToken || undefined
+        })
+      })
+
+      for (const scoped of Object.values(response.items ?? {})) {
+        for (const entry of scoped?.subnetworks ?? []) {
+          const normalized = normalizeSubnetwork(entry)
+          if (normalized) {
+            items.push(normalized)
+          }
+        }
+      }
+
+      pageToken = asString(response.nextPageToken)
+    } while (pageToken)
+
+    return filterSubnetworksByLocation(items, location)
+      .sort((left, right) => left.region.localeCompare(right.region) || left.name.localeCompare(right.name))
+  } catch (error) {
+    throw buildGcpSdkError(`listing subnetworks for project "${normalizedProjectId}"`, error, 'compute.googleapis.com')
+  }
+}
+
+export async function listGcpRouters(projectId: string, location: string): Promise<{ routers: GcpRouterSummary[]; nats: GcpRouterNatSummary[] }> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) {
+    return { routers: [], nats: [] }
+  }
+
+  try {
+    const routers: GcpRouterSummary[] = []
+    const nats: GcpRouterNatSummary[] = []
+    let pageToken = ''
+
+    do {
+      const response = await requestGcp<{ items?: Record<string, { routers?: unknown[] }>; nextPageToken?: string }>(normalizedProjectId, {
+        url: buildComputeApiUrl(normalizedProjectId, 'aggregated/routers', {
+          maxResults: 500,
+          pageToken: pageToken || undefined
+        })
+      })
+
+      for (const scoped of Object.values(response.items ?? {})) {
+        for (const entry of scoped?.routers ?? []) {
+          const router = normalizeRouter(entry)
+          if (!router) {
+            continue
+          }
+
+          routers.push(router)
+          const record = toRecord(entry)
+          for (const natEntry of Array.isArray(record.nats) ? record.nats : []) {
+            const nat = normalizeRouterNat(natEntry, router.name, router.region)
+            if (nat) {
+              nats.push(nat)
+            }
+          }
+        }
+      }
+
+      pageToken = asString(response.nextPageToken)
+    } while (pageToken)
+
+    return {
+      routers: filterRoutersByLocation(routers, location)
+        .sort((left, right) => left.region.localeCompare(right.region) || left.name.localeCompare(right.name)),
+      nats: filterRoutersByLocation(nats, location)
+        .sort((left, right) => left.region.localeCompare(right.region) || left.router.localeCompare(right.router) || left.name.localeCompare(right.name))
+    }
+  } catch (error) {
+    throw buildGcpSdkError(`listing Cloud Routers for project "${normalizedProjectId}"`, error, 'compute.googleapis.com')
+  }
+}
+
+export async function listGcpGlobalAddresses(projectId: string): Promise<GcpGlobalAddressSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) {
+    return []
+  }
+
+  try {
+    const items: GcpGlobalAddressSummary[] = []
+    let pageToken = ''
+
+    do {
+      const response = await requestGcp<{ items?: unknown[]; nextPageToken?: string }>(normalizedProjectId, {
+        url: buildComputeApiUrl(normalizedProjectId, 'global/addresses', {
+          maxResults: 500,
+          pageToken: pageToken || undefined
+        })
+      })
+
+      items.push(
+        ...(response.items ?? [])
+          .map((entry) => normalizeGlobalAddress(entry))
+          .filter((entry): entry is GcpGlobalAddressSummary => entry !== null)
+      )
+
+      pageToken = asString(response.nextPageToken)
+    } while (pageToken)
+
+    return items.sort((left, right) => left.name.localeCompare(right.name))
+  } catch (error) {
+    throw buildGcpSdkError(`listing global addresses for project "${normalizedProjectId}"`, error, 'compute.googleapis.com')
+  }
+}
+
+export async function listGcpServiceNetworkingConnections(projectId: string, networkNames: string[]): Promise<GcpServiceNetworkingConnectionSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  const targets = [...new Set(networkNames.map((value) => resourceBasename(value)).filter(Boolean))]
+  if (!normalizedProjectId || targets.length === 0) {
+    return []
+  }
+
+  try {
+    const items: GcpServiceNetworkingConnectionSummary[] = []
+
+    for (const networkName of targets) {
+      const response = await requestGcp<{ connections?: unknown[] }>(normalizedProjectId, {
+        url: `https://servicenetworking.googleapis.com/v1/services/servicenetworking.googleapis.com/connections?network=${encodeURIComponent(`projects/${normalizedProjectId}/global/networks/${networkName}`)}`
+      })
+
+      items.push(
+        ...(response.connections ?? [])
+          .map((entry) => normalizeServiceNetworkingConnection(entry, networkName))
+          .filter((entry): entry is GcpServiceNetworkingConnectionSummary => entry !== null)
+      )
+    }
+
+    return items.sort((left, right) => left.network.localeCompare(right.network) || left.service.localeCompare(right.service))
+  } catch (error) {
+    throw buildGcpSdkError(`listing service networking connections for project "${normalizedProjectId}"`, error, 'servicenetworking.googleapis.com')
+  }
+}
+
 export async function getGcpProjectOverview(projectId: string): Promise<GcpProjectOverview> {
   const normalizedProjectId = projectId.trim()
   if (!normalizedProjectId) {
@@ -1305,7 +3067,7 @@ export async function getGcpProjectOverview(projectId: string): Promise<GcpProje
   try {
     const [metadata, enabledApis] = await Promise.all([
       getGcpProjectMetadata(normalizedProjectId),
-      listEnabledGcpApis(normalizedProjectId)
+      listGcpEnabledApis(normalizedProjectId)
     ])
 
     const overview: GcpProjectOverview = {
@@ -1433,6 +3195,301 @@ export async function listGcpGkeClusters(projectId: string, location: string): P
       .sort((left, right) => left.location.localeCompare(right.location) || left.name.localeCompare(right.name))
   } catch (error) {
     throw buildGcpSdkError(`listing GKE clusters for project "${normalizedProjectId}"`, error, 'container.googleapis.com')
+  }
+}
+
+export async function getGcpGkeClusterDetail(projectId: string, location: string, clusterName: string): Promise<GcpGkeClusterDetail> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedLocation = location.trim()
+  const normalizedClusterName = clusterName.trim()
+
+  if (!normalizedProjectId || !normalizedLocation || !normalizedClusterName) {
+    throw new Error('Project, location, and cluster name are required to load GKE cluster detail.')
+  }
+
+  try {
+    const auth = getGcpAuth(normalizedProjectId)
+    const container = google.container({ version: 'v1' as never, auth: auth as never })
+    const response = await container.projects.locations.clusters.get({
+      name: `projects/${normalizedProjectId}/locations/${normalizedLocation}/clusters/${normalizedClusterName}`
+    })
+    const cluster = response.data
+
+    return {
+      name: asString(cluster.name) || normalizedClusterName,
+      location: asString(cluster.location) || normalizedLocation,
+      status: asString(cluster.status),
+      endpoint: asString(cluster.endpoint),
+      masterVersion: asString(cluster.currentMasterVersion),
+      nodeVersion: asString(cluster.currentNodeVersion),
+      releaseChannel: asString(cluster.releaseChannel?.channel),
+      autopilotEnabled: asBoolean(cluster.autopilot?.enabled),
+      privateClusterEnabled: asBoolean(cluster.privateClusterConfig?.enablePrivateNodes),
+      shieldedNodesEnabled: asBoolean(cluster.shieldedNodes?.enabled),
+      verticalPodAutoscalingEnabled: asBoolean(cluster.verticalPodAutoscaling?.enabled),
+      currentNodeCount: normalizeNumber(cluster.currentNodeCount),
+      nodePoolCount: Array.isArray(cluster.nodePools) ? cluster.nodePools.length : 0,
+      workloadIdentityPool: asString(cluster.workloadIdentityConfig?.workloadPool),
+      network: asString(cluster.network),
+      subnetwork: asString(cluster.subnetwork),
+      clusterIpv4Cidr: asString(cluster.clusterIpv4Cidr),
+      servicesIpv4Cidr: asString(cluster.servicesIpv4Cidr),
+      controlPlaneIpv4Cidr: asString(cluster.privateClusterConfig?.masterIpv4CidrBlock),
+      loggingService: asString(cluster.loggingService),
+      monitoringService: asString(cluster.monitoringService),
+      maintenanceWindow: formatMaintenanceWindow(cluster.maintenancePolicy?.window),
+      maintenanceExclusions: normalizeMaintenanceExclusions((cluster.maintenancePolicy as { maintenanceExclusions?: unknown } | undefined)?.maintenanceExclusions),
+      resourceLabels: normalizeStringRecord(cluster.resourceLabels)
+    }
+  } catch (error) {
+    throw buildGcpSdkError(`loading GKE cluster detail for "${normalizedClusterName}"`, error, 'container.googleapis.com')
+  }
+}
+
+async function resolveGkeNodePoolTargetSize(projectId: string, instanceGroupUrls: string[], fallback: number): Promise<number> {
+  const targets = instanceGroupUrls.map((value) => value.trim()).filter(Boolean)
+  if (targets.length === 0) {
+    return fallback
+  }
+
+  const sizes = await Promise.all(targets.map(async (url) => {
+    try {
+      const response = await requestGcp<Record<string, unknown>>(projectId, { url })
+      return normalizeNumber(response.targetSize)
+    } catch {
+      return 0
+    }
+  }))
+
+  const total = sizes.reduce((sum, value) => sum + value, 0)
+  return total > 0 ? total : fallback
+}
+
+export async function listGcpGkeNodePools(projectId: string, location: string, clusterName: string): Promise<GcpGkeNodePoolSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedLocation = location.trim()
+  const normalizedClusterName = clusterName.trim()
+
+  if (!normalizedProjectId || !normalizedLocation || !normalizedClusterName) {
+    return []
+  }
+
+  try {
+    const auth = getGcpAuth(normalizedProjectId)
+    const container = google.container({ version: 'v1' as never, auth: auth as never })
+    const response = await container.projects.locations.clusters.nodePools.list({
+      parent: `projects/${normalizedProjectId}/locations/${normalizedLocation}/clusters/${normalizedClusterName}`
+    })
+    const items = Array.isArray(response.data.nodePools) ? response.data.nodePools : []
+
+    const normalizedItems = await Promise.all(items.map(async (pool) => {
+        const name = asString(pool.name)
+        if (!name) {
+          return null
+        }
+
+        const autoscalingEnabled = asBoolean(pool.autoscaling?.enabled)
+        const minNodeCount = normalizeNumber(pool.autoscaling?.minNodeCount)
+        const maxNodeCount = normalizeNumber(pool.autoscaling?.maxNodeCount)
+        const fallbackNodeCount = normalizeNumber(pool.initialNodeCount)
+        const nodeCount = await resolveGkeNodePoolTargetSize(
+          normalizedProjectId,
+          asStringArray((pool as { instanceGroupUrls?: unknown }).instanceGroupUrls),
+          fallbackNodeCount
+        )
+
+        return {
+          name,
+          status: asString(pool.status),
+          version: asString(pool.version),
+          nodeCount,
+          minNodeCount,
+          maxNodeCount,
+          machineType: asString(pool.config?.machineType),
+          imageType: asString(pool.config?.imageType),
+          diskSizeGb: String(pool.config?.diskSizeGb ?? ''),
+          autoscaling: autoscalingEnabled ? `${minNodeCount}-${maxNodeCount}` : 'disabled',
+          autoUpgradeEnabled: asBoolean(pool.management?.autoUpgrade),
+          autoRepairEnabled: asBoolean(pool.management?.autoRepair),
+          spotEnabled: asBoolean(pool.config?.spot),
+          preemptible: asBoolean(pool.config?.preemptible),
+          locations: asStringArray(pool.locations)
+        } satisfies GcpGkeNodePoolSummary
+      }))
+
+    return normalizedItems
+      .filter((entry): entry is GcpGkeNodePoolSummary => entry !== null)
+      .sort((left, right) => left.name.localeCompare(right.name))
+  } catch (error) {
+    throw buildGcpSdkError(`listing GKE node pools for "${normalizedClusterName}"`, error, 'container.googleapis.com')
+  }
+}
+
+export async function getGcpGkeClusterCredentials(
+  projectId: string,
+  location: string,
+  clusterName: string,
+  requestedContextName?: string,
+  kubeconfigPath = '~/.kube/config'
+): Promise<GcpGkeClusterCredentials> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedLocation = location.trim()
+  const normalizedClusterName = clusterName.trim()
+
+  if (!normalizedProjectId || !normalizedLocation || !normalizedClusterName) {
+    throw new Error('Project, location, and cluster name are required to load GKE credentials.')
+  }
+
+  try {
+    const auth = getGcpAuth(normalizedProjectId)
+    const client = await auth.getClient()
+    const accessToken = await client.getAccessToken()
+    const bearerToken = typeof accessToken === 'string'
+      ? accessToken
+      : asString(accessToken?.token)
+
+    if (!bearerToken) {
+      throw new Error('Unable to obtain an access token from the active Google Cloud credentials.')
+    }
+
+    const container = google.container({ version: 'v1' as never, auth: auth as never })
+    const response = await container.projects.locations.clusters.get({
+      name: `projects/${normalizedProjectId}/locations/${normalizedLocation}/clusters/${normalizedClusterName}`
+    })
+    const cluster = response.data
+    const endpoint = asString(cluster.endpoint)
+    if (!endpoint) {
+      throw new Error(`Cluster "${normalizedClusterName}" did not return an API endpoint.`)
+    }
+
+    const certificateAuthorityData = asString(cluster.masterAuth?.clusterCaCertificate)
+    const normalizedContextName = requestedContextName?.trim()
+    const contextName = normalizedContextName || buildGkeContextName(normalizedProjectId, normalizedLocation, normalizedClusterName)
+    const credentialsWithExpiry = client as { credentials?: { expiry_date?: number | null } }
+    const expiryDate = credentialsWithExpiry.credentials?.expiry_date
+    const tokenExpiresAt = typeof expiryDate === 'number' && Number.isFinite(expiryDate)
+      ? new Date(expiryDate).toISOString()
+      : ''
+
+    return {
+      clusterName: normalizedClusterName,
+      location: normalizedLocation,
+      endpoint,
+      contextName,
+      kubeconfigPath: kubeconfigPath.trim() || '~/.kube/config',
+      authProvider: 'Application Default Credentials',
+      tokenPreview: maskSecret(bearerToken),
+      tokenExpiresAt,
+      certificateAuthorityData,
+      bearerToken,
+      kubeconfigYaml: buildGkeKubeconfigYaml(contextName, endpoint, certificateAuthorityData, bearerToken)
+    }
+  } catch (error) {
+    throw buildGcpSdkError(`loading GKE credentials for "${normalizedClusterName}"`, error, 'container.googleapis.com')
+  }
+}
+
+export async function listGcpGkeOperations(projectId: string, location: string, clusterName: string): Promise<GcpGkeOperationSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedLocation = location.trim()
+  const normalizedClusterName = clusterName.trim()
+
+  if (!normalizedProjectId || !normalizedLocation || !normalizedClusterName) {
+    return []
+  }
+
+  try {
+    const response = await requestGcp<{ operations?: unknown[] }>(normalizedProjectId, {
+      url: buildContainerApiUrl(`projects/${encodeURIComponent(normalizedProjectId)}/locations/${encodeURIComponent(normalizedLocation)}/operations`)
+    })
+
+    return (response.operations ?? [])
+      .map((entry) => {
+        const record = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {}
+        const target = asString(record.targetLink)
+        const id = asString(record.name)
+        if (!id || (!target.includes(`/clusters/${normalizedClusterName}`) && !asString(record.detail).includes(normalizedClusterName))) {
+          return null
+        }
+
+        return {
+          id,
+          type: asString(record.operationType) || asString(record.type),
+          status: asString(record.status),
+          detail: asString(record.detail) || asString(record.statusMessage),
+          target,
+          location: asString(record.location) || normalizedLocation,
+          startedAt: asString(record.startTime),
+          endedAt: asString(record.endTime)
+        } satisfies GcpGkeOperationSummary
+      })
+      .filter((entry): entry is GcpGkeOperationSummary => entry !== null)
+      .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
+  } catch (error) {
+    throw buildGcpSdkError(`listing GKE operations for "${normalizedClusterName}"`, error, 'container.googleapis.com')
+  }
+}
+
+export async function updateGcpGkeNodePoolScaling(
+  projectId: string,
+  location: string,
+  clusterName: string,
+  nodePoolName: string,
+  minimum: number,
+  desired: number,
+  maximum: number
+): Promise<GcpGkeOperationResult> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedLocation = location.trim()
+  const normalizedClusterName = clusterName.trim()
+  const normalizedNodePoolName = nodePoolName.trim()
+
+  if (!normalizedProjectId || !normalizedLocation || !normalizedClusterName || !normalizedNodePoolName) {
+    throw new Error('Project, location, cluster, and node pool are required.')
+  }
+
+  try {
+    const auth = getGcpAuth(normalizedProjectId)
+    const container = google.container({ version: 'v1' as never, auth: auth as never })
+    const nodePools = (((container.projects as any)?.locations as any)?.clusters?.nodePools ?? {}) as Record<string, (...args: unknown[]) => Promise<unknown>>
+    const nodePoolPath = `projects/${normalizedProjectId}/locations/${normalizedLocation}/clusters/${normalizedClusterName}/nodePools/${normalizedNodePoolName}`
+
+    const autoscalingResponse = await nodePools.setAutoscaling?.({
+      name: nodePoolPath,
+      requestBody: {
+        autoscaling: {
+          enabled: true,
+          minNodeCount: minimum,
+          maxNodeCount: maximum
+        }
+      }
+    }) as { data?: Record<string, unknown> } | undefined
+
+    const autoscalingOperationName = asString(autoscalingResponse?.data?.name)
+    if (autoscalingOperationName) {
+      await waitForGkeOperation(normalizedProjectId, normalizedLocation, autoscalingOperationName)
+    }
+
+    const sizeResponse = await nodePools.setSize?.({
+      name: nodePoolPath,
+      requestBody: {
+        nodeCount: desired
+      }
+    }) as { data?: Record<string, unknown> } | undefined
+
+    const operationName = asString(sizeResponse?.data?.name) || autoscalingOperationName
+    const result = operationName
+      ? await waitForGkeOperation(normalizedProjectId, normalizedLocation, operationName)
+      : { completed: true, status: 'DONE' }
+
+    return {
+      operationName,
+      completed: result.completed,
+      status: result.status,
+      summary: `Scaled node pool ${normalizedNodePoolName} to min ${minimum}, desired ${desired}, max ${maximum}.`
+    }
+  } catch (error) {
+    throw buildGcpSdkError(`scaling GKE node pool "${normalizedNodePoolName}"`, error, 'container.googleapis.com')
   }
 }
 
@@ -1686,6 +3743,139 @@ export async function listGcpSqlInstances(projectId: string, location: string): 
   }
 }
 
+export async function listGcpSqlDatabasesForInstances(projectId: string, instanceNames: string[] = []): Promise<GcpSqlScopedDatabaseSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  const targets = [...new Set(instanceNames.map((value) => value.trim()).filter(Boolean))]
+  if (!normalizedProjectId || targets.length === 0) {
+    return []
+  }
+
+  try {
+    const items: GcpSqlScopedDatabaseSummary[] = []
+
+    for (const instanceName of targets) {
+      const response = await requestGcp<{ items?: unknown[] }>(normalizedProjectId, {
+        url: `https://sqladmin.googleapis.com/sql/v1beta4/projects/${encodeURIComponent(normalizedProjectId)}/instances/${encodeURIComponent(instanceName)}/databases`
+      })
+
+      items.push(
+        ...(response.items ?? [])
+          .map((entry) => normalizeScopedSqlDatabase(entry, instanceName))
+          .filter((entry): entry is GcpSqlScopedDatabaseSummary => entry !== null)
+      )
+    }
+
+    return items.sort((left, right) => left.instance.localeCompare(right.instance) || left.name.localeCompare(right.name))
+  } catch (error) {
+    throw buildGcpSdkError(`listing Cloud SQL databases for project "${normalizedProjectId}"`, error, 'sqladmin.googleapis.com')
+  }
+}
+
+export async function listGcpSqlUsers(projectId: string, instanceNames: string[] = []): Promise<GcpSqlUserSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  const targets = [...new Set(instanceNames.map((value) => value.trim()).filter(Boolean))]
+  if (!normalizedProjectId || targets.length === 0) {
+    return []
+  }
+
+  try {
+    const items: GcpSqlUserSummary[] = []
+
+    for (const instanceName of targets) {
+      const response = await requestGcp<{ items?: unknown[] }>(normalizedProjectId, {
+        url: `https://sqladmin.googleapis.com/sql/v1beta4/projects/${encodeURIComponent(normalizedProjectId)}/instances/${encodeURIComponent(instanceName)}/users`
+      })
+
+      items.push(
+        ...(response.items ?? [])
+          .map((entry) => normalizeSqlUser(entry, instanceName))
+          .filter((entry): entry is GcpSqlUserSummary => entry !== null)
+      )
+    }
+
+    return items.sort((left, right) => left.instance.localeCompare(right.instance) || left.name.localeCompare(right.name) || left.host.localeCompare(right.host))
+  } catch (error) {
+    throw buildGcpSdkError(`listing Cloud SQL users for project "${normalizedProjectId}"`, error, 'sqladmin.googleapis.com')
+  }
+}
+
+export async function getGcpSqlInstanceDetail(projectId: string, instanceName: string): Promise<GcpSqlInstanceDetail> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedInstanceName = instanceName.trim()
+
+  if (!normalizedProjectId || !normalizedInstanceName) {
+    throw new Error('Project and instance name are required to load Cloud SQL instance detail.')
+  }
+
+  try {
+    const auth = getGcpAuth(normalizedProjectId)
+    const sqladmin = google.sqladmin({ version: 'v1beta4', auth })
+    const response = await sqladmin.instances.get({
+      project: normalizedProjectId,
+      instance: normalizedInstanceName
+    })
+    const detail = normalizeSqlInstanceDetail(response.data)
+
+    if (!detail) {
+      throw new Error(`Cloud SQL instance "${normalizedInstanceName}" was not found in project "${normalizedProjectId}".`)
+    }
+
+    return detail
+  } catch (error) {
+    throw buildGcpSdkError(`loading Cloud SQL instance detail for "${normalizedInstanceName}"`, error, 'sqladmin.googleapis.com')
+  }
+}
+
+export async function listGcpSqlDatabases(projectId: string, instanceName: string): Promise<GcpSqlDatabaseSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedInstanceName = instanceName.trim()
+
+  if (!normalizedProjectId || !normalizedInstanceName) {
+    return []
+  }
+
+  try {
+    const auth = getGcpAuth(normalizedProjectId)
+    const sqladmin = google.sqladmin({ version: 'v1beta4', auth })
+    const response = await sqladmin.databases.list({
+      project: normalizedProjectId,
+      instance: normalizedInstanceName
+    })
+
+    return ((response.data.items as unknown[]) ?? [])
+      .map((entry) => normalizeSqlDatabase(entry))
+      .filter((entry): entry is GcpSqlDatabaseSummary => entry !== null)
+  } catch (error) {
+    throw buildGcpSdkError(`listing Cloud SQL databases for "${normalizedInstanceName}"`, error, 'sqladmin.googleapis.com')
+  }
+}
+
+export async function listGcpSqlOperations(projectId: string, instanceName: string): Promise<GcpSqlOperationSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedInstanceName = instanceName.trim()
+
+  if (!normalizedProjectId || !normalizedInstanceName) {
+    return []
+  }
+
+  try {
+    const auth = getGcpAuth(normalizedProjectId)
+    const sqladmin = google.sqladmin({ version: 'v1beta4', auth })
+    const response = await sqladmin.operations.list({
+      project: normalizedProjectId,
+      instance: normalizedInstanceName,
+      maxResults: 20
+    })
+
+    return ((response.data.items as unknown[]) ?? [])
+      .map((entry) => normalizeSqlOperation(entry))
+      .filter((entry): entry is GcpSqlOperationSummary => entry !== null)
+      .sort((left, right) => right.insertTime.localeCompare(left.insertTime))
+  } catch (error) {
+    throw buildGcpSdkError(`listing Cloud SQL operations for "${normalizedInstanceName}"`, error, 'sqladmin.googleapis.com')
+  }
+}
+
 export async function getGcpBillingOverview(projectId: string, catalogProjectIds: string[] = []): Promise<GcpBillingOverview> {
   const normalizedProjectId = projectId.trim()
   if (!normalizedProjectId) {
@@ -1701,6 +3891,7 @@ export async function getGcpBillingOverview(projectId: string, catalogProjectIds
       linkedProjects: [],
       capabilityHints: [],
       ownershipHints: [],
+      spendTelemetry: buildDefaultGcpSpendTelemetry('missing-export', 'Select a project to load GCP billing telemetry.'),
       notes: [],
       projectLabelCount: 0,
       linkedProjectLabelCoveragePercent: 0,
@@ -1759,6 +3950,10 @@ export async function getGcpBillingOverview(projectId: string, catalogProjectIds
     }
 
     const ownershipHints = computeGcpBillingOwnershipHints(linkedProjects)
+    const spendTelemetryProjectIds = linkedProjects.length > 0
+      ? linkedProjects.map((entry) => entry.projectId)
+      : [normalizedProjectId]
+    const spendTelemetry = await loadGcpBillingSpendTelemetry(normalizedProjectId, spendTelemetryProjectIds, currentRecord.billingEnabled)
     const linkedProjectLabelCoveragePercent = linkedProjects.length === 0
       ? 0
       : (linkedProjects.filter((entry) => entry.labelCount > 0).length / linkedProjects.length) * 100
@@ -1783,9 +3978,10 @@ export async function getGcpBillingOverview(projectId: string, catalogProjectIds
         .sort((left, right) => left.projectId.localeCompare(right.projectId)),
       capabilityHints: [],
       ownershipHints,
+      spendTelemetry,
       notes: [
         'Linked-project analysis is limited to projects visible in the current catalog and under the current credentials.',
-        'This slice focuses on linkage, visibility, and ownership posture. Spend exports and budget telemetry are not wired yet.'
+        spendTelemetry.message
       ],
       projectLabelCount: currentRecord.labelCount,
       linkedProjectLabelCoveragePercent,
