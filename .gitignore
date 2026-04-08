@@ -46,3 +46,5 @@ Thumbs.db
 .vscode/
 
 .claude/
+agent/
+copilot-instructions.md
