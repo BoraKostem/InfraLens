@@ -20,7 +20,7 @@ import { CloudWatchClient, DescribeAlarmsCommand, ListTagsForResourceCommand as 
 import { CloudTrailClient, DescribeTrailsCommand, ListTagsCommand as ListCloudTrailTagsCommand } from '@aws-sdk/client-cloudtrail'
 import { IAMClient, ListRolesCommand, ListRoleTagsCommand, ListUsersCommand, ListUserTagsCommand } from '@aws-sdk/client-iam'
 
-import { awsClientConfig, readTags } from './client'
+import { getAwsClient, readTags } from './client'
 import { getAwsCapabilitySnapshot } from './capabilities'
 import { getCallerIdentity } from './sts'
 import type {
@@ -88,7 +88,7 @@ async function countEc2(connection: AwsConnection): Promise<{
     tags: Record<string, string>
   }>
 }> {
-  const client = new EC2Client(awsClientConfig(connection))
+  const client = getAwsClient(EC2Client, connection)
   const instances: Array<{
     id: string
     name: string
@@ -130,7 +130,7 @@ async function countLambda(connection: AwsConnection): Promise<{
   count: number
   functions: Array<{ name: string; runtime: string; role: string; tags: Record<string, string> }>
 }> {
-  const client = new LambdaClient(awsClientConfig(connection))
+  const client = getAwsClient(LambdaClient, connection)
   const functions: Array<{ name: string; runtime: string; role: string; tags: Record<string, string> }> = []
   let marker: string | undefined
 
@@ -154,7 +154,7 @@ async function countEks(connection: AwsConnection): Promise<{
   count: number
   clusters: Array<{ name: string; roleArn: string; vpcId: string }>
 }> {
-  const client = new EKSClient(awsClientConfig(connection))
+  const client = getAwsClient(EKSClient, connection)
   const clusters: Array<{ name: string; roleArn: string; vpcId: string }> = []
   let nextToken: string | undefined
 
@@ -178,7 +178,7 @@ async function countAsg(connection: AwsConnection): Promise<{
     tags: Record<string, string>
   }>
 }> {
-  const client = new AutoScalingClient(awsClientConfig(connection))
+  const client = getAwsClient(AutoScalingClient, connection)
   const groups: Array<{
     name: string
     instances: number
@@ -208,13 +208,13 @@ async function countAsg(connection: AwsConnection): Promise<{
 }
 
 async function countS3(connection: AwsConnection): Promise<number> {
-  const client = new S3Client(awsClientConfig(connection))
+  const client = getAwsClient(S3Client, connection)
   const output = await client.send(new ListBucketsCommand({}))
   return output.Buckets?.length ?? 0
 }
 
 async function countRds(connection: AwsConnection): Promise<number> {
-  const client = new RDSClient(awsClientConfig(connection))
+  const client = getAwsClient(RDSClient, connection)
   let count = 0
   let marker: string | undefined
   do {
@@ -226,7 +226,7 @@ async function countRds(connection: AwsConnection): Promise<number> {
 }
 
 async function countCloudFormation(connection: AwsConnection): Promise<number> {
-  const client = new CloudFormationClient(awsClientConfig(connection))
+  const client = getAwsClient(CloudFormationClient, connection)
   let count = 0
   let nextToken: string | undefined
   do {
@@ -251,7 +251,7 @@ async function countCloudFormation(connection: AwsConnection): Promise<number> {
 }
 
 async function countEcr(connection: AwsConnection): Promise<number> {
-  const client = new ECRClient(awsClientConfig(connection))
+  const client = getAwsClient(ECRClient, connection)
   let count = 0
   let nextToken: string | undefined
   do {
@@ -263,7 +263,7 @@ async function countEcr(connection: AwsConnection): Promise<number> {
 }
 
 async function countEcs(connection: AwsConnection): Promise<number> {
-  const client = new ECSClient(awsClientConfig(connection))
+  const client = getAwsClient(ECSClient, connection)
   let count = 0
   let nextToken: string | undefined
   do {
@@ -275,7 +275,7 @@ async function countEcs(connection: AwsConnection): Promise<number> {
 }
 
 async function countVpc(connection: AwsConnection): Promise<number> {
-  const client = new EC2Client(awsClientConfig(connection))
+  const client = getAwsClient(EC2Client, connection)
   let count = 0
   let nextToken: string | undefined
   do {
@@ -287,7 +287,7 @@ async function countVpc(connection: AwsConnection): Promise<number> {
 }
 
 async function countAllVpc(connection: AwsConnection): Promise<number> {
-  const client = new EC2Client(awsClientConfig(connection))
+  const client = getAwsClient(EC2Client, connection)
   let count = 0
   let nextToken: string | undefined
   do {
@@ -299,7 +299,7 @@ async function countAllVpc(connection: AwsConnection): Promise<number> {
 }
 
 async function countLoadBalancers(connection: AwsConnection): Promise<number> {
-  const client = new ElasticLoadBalancingV2Client(awsClientConfig(connection))
+  const client = getAwsClient(ElasticLoadBalancingV2Client, connection)
   let count = 0
   let marker: string | undefined
   do {
@@ -311,13 +311,13 @@ async function countLoadBalancers(connection: AwsConnection): Promise<number> {
 }
 
 async function countRoute53(connection: AwsConnection): Promise<number> {
-  const client = new Route53Client(awsClientConfig(connection))
+  const client = getAwsClient(Route53Client, connection)
   const output = await client.send(new ListHostedZonesCommand({}))
   return output.HostedZones?.length ?? 0
 }
 
 async function countSecurityGroups(connection: AwsConnection): Promise<number> {
-  const client = new EC2Client(awsClientConfig(connection))
+  const client = getAwsClient(EC2Client, connection)
   let count = 0
   let nextToken: string | undefined
   do {
@@ -329,7 +329,7 @@ async function countSecurityGroups(connection: AwsConnection): Promise<number> {
 }
 
 async function countSns(connection: AwsConnection): Promise<number> {
-  const client = new SNSClient(awsClientConfig(connection))
+  const client = getAwsClient(SNSClient, connection)
   let count = 0
   let nextToken: string | undefined
   do {
@@ -341,7 +341,7 @@ async function countSns(connection: AwsConnection): Promise<number> {
 }
 
 async function countSqs(connection: AwsConnection): Promise<number> {
-  const client = new SQSClient(awsClientConfig(connection))
+  const client = getAwsClient(SQSClient, connection)
   let count = 0
   let nextToken: string | undefined
   do {
@@ -353,7 +353,7 @@ async function countSqs(connection: AwsConnection): Promise<number> {
 }
 
 async function countAcm(connection: AwsConnection): Promise<number> {
-  const client = new ACMClient(awsClientConfig(connection))
+  const client = getAwsClient(ACMClient, connection)
   let count = 0
   let nextToken: string | undefined
   do {
@@ -365,7 +365,7 @@ async function countAcm(connection: AwsConnection): Promise<number> {
 }
 
 async function countKms(connection: AwsConnection): Promise<number> {
-  const client = new KMSClient(awsClientConfig(connection))
+  const client = getAwsClient(KMSClient, connection)
   let count = 0
   let marker: string | undefined
   do {
@@ -378,13 +378,13 @@ async function countKms(connection: AwsConnection): Promise<number> {
 }
 
 async function countWaf(connection: AwsConnection): Promise<number> {
-  const client = new WAFV2Client(awsClientConfig(connection))
+  const client = getAwsClient(WAFV2Client, connection)
   const output = await client.send(new ListWebACLsCommand({ Scope: 'REGIONAL', Limit: 100 }))
   return output.WebACLs?.length ?? 0
 }
 
 async function countSecretsManager(connection: AwsConnection): Promise<number> {
-  const client = new SecretsManagerClient(awsClientConfig(connection))
+  const client = getAwsClient(SecretsManagerClient, connection)
   let count = 0
   let nextToken: string | undefined
   do {
@@ -396,25 +396,25 @@ async function countSecretsManager(connection: AwsConnection): Promise<number> {
 }
 
 async function countKeyPairs(connection: AwsConnection): Promise<number> {
-  const client = new EC2Client(awsClientConfig(connection))
+  const client = getAwsClient(EC2Client, connection)
   const output = await client.send(new DescribeKeyPairsCommand({}))
   return output.KeyPairs?.length ?? 0
 }
 
 async function countCloudWatch(connection: AwsConnection): Promise<number> {
-  const client = new CloudWatchClient(awsClientConfig(connection))
+  const client = getAwsClient(CloudWatchClient, connection)
   const output = await client.send(new DescribeAlarmsCommand({}))
   return output.MetricAlarms?.length ?? 0
 }
 
 async function countCloudTrail(connection: AwsConnection): Promise<number> {
-  const client = new CloudTrailClient(awsClientConfig(connection))
+  const client = getAwsClient(CloudTrailClient, connection)
   const output = await client.send(new DescribeTrailsCommand({}))
   return output.trailList?.length ?? 0
 }
 
 async function countIam(connection: AwsConnection): Promise<number> {
-  const client = new IAMClient(awsClientConfig(connection))
+  const client = getAwsClient(IAMClient, connection)
   const [users, roles] = await Promise.all([
     client.send(new ListUsersCommand({})),
     client.send(new ListRolesCommand({}))
@@ -474,7 +474,7 @@ async function mapWithConcurrency<T, R>(
 }
 
 async function listTaggedLambda(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new LambdaClient(awsClientConfig(connection))
+  const client = getAwsClient(LambdaClient, connection)
   const functions: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let marker: string | undefined
 
@@ -503,7 +503,7 @@ async function listTaggedLambda(connection: AwsConnection): Promise<Array<{ id: 
 }
 
 async function listTaggedEks(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new EKSClient(awsClientConfig(connection))
+  const client = getAwsClient(EKSClient, connection)
   const clusters: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let nextToken: string | undefined
 
@@ -532,7 +532,7 @@ async function listTaggedEks(connection: AwsConnection): Promise<Array<{ id: str
 }
 
 async function listTaggedVpcs(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new EC2Client(awsClientConfig(connection))
+  const client = getAwsClient(EC2Client, connection)
   const vpcs: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let nextToken: string | undefined
 
@@ -553,7 +553,7 @@ async function listTaggedVpcs(connection: AwsConnection): Promise<Array<{ id: st
 }
 
 async function listTaggedSecurityGroups(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new EC2Client(awsClientConfig(connection))
+  const client = getAwsClient(EC2Client, connection)
   const groups: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let nextToken: string | undefined
 
@@ -574,7 +574,7 @@ async function listTaggedSecurityGroups(connection: AwsConnection): Promise<Arra
 }
 
 async function listTaggedSns(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new SNSClient(awsClientConfig(connection))
+  const client = getAwsClient(SNSClient, connection)
   const topics: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let nextToken: string | undefined
 
@@ -606,7 +606,7 @@ async function listTaggedSns(connection: AwsConnection): Promise<Array<{ id: str
 }
 
 async function listTaggedSqs(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new SQSClient(awsClientConfig(connection))
+  const client = getAwsClient(SQSClient, connection)
   const queues: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let nextToken: string | undefined
 
@@ -635,7 +635,7 @@ async function listTaggedSqs(connection: AwsConnection): Promise<Array<{ id: str
 }
 
 async function listTaggedSecrets(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new SecretsManagerClient(awsClientConfig(connection))
+  const client = getAwsClient(SecretsManagerClient, connection)
   const secrets: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let nextToken: string | undefined
 
@@ -655,7 +655,7 @@ async function listTaggedSecrets(connection: AwsConnection): Promise<Array<{ id:
 }
 
 async function listTaggedKeyPairs(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new EC2Client(awsClientConfig(connection))
+  const client = getAwsClient(EC2Client, connection)
   const output = await client.send(new DescribeKeyPairsCommand({}))
 
   return (output.KeyPairs ?? []).map((pair) => {
@@ -669,7 +669,7 @@ async function listTaggedKeyPairs(connection: AwsConnection): Promise<Array<{ id
 }
 
 async function listTaggedS3(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new S3Client(awsClientConfig(connection))
+  const client = getAwsClient(S3Client, connection)
   const output = await client.send(new ListBucketsCommand({}))
   const buckets = output.Buckets ?? []
 
@@ -691,7 +691,7 @@ async function listTaggedS3(connection: AwsConnection): Promise<Array<{ id: stri
 }
 
 async function listTaggedRds(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new RDSClient(awsClientConfig(connection))
+  const client = getAwsClient(RDSClient, connection)
   const instances: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let marker: string | undefined
 
@@ -722,7 +722,7 @@ async function listTaggedRds(connection: AwsConnection): Promise<Array<{ id: str
 }
 
 async function listTaggedCloudFormation(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new CloudFormationClient(awsClientConfig(connection))
+  const client = getAwsClient(CloudFormationClient, connection)
   const stacks: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let nextToken: string | undefined
 
@@ -742,7 +742,7 @@ async function listTaggedCloudFormation(connection: AwsConnection): Promise<Arra
 }
 
 async function listTaggedEcr(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new ECRClient(awsClientConfig(connection))
+  const client = getAwsClient(ECRClient, connection)
   const repositories: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let nextToken: string | undefined
 
@@ -775,7 +775,7 @@ async function listTaggedEcr(connection: AwsConnection): Promise<Array<{ id: str
 }
 
 async function listTaggedEcs(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new ECSClient(awsClientConfig(connection))
+  const client = getAwsClient(ECSClient, connection)
   const clusters: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let nextToken: string | undefined
 
@@ -818,7 +818,7 @@ async function listTaggedEcs(connection: AwsConnection): Promise<Array<{ id: str
 }
 
 async function listTaggedLoadBalancers(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new ElasticLoadBalancingV2Client(awsClientConfig(connection))
+  const client = getAwsClient(ElasticLoadBalancingV2Client, connection)
   const balancers: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let marker: string | undefined
 
@@ -865,7 +865,7 @@ async function listTaggedLoadBalancers(connection: AwsConnection): Promise<Array
 }
 
 async function listTaggedRoute53(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new Route53Client(awsClientConfig(connection))
+  const client = getAwsClient(Route53Client, connection)
   const output = await client.send(new ListHostedZonesCommand({}))
   const zones = output.HostedZones ?? []
   const zoneIds = zones
@@ -906,7 +906,7 @@ async function listTaggedRoute53(connection: AwsConnection): Promise<Array<{ id:
 }
 
 async function listTaggedAcm(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new ACMClient(awsClientConfig(connection))
+  const client = getAwsClient(ACMClient, connection)
   const certificates: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let nextToken: string | undefined
 
@@ -939,7 +939,7 @@ async function listTaggedAcm(connection: AwsConnection): Promise<Array<{ id: str
 }
 
 async function listTaggedKms(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new KMSClient(awsClientConfig(connection))
+  const client = getAwsClient(KMSClient, connection)
   const keys: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let marker: string | undefined
 
@@ -979,7 +979,7 @@ async function listTaggedKms(connection: AwsConnection): Promise<Array<{ id: str
 }
 
 async function listTaggedWaf(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new WAFV2Client(awsClientConfig(connection))
+  const client = getAwsClient(WAFV2Client, connection)
   const output = await client.send(new ListWebACLsCommand({ Scope: 'REGIONAL', Limit: 100 }))
 
   return mapWithConcurrency(output.WebACLs ?? [], 5, async (acl) => {
@@ -1003,7 +1003,7 @@ async function listTaggedWaf(connection: AwsConnection): Promise<Array<{ id: str
 }
 
 async function listTaggedCloudWatch(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new CloudWatchClient(awsClientConfig(connection))
+  const client = getAwsClient(CloudWatchClient, connection)
   const alarms: Array<{ id: string; name: string; tags: Record<string, string> }> = []
   let nextToken: string | undefined
 
@@ -1036,7 +1036,7 @@ async function listTaggedCloudWatch(connection: AwsConnection): Promise<Array<{ 
 }
 
 async function listTaggedCloudTrail(connection: AwsConnection): Promise<Array<{ id: string; name: string; tags: Record<string, string> }>> {
-  const client = new CloudTrailClient(awsClientConfig(connection))
+  const client = getAwsClient(CloudTrailClient, connection)
   const output = await client.send(new DescribeTrailsCommand({}))
   const trails = output.trailList ?? []
   const resourceIds = trails.map((trail) => trail.TrailARN ?? trail.Name).filter((value): value is string => Boolean(value))
@@ -1071,7 +1071,7 @@ async function listTaggedCloudTrail(connection: AwsConnection): Promise<Array<{ 
 }
 
 async function listTaggedIam(connection: AwsConnection): Promise<Array<{ id: string; name: string; service: string; resourceType: string; tags: Record<string, string> }>> {
-  const client = new IAMClient(awsClientConfig(connection))
+  const client = getAwsClient(IAMClient, connection)
   const resources: Array<{ id: string; name: string; service: string; resourceType: string; tags: Record<string, string> }> = []
 
   let userMarker: string | undefined
@@ -1193,7 +1193,7 @@ function readCostMetricAmount(
 }
 
 function createBillingCostExplorerClient(connection: AwsConnection): CostExplorerClient {
-  return new CostExplorerClient(awsClientConfig({ ...connection, region: BILLING_HOME_REGION }))
+  return getAwsClient(CostExplorerClient, { ...connection, region: BILLING_HOME_REGION })
 }
 
 function getCurrentMonthCostExplorerWindow(): {
@@ -1636,7 +1636,7 @@ export async function getCostBreakdown(
 /* ── relationship-specific fetchers ───────────────────────── */
 
 async function fetchSecurityGroups(connection: AwsConnection): Promise<Array<{ id: string; name: string; vpcId: string }>> {
-  const client = new EC2Client(awsClientConfig(connection))
+  const client = getAwsClient(EC2Client, connection)
   const items: Array<{ id: string; name: string; vpcId: string }> = []
   let nextToken: string | undefined
   do {
@@ -1650,7 +1650,7 @@ async function fetchSecurityGroups(connection: AwsConnection): Promise<Array<{ i
 }
 
 async function fetchLoadBalancers(connection: AwsConnection): Promise<Array<{ arn: string; name: string; vpcId: string; type: string; securityGroups: string[] }>> {
-  const client = new ElasticLoadBalancingV2Client(awsClientConfig(connection))
+  const client = getAwsClient(ElasticLoadBalancingV2Client, connection)
   const items: Array<{ arn: string; name: string; vpcId: string; type: string; securityGroups: string[] }> = []
   let marker: string | undefined
   do {
@@ -1670,7 +1670,7 @@ async function fetchLoadBalancers(connection: AwsConnection): Promise<Array<{ ar
 }
 
 async function fetchEcsClusters(connection: AwsConnection): Promise<Array<{ name: string; services: number; tasks: number }>> {
-  const client = new ECSClient(awsClientConfig(connection))
+  const client = getAwsClient(ECSClient, connection)
   const arns: string[] = []
   let nextToken: string | undefined
   do {
@@ -1682,7 +1682,7 @@ async function fetchEcsClusters(connection: AwsConnection): Promise<Array<{ name
 }
 
 async function fetchSnsTopics(connection: AwsConnection): Promise<Array<{ arn: string; name: string }>> {
-  const client = new SNSClient(awsClientConfig(connection))
+  const client = getAwsClient(SNSClient, connection)
   const items: Array<{ arn: string; name: string }> = []
   let nextToken: string | undefined
   do {
@@ -1697,7 +1697,7 @@ async function fetchSnsTopics(connection: AwsConnection): Promise<Array<{ arn: s
 }
 
 async function fetchSqsQueues(connection: AwsConnection): Promise<Array<{ url: string; name: string }>> {
-  const client = new SQSClient(awsClientConfig(connection))
+  const client = getAwsClient(SQSClient, connection)
   const items: Array<{ url: string; name: string }> = []
   let nextToken: string | undefined
   do {

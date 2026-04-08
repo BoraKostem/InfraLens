@@ -16,12 +16,8 @@ import type {
   AwsConnection,
   LoadBalancerWorkspace
 } from '@shared/types'
-import { awsClientConfig } from './client'
+import { getAwsClient } from './client'
 import { listLoadBalancerWorkspaces } from './loadBalancers'
-
-function createClient(connection: AwsConnection): ACMClient {
-  return new ACMClient(awsClientConfig(connection))
-}
 
 function toIso(value: Date | undefined): string {
   return value ? value.toISOString() : ''
@@ -192,7 +188,7 @@ function buildCertificateView(
 }
 
 export async function listAcmCertificates(connection: AwsConnection): Promise<AcmCertificateSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(ACMClient, connection)
   const items: Array<{ certificateArn: string }> = []
   let nextToken: string | undefined
 
@@ -244,7 +240,7 @@ export async function listAcmCertificates(connection: AwsConnection): Promise<Ac
 }
 
 export async function describeAcmCertificate(connection: AwsConnection, certificateArn: string): Promise<AcmCertificateDetail> {
-  const client = createClient(connection)
+  const client = getAwsClient(ACMClient, connection)
   const loadBalancerAssociationsMap = await loadLoadBalancerAssociations(connection)
   const response = await client.send(new DescribeCertificateCommand({ CertificateArn: certificateArn }))
   const certificate = response.Certificate
@@ -257,7 +253,7 @@ export async function describeAcmCertificate(connection: AwsConnection, certific
 }
 
 export async function requestAcmCertificate(connection: AwsConnection, input: AcmRequestCertificateInput): Promise<string> {
-  const client = createClient(connection)
+  const client = getAwsClient(ACMClient, connection)
   const response = await client.send(
     new RequestCertificateCommand({
       DomainName: input.domainName,
@@ -270,6 +266,6 @@ export async function requestAcmCertificate(connection: AwsConnection, input: Ac
 }
 
 export async function deleteAcmCertificate(connection: AwsConnection, certificateArn: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(ACMClient, connection)
   await client.send(new DeleteCertificateCommand({ CertificateArn: certificateArn }))
 }

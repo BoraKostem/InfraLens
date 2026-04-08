@@ -26,7 +26,7 @@ import {
   type Session
 } from '@aws-sdk/client-ssm'
 
-import { awsClientConfig, readTags } from './client'
+import { getAwsClient, readTags } from './client'
 import {
   buildAwsCliCommand,
   getResolvedProcessEnv,
@@ -61,17 +61,7 @@ const TERMINAL_COMMAND_TIMEOUTS = new Set([
   'Terminated'
 ])
 
-function createEc2Client(connection: AwsConnection): EC2Client {
-  return new EC2Client(awsClientConfig(connection))
-}
 
-function createIamClient(connection: AwsConnection): IAMClient {
-  return new IAMClient(awsClientConfig(connection))
-}
-
-function createSsmClient(connection: AwsConnection): SSMClient {
-  return new SSMClient(awsClientConfig(connection))
-}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -385,8 +375,8 @@ function formatCliParameters(parameters: Record<string, string[]>): string {
 }
 
 export async function listSsmManagedInstances(connection: AwsConnection): Promise<SsmManagedInstanceSummary[]> {
-  const ec2Client = createEc2Client(connection)
-  const ssmClient = createSsmClient(connection)
+  const ec2Client = getAwsClient(EC2Client, connection)
+  const ssmClient = getAwsClient(SSMClient, connection)
   const [ec2Instances, managedInfos] = await Promise.all([
     listAllEc2Instances(ec2Client),
     listManagedInstanceInformation(ssmClient)
@@ -406,9 +396,9 @@ export async function listSsmManagedInstances(connection: AwsConnection): Promis
 }
 
 export async function getSsmConnectionTarget(connection: AwsConnection, instanceId: string): Promise<SsmConnectionTarget> {
-  const ec2Client = createEc2Client(connection)
-  const iamClient = createIamClient(connection)
-  const ssmClient = createSsmClient(connection)
+  const ec2Client = getAwsClient(EC2Client, connection)
+  const iamClient = getAwsClient(IAMClient, connection)
+  const ssmClient = getAwsClient(SSMClient, connection)
   const instance = await loadInstance(ec2Client, instanceId)
 
   if (!instance) {
@@ -438,7 +428,7 @@ export async function getSsmConnectionTarget(connection: AwsConnection, instance
 }
 
 export async function listSsmSessions(connection: AwsConnection, targetInstanceId?: string): Promise<SsmSessionSummary[]> {
-  const ssmClient = createSsmClient(connection)
+  const ssmClient = getAwsClient(SSMClient, connection)
   const filters: SessionFilter[] | undefined = targetInstanceId ? [{ key: 'Target', value: targetInstanceId }] : undefined
   const [active, history] = await Promise.all([
     ssmClient.send(new DescribeSessionsCommand({ State: 'Active', Filters: filters, MaxResults: 20 })),
@@ -510,7 +500,7 @@ export async function sendSsmCommand(connection: AwsConnection, request: SsmSend
     throw new Error(`Instance ${request.instanceId} is not online in Systems Manager.`)
   }
 
-  const ssmClient = createSsmClient(connection)
+  const ssmClient = getAwsClient(SSMClient, connection)
   const output = await ssmClient.send(
     new SendCommandCommand({
       InstanceIds: [request.instanceId],
