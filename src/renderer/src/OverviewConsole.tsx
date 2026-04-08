@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { AwsCapabilityHint, AwsConnection, CostBreakdown, InsightItem, OverviewAccountContext, OverviewMetrics, OverviewStatistics, RegionMetric, RegionalSignal, RelationshipMap, ServiceId, ServiceRelationship, TagSearchResult } from '@shared/types'
 import { useAwsPageConnection } from './AwsPage'
@@ -112,6 +112,7 @@ export function OverviewConsole({
   const [edgePage, setEdgePage] = useState(0)
   const [insightFilter, setInsightFilter] = useState<InsightFilter>('all')
   const [signalFilter, setSignalFilter] = useState<SignalFilter>('all')
+  const regionalLoadTokenRef = useRef(0)
 
   const availableRegions = useMemo(
     () => connectionState.regions.map((item) => item.id),
@@ -127,25 +128,49 @@ export function OverviewConsole({
   }, [connectionState.connection, connectionState.connected, connectionState.region, refreshNonce])
 
   async function loadRegionalOverview(connection: AwsConnection) {
+    const loadToken = regionalLoadTokenRef.current + 1
+    regionalLoadTokenRef.current = loadToken
+
     setLoading(true)
     setPageError('')
     try {
-      const [nextMetrics, nextStatistics, nextAccountContext, nextRelationships, nextCost] = await Promise.all([
-        getOverviewMetrics(connection, [connection.region]),
-        getOverviewStatistics(connection),
-        getOverviewAccountContext(connection).catch(() => null),
-        getRelationshipMap(connection),
-        getCostBreakdown(connection).catch(() => null)
-      ])
+      const nextMetrics = await getOverviewMetrics(connection, [connection.region])
+
+      if (regionalLoadTokenRef.current !== loadToken) {
+        return
+      }
+
       setMetrics(nextMetrics)
-      setStatistics(nextStatistics)
-      setAccountContext(nextAccountContext)
-      setRelationships(nextRelationships)
-      setCostBreakdown(nextCost)
+      setLoading(false)
+
+      void Promise.allSettled([
+        getOverviewStatistics(connection),
+        getOverviewAccountContext(connection),
+        getRelationshipMap(connection),
+        getCostBreakdown(connection)
+      ]).then(([statisticsResult, accountContextResult, relationshipsResult, costResult]) => {
+        if (regionalLoadTokenRef.current !== loadToken) {
+          return
+        }
+
+        if (statisticsResult.status === 'fulfilled') {
+          setStatistics(statisticsResult.value)
+        }
+        if (accountContextResult.status === 'fulfilled') {
+          setAccountContext(accountContextResult.value)
+        }
+        if (relationshipsResult.status === 'fulfilled') {
+          setRelationships(relationshipsResult.value)
+        }
+        if (costResult.status === 'fulfilled') {
+          setCostBreakdown(costResult.value)
+        }
+      })
     } catch (error) {
-      setAccountContext(null)
+      if (regionalLoadTokenRef.current !== loadToken) {
+        return
+      }
       setPageError(error instanceof Error ? error.message : String(error))
-    } finally {
       setLoading(false)
     }
   }
@@ -155,12 +180,12 @@ export function OverviewConsole({
     setGlobalLoading(true)
     setPageError('')
     try {
-      const [nextMetrics, nextCost] = await Promise.all([
-        getOverviewMetrics(connectionState.connection, availableRegions),
-        getCostBreakdown(connectionState.connection).catch(() => null)
-      ])
+      const nextMetrics = await getOverviewMetrics(connectionState.connection, availableRegions)
       setGlobalMetrics(nextMetrics)
-      setCostBreakdown(nextCost)
+
+      void getCostBreakdown(connectionState.connection)
+        .then((nextCost) => setCostBreakdown(nextCost))
+        .catch(() => {})
     } catch (error) {
       setPageError(error instanceof Error ? error.message : String(error))
     } finally {
