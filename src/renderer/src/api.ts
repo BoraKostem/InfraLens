@@ -290,6 +290,9 @@ const awsActivityListeners = new Set<(state: AwsActivityState) => void>()
 const enterpriseListeners = new Set<(settings: EnterpriseSettings) => void>()
 const awsBridgeCache = new WeakMap<AwsLensBridge, AwsLensBridge>()
 const pageCache = new Map<string, CacheEntry>()
+// Deduplicates identical concurrent non-cached calls (e.g. rapid double-clicks or
+// parallel component mounts calling the same describe/get method with the same args).
+const inflightRequests = new Map<string, Promise<unknown>>()
 let pageCacheVersion = 0
 let awsActivityState: AwsActivityState = {
   pendingCount: 0,
@@ -733,6 +736,20 @@ function awsBridge(): AwsLensBridge {
         const isMutatingMethod = MUTATING_METHODS.has(method)
 
         if (!tag) {
+          // For non-cached, non-mutating read methods: deduplicate identical concurrent calls.
+          // Mutating methods always fire independently.
+          if (!isMutatingMethod) {
+            const inflightKey = `${key}:${JSON.stringify(args)}`
+            const existing = inflightRequests.get(inflightKey)
+            if (existing) {
+              return existing
+            }
+            const request = loader().finally(() => {
+              inflightRequests.delete(inflightKey)
+            })
+            inflightRequests.set(inflightKey, request)
+            return request
+          }
           return loader()
         }
 

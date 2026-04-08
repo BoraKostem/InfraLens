@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import './ec2.css'
 import { SvcState, variantForError } from './SvcState'
 import { FreshnessIndicator, useFreshnessState } from './freshness'
+import { useStaleGuard } from './useStaleGuard'
 
 import type {
   AwsConnection,
@@ -417,6 +418,7 @@ export function Ec2Console({
   const [mainTab, setMainTab] = useState<MainTab>('instances')
   const [sideTab, setSideTab] = useState<SideTab>('overview')
   const [loading, setLoading] = useState(false)
+  const { guard: staleGuard, nextGeneration } = useStaleGuard()
   const [msg, setMsg] = useState('')
 
   /* ── Filter state ──────────────────────────────────────── */
@@ -794,6 +796,7 @@ export function Ec2Console({
   }
 
   async function selectInstance(id: string, options?: { preserveExisting?: boolean; reason?: 'selection' | 'background' | 'manual' }) {
+    const gen = nextGeneration()
     setSelectedId(id)
     if ((options?.reason ?? 'selection') === 'selection') {
       setSelectedInstanceIds([id])
@@ -808,19 +811,25 @@ export function Ec2Console({
     setSsmTarget(null)
     setSsmSessions([])
     const d = await describeEc2Instance(connection, id)
-    setDetail(d)
-    if (d) {
-      setResizeType(d.type)
-      try { setIamAssoc(await getIamAssociation(connection, id)) } catch { setIamAssoc(null) }
-      if (d.vpcId !== '-') {
-        try { setVpcDetail(await describeVpc(connection, d.vpcId)) } catch { setVpcDetail(null) }
+    staleGuard(() => {
+      setDetail(d)
+      if (d) {
+        setResizeType(d.type)
       }
-      try { setLinkedBastions(await findBastionConnectionsForInstance(connection, id)) } catch { setLinkedBastions([]) }
+    }, gen)
+    if (d) {
+      try { const assoc = await getIamAssociation(connection, id); staleGuard(() => setIamAssoc(assoc), gen) } catch { staleGuard(() => setIamAssoc(null), gen) }
+      if (d.vpcId !== '-') {
+        try { const vpc = await describeVpc(connection, d.vpcId); staleGuard(() => setVpcDetail(vpc), gen) } catch { staleGuard(() => setVpcDetail(null), gen) }
+      }
+      try { const bastions = await findBastionConnectionsForInstance(connection, id); staleGuard(() => setLinkedBastions(bastions), gen) } catch { staleGuard(() => setLinkedBastions([]), gen) }
       await loadSsmForInstance(id, options?.reason ?? 'selection')
     } else {
-      setLinkedBastions([])
-      setSsmTarget(null)
-      setSsmSessions([])
+      staleGuard(() => {
+        setLinkedBastions([])
+        setSsmTarget(null)
+        setSsmSessions([])
+      }, gen)
     }
   }
 
