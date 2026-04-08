@@ -7,6 +7,7 @@ import { app, dialog, type BrowserWindow } from 'electron'
 
 import { PRODUCT_BRAND_SLUG } from '@shared/branding'
 import type { AppDiagnosticsExportResult, AppDiagnosticsSnapshot } from '@shared/types'
+import { getDiagnosticsSnapshot, updateDiagnosticsActiveContext } from './diagnosticsState'
 import { listEnterpriseAuditEvents } from './enterprise'
 import { listVaultEntries } from './localVault'
 import { getStructuredLogPath } from './observability'
@@ -98,6 +99,10 @@ function defaultBundleName(): string {
 }
 
 export async function exportDiagnosticsBundle(owner?: BrowserWindow | null, snapshot?: AppDiagnosticsSnapshot): Promise<AppDiagnosticsExportResult> {
+  if (snapshot) {
+    updateDiagnosticsActiveContext(snapshot)
+  }
+
   const generatedAt = new Date().toISOString()
   const result = owner
     ? await dialog.showSaveDialog(owner, {
@@ -120,14 +125,17 @@ export async function exportDiagnosticsBundle(owner?: BrowserWindow | null, snap
   const releaseInfo = await getReleaseInfo()
   const auditEvents = listEnterpriseAuditEvents()
   const terraformHistory = listRunRecords().slice(0, 200)
+  const diagnosticsState = getDiagnosticsSnapshot()
+  const workspaceContext = snapshot ?? diagnosticsState.activeContext ?? undefined
 
   zip.addFile('manifest.json', Buffer.from(`${JSON.stringify(buildManifest(logPath), null, 2)}\n`, 'utf-8'))
   zip.addFile('release-info.json', Buffer.from(`${JSON.stringify(releaseInfo, null, 2)}\n`, 'utf-8'))
   zip.addFile('audit-events.json', Buffer.from(`${JSON.stringify(auditEvents, null, 2)}\n`, 'utf-8'))
   zip.addFile('terraform-run-history.json', Buffer.from(`${JSON.stringify(terraformHistory, null, 2)}\n`, 'utf-8'))
-  if (snapshot) {
-    zip.addFile('workspace-context.json', Buffer.from(`${JSON.stringify(snapshot, null, 2)}\n`, 'utf-8'))
+  if (workspaceContext) {
+    zip.addFile('workspace-context.json', Buffer.from(`${JSON.stringify(workspaceContext, null, 2)}\n`, 'utf-8'))
   }
+  zip.addFile('diagnostics-session.json', Buffer.from(`${JSON.stringify(diagnosticsState, null, 2)}\n`, 'utf-8'))
 
   if (fs.existsSync(logPath)) {
     zip.addLocalFile(logPath, 'logs')

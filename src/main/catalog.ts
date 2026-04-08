@@ -1,9 +1,11 @@
 import type {
+  AppSettingsFeatures,
   CloudProviderId,
   ServiceDescriptor,
   WorkspaceCatalog,
   WorkspaceCatalogSection
 } from '@shared/types'
+import { isServiceEnabled } from '@shared/featureFlags'
 
 const SHARED_WORKSPACES: ServiceDescriptor[] = [
   {
@@ -164,8 +166,48 @@ export function getWorkspaceCatalog(providerId: CloudProviderId = 'aws'): Worksp
   }
 }
 
+function filterVisibleServices(
+  items: ServiceDescriptor[],
+  features: AppSettingsFeatures
+): ServiceDescriptor[] {
+  return items.filter((service) => isServiceEnabled(features, service.id))
+}
+
+export function getVisibleWorkspaceCatalog(
+  providerId: CloudProviderId = 'aws',
+  features: AppSettingsFeatures
+): WorkspaceCatalog {
+  const catalog = getWorkspaceCatalog(providerId)
+  const sharedWorkspaces = catalog.sharedWorkspaces
+    .map((section) => ({
+      ...section,
+      items: filterVisibleServices(section.items, features)
+    }))
+    .filter((section) => section.items.length > 0)
+  const providerWorkspaces = catalog.providerWorkspaces
+    .map((section) => ({
+      ...section,
+      items: filterVisibleServices(section.items, features)
+    }))
+    .filter((section) => section.items.length > 0)
+
+  return {
+    providerId: catalog.providerId,
+    sharedWorkspaces,
+    providerWorkspaces,
+    allServices: [...sharedWorkspaces.flatMap((section) => section.items), ...providerWorkspaces.flatMap((section) => section.items)]
+  }
+}
+
 export function listServiceCatalog(providerId: CloudProviderId = 'aws'): ServiceDescriptor[] {
   return getWorkspaceCatalog(providerId).allServices
+}
+
+export function getVisibleServiceCatalog(
+  providerId: CloudProviderId = 'aws',
+  features: AppSettingsFeatures
+): ServiceDescriptor[] {
+  return getVisibleWorkspaceCatalog(providerId, features).allServices
 }
 
 export const SERVICE_CATALOG: ServiceDescriptor[] = listServiceCatalog('aws')

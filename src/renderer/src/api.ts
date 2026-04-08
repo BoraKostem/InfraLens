@@ -4,11 +4,15 @@ import { LEGACY_BLOCKED_ACTION_EVENT } from '@shared/branding'
 import type {
   AwsCapabilitySnapshot,
   AwsCapabilitySubject,
+  AppDiagnosticsFailureInput,
   AppDiagnosticsSnapshot,
   AppSettings,
   ComparisonBaseline,
   ComparisonBaselineInput,
   ComparisonBaselineSummary,
+  ComparisonPreset,
+  ComparisonPresetInput,
+  ComparisonPresetSummary,
   ComparisonRequest,
   ComparisonResult,
   AccessKeyOwnership,
@@ -325,9 +329,13 @@ const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
   deleteVaultEntry: 'phase2-foundations',
   recordVaultEntryUse: 'phase2-foundations',
   listComparisonBaselines: 'phase2-foundations',
+  listComparisonPresets: 'phase2-foundations',
   getComparisonBaseline: 'phase2-foundations',
+  getComparisonPreset: 'phase2-foundations',
   saveComparisonBaseline: 'phase2-foundations',
+  saveComparisonPreset: 'phase2-foundations',
   deleteComparisonBaseline: 'phase2-foundations',
+  deleteComparisonPreset: 'phase2-foundations',
   buildEksUpgradePlan: 'phase2-foundations',
   resolveDirectAccessInput: 'phase2-foundations',
   listProfiles: 'shell',
@@ -474,7 +482,9 @@ const MUTATING_METHODS = new Set<keyof AwsLensBridge>([
   'recordVaultEntryUse',
   'chooseEc2SshKey',
   'saveComparisonBaseline',
+  'saveComparisonPreset',
   'deleteComparisonBaseline',
+  'deleteComparisonPreset',
   'deleteProfile',
   'chooseAndImportConfig',
   'saveCredentials',
@@ -1111,16 +1121,32 @@ export async function listComparisonBaselines(): Promise<ComparisonBaselineSumma
   return unwrap((await awsBridge().listComparisonBaselines()) as Wrapped<ComparisonBaselineSummary[]>)
 }
 
+export async function listComparisonPresets(): Promise<ComparisonPresetSummary[]> {
+  return unwrap((await awsBridge().listComparisonPresets()) as Wrapped<ComparisonPresetSummary[]>)
+}
+
 export async function getComparisonBaseline(baselineId: string): Promise<ComparisonBaseline | null> {
   return unwrap((await awsBridge().getComparisonBaseline(baselineId)) as Wrapped<ComparisonBaseline | null>)
+}
+
+export async function getComparisonPreset(presetId: string): Promise<ComparisonPreset | null> {
+  return unwrap((await awsBridge().getComparisonPreset(presetId)) as Wrapped<ComparisonPreset | null>)
 }
 
 export async function saveComparisonBaseline(input: ComparisonBaselineInput): Promise<ComparisonBaselineSummary> {
   return unwrap((await awsBridge().saveComparisonBaseline(input)) as Wrapped<ComparisonBaselineSummary>)
 }
 
+export async function saveComparisonPreset(input: ComparisonPresetInput): Promise<ComparisonPresetSummary> {
+  return unwrap((await awsBridge().saveComparisonPreset(input)) as Wrapped<ComparisonPresetSummary>)
+}
+
 export async function deleteComparisonBaseline(baselineId: string): Promise<void> {
   return unwrap((await awsBridge().deleteComparisonBaseline(baselineId)) as Wrapped<void>)
+}
+
+export async function deleteComparisonPreset(presetId: string): Promise<void> {
+  return unwrap((await awsBridge().deleteComparisonPreset(presetId)) as Wrapped<void>)
 }
 
 export async function buildEksUpgradePlan(
@@ -1357,6 +1383,14 @@ export async function installAppUpdate(): Promise<AppReleaseInfo> {
 
 export async function exportDiagnosticsBundle(snapshot?: AppDiagnosticsSnapshot): Promise<AppDiagnosticsExportResult> {
   return unwrap((await rawAwsBridge().exportDiagnosticsBundle(snapshot)) as Wrapped<AppDiagnosticsExportResult>)
+}
+
+export async function setAppDiagnosticsActiveContext(snapshot: AppDiagnosticsSnapshot): Promise<void> {
+  return unwrap((await rawAwsBridge().setAppDiagnosticsActiveContext(snapshot)) as Wrapped<void>)
+}
+
+export async function recordAppDiagnosticsFailure(input: AppDiagnosticsFailureInput): Promise<void> {
+  return unwrap((await rawAwsBridge().recordAppDiagnosticsFailure(input)) as Wrapped<void>)
 }
 
 export async function openPath(targetPath: string): Promise<void> {

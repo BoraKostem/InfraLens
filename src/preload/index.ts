@@ -2,9 +2,11 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 import type {
   AwsCapabilitySubject,
+  AppDiagnosticsFailureInput,
   AppDiagnosticsSnapshot,
   AppSettings,
   ComparisonBaselineInput,
+  ComparisonPresetInput,
   ComparisonRequest,
   AssumeRoleRequest,
   AwsAssumeRoleTarget,
@@ -90,9 +92,13 @@ const awsLensApi = {
   revealVaultEntrySecret: (entryId: string) => ipcRenderer.invoke('phase2:reveal-vault-entry-secret', entryId),
   recordVaultEntryUse: (input: VaultEntryUsageInput) => ipcRenderer.invoke('phase2:record-vault-entry-use', input),
   listComparisonBaselines: () => ipcRenderer.invoke('phase2:list-comparison-baselines'),
+  listComparisonPresets: () => ipcRenderer.invoke('phase2:list-comparison-presets'),
   getComparisonBaseline: (baselineId: string) => ipcRenderer.invoke('phase2:get-comparison-baseline', baselineId),
+  getComparisonPreset: (presetId: string) => ipcRenderer.invoke('phase2:get-comparison-preset', presetId),
   saveComparisonBaseline: (input: ComparisonBaselineInput) => ipcRenderer.invoke('phase2:save-comparison-baseline', input),
+  saveComparisonPreset: (input: ComparisonPresetInput) => ipcRenderer.invoke('phase2:save-comparison-preset', input),
   deleteComparisonBaseline: (baselineId: string) => ipcRenderer.invoke('phase2:delete-comparison-baseline', baselineId),
+  deleteComparisonPreset: (presetId: string) => ipcRenderer.invoke('phase2:delete-comparison-preset', presetId),
   buildEksUpgradePlan: (connection: AwsConnection, request: EksUpgradePlannerRequest) =>
     ipcRenderer.invoke('phase2:build-eks-upgrade-plan', connection, request),
   resolveDirectAccessInput: (input: string): Promise<DirectAccessResolution> =>
@@ -146,6 +152,10 @@ const awsLensApi = {
   checkForAppUpdates: () => ipcRenderer.invoke('app:update:check'),
   downloadAppUpdate: () => ipcRenderer.invoke('app:update:download'),
   installAppUpdate: () => ipcRenderer.invoke('app:update:install'),
+  setAppDiagnosticsActiveContext: (snapshot: AppDiagnosticsSnapshot) =>
+    ipcRenderer.invoke('app:diagnostics:set-active-context', snapshot),
+  recordAppDiagnosticsFailure: (input: AppDiagnosticsFailureInput) =>
+    ipcRenderer.invoke('app:diagnostics:record-failure', input),
   exportDiagnosticsBundle: (snapshot?: AppDiagnosticsSnapshot) => ipcRenderer.invoke('app:export-diagnostics', snapshot),
   getCallerIdentity: (connection: AwsConnection) => ipcRenderer.invoke('sts:get-caller-identity', connection),
   listEc2Instances: (connection: AwsConnection) => ipcRenderer.invoke('ec2:list', connection),

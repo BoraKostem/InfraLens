@@ -5,11 +5,12 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { dialog, ipcMain, shell, app, type BrowserWindow, type OpenDialogOptions } from 'electron'
 
-import type { AppDiagnosticsSnapshot, AppSecuritySummary, AppSettings, AwsConnection, CloudProviderId, Ec2ChosenSshKey, GcpComputeInstanceAction, TerraformCommandRequest, TerraformInputConfiguration, TerraformRunHistoryFilter } from '@shared/types'
+import type { AppDiagnosticsFailureInput, AppDiagnosticsSnapshot, AppSecuritySummary, AppSettings, AwsConnection, CloudProviderId, Ec2ChosenSshKey, GcpComputeInstanceAction, TerraformCommandRequest, TerraformInputConfiguration, TerraformRunHistoryFilter } from '@shared/types'
 import { getAppSettings, resetAppSettings, updateAppSettings } from './appSettings'
 import { importAwsConfigFile } from './aws/profiles'
-import { getWorkspaceCatalog, listServiceCatalog } from './catalog'
+import { getVisibleServiceCatalog, getVisibleWorkspaceCatalog } from './catalog'
 import { exportDiagnosticsBundle } from './diagnostics'
+import { recordDiagnosticsFailure, updateDiagnosticsActiveContext } from './diagnosticsState'
 import { getEnvironmentHealthReport } from './environment'
 import { exportEnterpriseAuditEvents, getEnterpriseSettings, listEnterpriseAuditEvents, setEnterpriseAccessMode } from './enterprise'
 import {
@@ -298,10 +299,10 @@ async function openInVisualStudioCode(targetPath: string): Promise<void> {
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('providers:list', async () => wrap(() => listProviders()))
   ipcMain.handle('workspace-catalog:get', async (_event, providerId?: CloudProviderId) =>
-    wrap(() => getWorkspaceCatalog(providerId ?? 'aws'))
+    wrap(() => getVisibleWorkspaceCatalog(providerId ?? 'aws', getAppSettings().features))
   )
   ipcMain.handle('services:list', async (_event, providerId?: CloudProviderId) =>
-    wrap(() => listServiceCatalog(providerId ?? 'aws'))
+    wrap(() => getVisibleServiceCatalog(providerId ?? 'aws', getAppSettings().features))
   )
   ipcMain.handle('terraform:cli:detect', async () => wrap(() => detectTerraformCli()))
   ipcMain.handle('terraform:cli:info', async () => wrap(() => getCachedCliInfo()))
@@ -528,6 +529,12 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('app:update:check', async () => wrap(() => checkForAppUpdates()))
   ipcMain.handle('app:update:download', async () => wrap(() => downloadAppUpdate()))
   ipcMain.handle('app:update:install', async () => wrap(() => installAppUpdate()))
+  ipcMain.handle('app:diagnostics:set-active-context', async (_event, context: AppDiagnosticsSnapshot) =>
+    wrap(() => updateDiagnosticsActiveContext(context))
+  )
+  ipcMain.handle('app:diagnostics:record-failure', async (_event, input: AppDiagnosticsFailureInput) =>
+    wrap(() => recordDiagnosticsFailure(input))
+  )
   ipcMain.handle('app:export-diagnostics', async (_event, snapshot: AppDiagnosticsSnapshot | undefined) => wrap(() => exportDiagnosticsBundle(getWindow(), snapshot)))
   ipcMain.handle('enterprise:get-settings', async () => wrap(() => getEnterpriseSettings()))
   ipcMain.handle('enterprise:set-access-mode', async (_event, accessMode: 'read-only' | 'operator') =>

@@ -353,6 +353,27 @@ export type ComparisonBaselineInput = {
   result: ComparisonResult
 }
 
+export type ComparisonPresetSummary = {
+  id: string
+  name: string
+  description: string
+  createdAt: string
+  updatedAt: string
+  leftLabel: string
+  rightLabel: string
+}
+
+export type ComparisonPreset = ComparisonPresetSummary & {
+  request: ComparisonRequest
+}
+
+export type ComparisonPresetInput = {
+  id?: string
+  name: string
+  description: string
+  request: ComparisonRequest
+}
+
 export type AssumeRoleRequest = {
   label: string
   roleArn: string
@@ -471,12 +492,26 @@ export type AppSettingsUpdates = {
   autoDownload: boolean
 }
 
+export type AppFeatureFlagId =
+  | 'labs.observability'
+  | 'service.iam'
+  | 'service.identity-center'
+  | 'service.kms'
+  | 'service.sns'
+  | 'service.sqs'
+  | 'service.waf'
+
+export type AppSettingsFeatures = {
+  registry: Partial<Record<AppFeatureFlagId, boolean>>
+}
+
 export type AppSettings = {
   general: AppSettingsGeneral
   terminal: AppSettingsTerminal
   refresh: AppSettingsRefresh
   toolchain: AppSettingsToolchain
   updates: AppSettingsUpdates
+  features: AppSettingsFeatures
 }
 
 export type AppSecuritySummary = {
@@ -1978,6 +2013,18 @@ export type AwsCapabilitySnapshot = {
 
 export type ServiceMaturity = 'production-ready' | 'beta' | 'experimental'
 
+export type AppFeatureFlagSurface = 'service' | 'lab'
+
+export type AppFeatureFlagDefinition = {
+  id: AppFeatureFlagId
+  label: string
+  description: string
+  maturity: ServiceMaturity
+  surface: AppFeatureFlagSurface
+  serviceId?: ServiceId
+  defaultEnabled: boolean
+}
+
 export type ServiceDescriptor = {
   id: ServiceId
   label: string
@@ -2072,6 +2119,16 @@ export type AppDiagnosticsSnapshot = {
   azure?: {
     modeLabel: string
   }
+}
+
+export type AppDiagnosticsActiveContext = AppDiagnosticsSnapshot
+
+export type AppDiagnosticsFailureInput = {
+  action: string
+  message: string
+  rawMessage: string
+  providerId: CloudProviderId | ''
+  serviceId: ServiceId | ''
 }
 
 export type AppDiagnosticsExportResult = {
