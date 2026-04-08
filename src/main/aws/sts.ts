@@ -6,15 +6,11 @@ import {
 } from '@aws-sdk/client-sts'
 
 import type { AccessKeyOwnership, AssumeRoleResult, AwsConnection, CallerIdentity, StsDecodedAuthorizationMessage } from '@shared/types'
-import { awsClientConfig } from './client'
+import { getAwsClient } from './client'
 import { assumeRoleSession } from '../sessionHub'
 
-function createClient(connection: AwsConnection): STSClient {
-  return new STSClient(awsClientConfig(connection))
-}
-
 export async function getCallerIdentity(connection: AwsConnection): Promise<CallerIdentity> {
-  const client = createClient(connection)
+  const client = getAwsClient(STSClient, connection)
   const output = await client.send(new GetCallerIdentityCommand({}))
 
   return {
@@ -32,7 +28,7 @@ export async function decodeAuthorizationMessage(
   connection: AwsConnection,
   encodedMessage: string
 ): Promise<StsDecodedAuthorizationMessage> {
-  const client = createClient(connection)
+  const client = getAwsClient(STSClient, connection)
   const output = await client.send(new DecodeAuthorizationMessageCommand({ EncodedMessage: encodedMessage }))
 
   return {
@@ -41,7 +37,7 @@ export async function decodeAuthorizationMessage(
 }
 
 export async function lookupAccessKeyOwnership(connection: AwsConnection, accessKeyId: string): Promise<AccessKeyOwnership> {
-  const client = createClient(connection)
+  const client = getAwsClient(STSClient, connection)
   const output = await client.send(new GetAccessKeyInfoCommand({ AccessKeyId: accessKeyId }))
 
   return {

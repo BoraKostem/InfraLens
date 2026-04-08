@@ -32,20 +32,14 @@ import type {
   SecretsManagerSecretSummary,
   SecretsManagerSecretValue
 } from '@shared/types'
-import { awsClientConfig, readTags } from './client'
+import { getAwsClient, readTags } from './client'
 import { listServices, listClusters } from './ecs'
 import { listLambdaFunctions, getLambdaFunctionDetails } from './lambda'
 import { listEksClusters, createTempEksKubeconfig } from './eks'
 import { spawn } from 'node:child_process'
 import { getConnectionEnv } from '../sessionHub'
 
-function createClient(connection: AwsConnection): SecretsManagerClient {
-  return new SecretsManagerClient(awsClientConfig(connection))
-}
 
-function createEcsClient(connection: AwsConnection): ECSClient {
-  return new ECSClient(awsClientConfig(connection))
-}
 
 function toIso(value: Date | undefined): string {
   return value ? value.toISOString() : ''
@@ -240,7 +234,7 @@ function upsertDependency(
 }
 
 export async function listSecrets(connection: AwsConnection): Promise<SecretsManagerSecretSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(SecretsManagerClient, connection)
   const items: SecretsManagerSecretSummary[] = []
   let nextToken: string | undefined
 
@@ -268,7 +262,7 @@ export async function listSecrets(connection: AwsConnection): Promise<SecretsMan
 }
 
 export async function describeSecret(connection: AwsConnection, secretId: string): Promise<SecretsManagerSecretDetail> {
-  const client = createClient(connection)
+  const client = getAwsClient(SecretsManagerClient, connection)
   const [detail, versions, policy] = await Promise.all([
     client.send(new DescribeSecretCommand({ SecretId: secretId })),
     client.send(new ListSecretVersionIdsCommand({ SecretId: secretId, IncludeDeprecated: true })),
@@ -342,7 +336,7 @@ export async function getSecretDependencyReport(
     }
   }
 
-  const ecsClient = createEcsClient(connection)
+  const ecsClient = getAwsClient(ECSClient, connection)
   const clusters = await listClusters(connection)
   for (const cluster of clusters) {
     const services = await listServices(connection, cluster.clusterArn)
@@ -612,7 +606,7 @@ export async function getSecretDependencyReport(
 }
 
 export async function getSecretValue(connection: AwsConnection, secretId: string, versionId?: string): Promise<SecretsManagerSecretValue> {
-  const client = createClient(connection)
+  const client = getAwsClient(SecretsManagerClient, connection)
   const response = await client.send(new GetSecretValueCommand({ SecretId: secretId, VersionId: versionId || undefined }))
 
   return {
@@ -625,7 +619,7 @@ export async function getSecretValue(connection: AwsConnection, secretId: string
 }
 
 export async function createSecret(connection: AwsConnection, input: SecretCreateInput): Promise<string> {
-  const client = createClient(connection)
+  const client = getAwsClient(SecretsManagerClient, connection)
   const response = await client.send(
     new CreateSecretCommand({
       Name: input.name,
@@ -640,7 +634,7 @@ export async function createSecret(connection: AwsConnection, input: SecretCreat
 }
 
 export async function deleteSecret(connection: AwsConnection, secretId: string, forceDeleteWithoutRecovery: boolean): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(SecretsManagerClient, connection)
   await client.send(
     new DeleteSecretCommand({
       SecretId: secretId,
@@ -651,36 +645,36 @@ export async function deleteSecret(connection: AwsConnection, secretId: string, 
 }
 
 export async function restoreSecret(connection: AwsConnection, secretId: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(SecretsManagerClient, connection)
   await client.send(new RestoreSecretCommand({ SecretId: secretId }))
 }
 
 export async function updateSecretValue(connection: AwsConnection, secretId: string, secretString: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(SecretsManagerClient, connection)
   await client.send(new UpdateSecretCommand({ SecretId: secretId, SecretString: secretString }))
 }
 
 export async function updateSecretDescription(connection: AwsConnection, secretId: string, description: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(SecretsManagerClient, connection)
   await client.send(new UpdateSecretCommand({ SecretId: secretId, Description: description }))
 }
 
 export async function rotateSecret(connection: AwsConnection, secretId: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(SecretsManagerClient, connection)
   await client.send(new RotateSecretCommand({ SecretId: secretId, RotateImmediately: true }))
 }
 
 export async function putSecretResourcePolicy(connection: AwsConnection, secretId: string, policy: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(SecretsManagerClient, connection)
   await client.send(new PutResourcePolicyCommand({ SecretId: secretId, ResourcePolicy: policy }))
 }
 
 export async function tagSecret(connection: AwsConnection, secretId: string, tags: SecretTag[]): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(SecretsManagerClient, connection)
   await client.send(new TagResourceCommand({ SecretId: secretId, Tags: normalizeTags(tags) }))
 }
 
 export async function untagSecret(connection: AwsConnection, secretId: string, tagKeys: string[]): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(SecretsManagerClient, connection)
   await client.send(new UntagResourceCommand({ SecretId: secretId, TagKeys: tagKeys }))
 }

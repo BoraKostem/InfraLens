@@ -13,7 +13,7 @@ import type {
   ServiceId,
   WafWebAclSummary
 } from '@shared/types'
-import { awsClientConfig, readTags } from './client'
+import { getAwsClient, readTags } from './client'
 import { listTrails } from './cloudtrail'
 import { listKeyPairs } from './keyPairs'
 import { listLoadBalancerWorkspaces } from './loadBalancers'
@@ -52,13 +52,7 @@ const MIN_TAGGING_SAMPLE_SIZE = 6
 const RISKY_PORTS = new Set([20, 21, 22, 23, 25, 53, 80, 110, 135, 139, 143, 389, 443, 445, 1433, 1521, 2049, 2375, 2376, 3000, 3306, 3389, 5432, 5601, 5672, 6379, 8080, 8443, 9200, 9300, 27017])
 const GOVERNANCE_TAG_KEYS = ['Name', 'Environment', 'Owner', 'Project', 'CostCenter']
 
-function createEc2Client(connection: AwsConnection): EC2Client {
-  return new EC2Client(awsClientConfig(connection))
-}
 
-function createCloudWatchClient(connection: AwsConnection): CloudWatchClient {
-  return new CloudWatchClient(awsClientConfig(connection))
-}
 
 function createSummary(findings: ComplianceFinding[]): ComplianceSummary {
   const summary: ComplianceSummary = {
@@ -140,7 +134,7 @@ async function loadSection<T>(
 }
 
 async function listEc2Inventory(connection: AwsConnection): Promise<Ec2InventoryItem[]> {
-  const client = createEc2Client(connection)
+  const client = getAwsClient(EC2Client, connection)
   const items: Ec2InventoryItem[] = []
   let nextToken: string | undefined
 
@@ -165,7 +159,7 @@ async function listEc2Inventory(connection: AwsConnection): Promise<Ec2Inventory
 }
 
 async function listAlarmInventory(connection: AwsConnection): Promise<AlarmInventory> {
-  const client = createCloudWatchClient(connection)
+  const client = getAwsClient(CloudWatchClient, connection)
   let nextToken: string | undefined
   let count = 0
 

@@ -64,7 +64,7 @@ import {
   type InstanceInformation
 } from '@aws-sdk/client-ssm'
 
-import { awsClientConfig, readTags } from './client'
+import { getAwsClient, readTags } from './client'
 import { getGovernanceTagDefaults } from '../phase1FoundationStore'
 import type {
   AwsConnection,
@@ -97,10 +97,6 @@ import type {
 } from '@shared/types'
 import { getSsmConnectionTarget } from './ssm'
 
-function createClient(connection: AwsConnection): EC2Client {
-  return new EC2Client(awsClientConfig(connection))
-}
-
 const BASTION_TAG_PREFIX = 'aws-lens-bastion/'
 const LEGACY_BASTION_TAG_PREFIX = 'aws-lens-bastion#'
 const BASTION_PURPOSE_TAG = 'aws-lens:purpose'
@@ -123,13 +119,7 @@ const TEMP_INSPECTION_AMI_ID = 'ami-096a4fdbcf530d8e0'
 
 type TempProgressReporter = (progress: EbsTempInspectionProgress) => void
 
-function createIamClient(connection: AwsConnection): IAMClient {
-  return new IAMClient(awsClientConfig(connection))
-}
 
-function createSsmClient(connection: AwsConnection): SSMClient {
-  return new SSMClient(awsClientConfig(connection))
-}
 
 function buildBastionTagKey(uuid: string): string {
   return `${BASTION_TAG_PREFIX}${uuid}`
@@ -929,8 +919,8 @@ function toInstanceSummary(instance: Instance, managedInfo?: { PingStatus?: stri
 }
 
 export async function listEc2Instances(connection: AwsConnection): Promise<Ec2InstanceSummary[]> {
-  const client = createClient(connection)
-  const ssmClient = createSsmClient(connection)
+  const client = getAwsClient(EC2Client, connection)
+  const ssmClient = getAwsClient(SSMClient, connection)
   const managedInstanceMap = await loadManagedInstanceMap(ssmClient)
   const instances: Ec2InstanceSummary[] = []
   let nextToken: string | undefined
@@ -949,14 +939,14 @@ export async function listEc2Instances(connection: AwsConnection): Promise<Ec2In
 }
 
 export async function listEbsVolumes(connection: AwsConnection): Promise<EbsVolumeSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const output = await client.send(new DescribeVolumesCommand({}))
   const volumes = await Promise.all((output.Volumes ?? []).map((volume) => toVolumeSummary(client, volume)))
   return volumes.sort((left, right) => left.volumeId.localeCompare(right.volumeId))
 }
 
 export async function describeEbsVolume(connection: AwsConnection, volumeId: string): Promise<EbsVolumeDetail | null> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const volume = await loadSingleVolume(client, volumeId)
   if (!volume) {
     return null
@@ -973,7 +963,7 @@ export async function tagEbsVolume(
   volumeId: string,
   tags: Record<string, string>
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await tagResources(client, [volumeId], tags)
 }
 
@@ -982,7 +972,7 @@ export async function untagEbsVolume(
   volumeId: string,
   tagKeys: string[]
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await removeTagKeys(client, [volumeId], tagKeys)
 }
 
@@ -991,7 +981,7 @@ export async function attachEbsVolume(
   volumeId: string,
   request: EbsVolumeAttachRequest
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const volume = await describeTargetVolume(client, volumeId)
   const instance = await describeTargetInstance(client, request.instanceId)
 
@@ -1013,7 +1003,7 @@ export async function detachEbsVolume(
   volumeId: string,
   request: EbsVolumeDetachRequest = {}
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await client.send(
     new DetachVolumeCommand({
       VolumeId: volumeId,
@@ -1025,7 +1015,7 @@ export async function detachEbsVolume(
 }
 
 export async function deleteEbsVolume(connection: AwsConnection, volumeId: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await client.send(new DeleteVolumeCommand({ VolumeId: volumeId }))
 }
 
@@ -1034,7 +1024,7 @@ export async function modifyEbsVolume(
   volumeId: string,
   request: EbsVolumeModifyRequest
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const payload: {
     VolumeId: string
     Size?: number
@@ -1115,7 +1105,7 @@ function toInstanceDetail(
 }
 
 export async function describeEc2Instance(connection: AwsConnection, instanceId: string): Promise<Ec2InstanceDetail | null> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const output = await client.send(new DescribeInstancesCommand({ InstanceIds: [instanceId] }))
 
   let instance: Instance | undefined
@@ -1151,7 +1141,7 @@ export async function runEc2InstanceAction(
   instanceId: string,
   action: Ec2InstanceAction
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
 
   if (action === 'start') {
     await client.send(new StartInstancesCommand({ InstanceIds: [instanceId] }))
@@ -1167,7 +1157,7 @@ export async function runEc2InstanceAction(
 }
 
 export async function terminateEc2Instance(connection: AwsConnection, instanceId: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await client.send(new TerminateInstancesCommand({ InstanceIds: [instanceId] }))
 }
 
@@ -1227,7 +1217,7 @@ export async function runEc2BulkInstanceAction(
     }
   }
 
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const nameMap = await loadInstanceNameMap(client, uniqueInstanceIds).catch(() => new Map<string, string>())
   const results: Ec2BulkInstanceActionItemResult[] = []
 
@@ -1275,7 +1265,7 @@ export async function resizeEc2Instance(
   instanceId: string,
   instanceType: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await client.send(
     new ModifyInstanceAttributeCommand({
       InstanceId: instanceId,
@@ -1291,7 +1281,7 @@ export async function listInstanceTypes(
   architecture?: string,
   currentGenerationOnly = true
 ): Promise<Ec2InstanceTypeOption[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const types: Ec2InstanceTypeOption[] = []
   let nextToken: string | undefined
 
@@ -1334,7 +1324,7 @@ export async function listInstanceTypes(
 /* ── Snapshots ─────────────────────────────────────────────── */
 
 export async function listEc2Snapshots(connection: AwsConnection): Promise<Ec2SnapshotSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const snapshots: Ec2SnapshotSummary[] = []
   let nextToken: string | undefined
 
@@ -1370,7 +1360,7 @@ export async function createEc2Snapshot(
   volumeId: string,
   description: string
 ): Promise<string> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const output = await client.send(
     new CreateSnapshotCommand({
       VolumeId: volumeId,
@@ -1389,7 +1379,7 @@ export async function createEc2Snapshot(
 }
 
 export async function deleteEc2Snapshot(connection: AwsConnection, snapshotId: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await client.send(new DeleteSnapshotCommand({ SnapshotId: snapshotId }))
 }
 
@@ -1398,7 +1388,7 @@ export async function tagEc2Snapshot(
   snapshotId: string,
   tags: Record<string, string>
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await client.send(
     new CreateTagsCommand({
       Resources: [snapshotId],
@@ -1413,7 +1403,7 @@ export async function getIamAssociation(
   connection: AwsConnection,
   instanceId: string
 ): Promise<Ec2IamAssociation | null> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const output = await client.send(
     new DescribeIamInstanceProfileAssociationsCommand({
       Filters: [{ Name: 'instance-id', Values: [instanceId] }]
@@ -1436,7 +1426,7 @@ export async function attachIamProfile(
   instanceId: string,
   profileName: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await client.send(
     new AssociateIamInstanceProfileCommand({
       InstanceId: instanceId,
@@ -1450,7 +1440,7 @@ export async function replaceIamProfile(
   associationId: string,
   profileName: string
 ): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await client.send(
     new ReplaceIamInstanceProfileAssociationCommand({
       AssociationId: associationId,
@@ -1460,14 +1450,14 @@ export async function replaceIamProfile(
 }
 
 export async function removeIamProfile(connection: AwsConnection, associationId: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   await client.send(new DisassociateIamInstanceProfileCommand({ AssociationId: associationId }))
 }
 
 /* ── Bastion lifecycle ─────────────────────────────────────── */
 
 export async function launchBastion(connection: AwsConnection, config: BastionLaunchConfig): Promise<string> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const targetInstance = await describeTargetInstance(client, config.targetInstanceId)
   await ensureSubnetMatchesVpc(client, config.subnetId, targetInstance.VpcId ?? '')
 
@@ -1540,7 +1530,7 @@ export async function launchBastion(connection: AwsConnection, config: BastionLa
 }
 
 export async function listBastions(connection: AwsConnection): Promise<Ec2InstanceSummary[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const bastions: Ec2InstanceSummary[] = []
   const output = await client.send(
     new DescribeInstancesCommand({
@@ -1564,7 +1554,7 @@ export async function findBastionConnectionsForInstance(
   connection: AwsConnection,
   targetInstanceId: string
 ): Promise<BastionConnectionInfo[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const targetInstance = await describeTargetInstance(client, targetInstanceId)
   const tags = readTags(targetInstance.Tags)
   const uuids = listBastionUuids(tags)
@@ -1581,7 +1571,7 @@ export async function findBastionConnectionsForInstance(
 }
 
 export async function deleteBastionForInstance(connection: AwsConnection, targetInstanceId: string): Promise<void> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const targetInstance = await describeTargetInstance(client, targetInstanceId)
   const tags = readTags(targetInstance.Tags)
   const uuids = listBastionUuids(tags)
@@ -1627,9 +1617,9 @@ export async function createTempInspectionEnvironment(
   volumeId: string,
   reportProgress?: TempProgressReporter
 ): Promise<EbsTempInspectionEnvironment> {
-  const client = createClient(connection)
-  const iamClient = createIamClient(connection)
-  const ssmClient = createSsmClient(connection)
+  const client = getAwsClient(EC2Client, connection)
+  const iamClient = getAwsClient(IAMClient, connection)
+  const ssmClient = getAwsClient(SSMClient, connection)
   const volume = await describeTargetVolume(client, volumeId)
   const attachments = (volume.Attachments ?? []).map(normalizeVolumeAttachment)
   const status = classifyVolumeStatus(volume, attachments)
@@ -1846,8 +1836,8 @@ export async function deleteTempInspectionEnvironment(
   tempUuidOrInstanceId: string,
   reportProgress?: TempProgressReporter
 ): Promise<void> {
-  const client = createClient(connection)
-  const iamClient = createIamClient(connection)
+  const client = getAwsClient(EC2Client, connection)
+  const iamClient = getAwsClient(IAMClient, connection)
 
   let tempUuid = tempUuidOrInstanceId
   let environment: EbsTempInspectionEnvironment | null = null
@@ -1978,7 +1968,7 @@ export async function listPopularBastionAmis(
   connection: AwsConnection,
   architecture?: string
 ): Promise<BastionAmiOption[]> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const families: Array<{
     owner: string
     platform: string
@@ -2062,7 +2052,7 @@ export async function listPopularBastionAmis(
 /* ── VPC pivot ─────────────────────────────────────────────── */
 
 export async function describeVpc(connection: AwsConnection, vpcId: string): Promise<Ec2VpcDetail | null> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
   const output = await client.send(new DescribeVpcsCommand({ VpcIds: [vpcId] }))
   const vpc = output.Vpcs?.[0]
   if (!vpc) return null
@@ -2079,7 +2069,7 @@ export async function describeVpc(connection: AwsConnection, vpcId: string): Pro
 /* ── Launch from snapshot ──────────────────────────────────── */
 
 export async function launchFromSnapshot(connection: AwsConnection, config: SnapshotLaunchConfig): Promise<string> {
-  const client = createClient(connection)
+  const client = getAwsClient(EC2Client, connection)
 
   const amiOutput = await client.send(
     new RegisterImageCommand({
@@ -2132,7 +2122,7 @@ export async function sendSshPublicKey(
   publicKey: string,
   availabilityZone: string
 ): Promise<boolean> {
-  const connectClient = new EC2InstanceConnectClient(awsClientConfig(connection))
+  const connectClient = getAwsClient(EC2InstanceConnectClient, connection)
   const output = await connectClient.send(
     new SendSSHPublicKeyCommand({
       InstanceId: instanceId,
@@ -2171,7 +2161,7 @@ export async function getEc2Recommendations(connection: AwsConnection): Promise<
   const running = instances.filter((i) => i.state === 'running')
   if (running.length === 0) return []
 
-  const client = new CloudWatchClient(awsClientConfig(connection))
+  const client = getAwsClient(CloudWatchClient, connection)
   const endTime = new Date()
   const startTime = new Date(endTime.getTime() - 7 * 24 * 60 * 60 * 1000) // 7 days
 
