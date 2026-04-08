@@ -12,7 +12,8 @@ import type {
   EcsServiceSummary,
   GeneratedArtifact,
   ObservabilityPostureReport,
-  ServiceId
+  ServiceId,
+  TerraformAdoptionTarget
 } from '@shared/types'
 import {
   forceEcsRedeploy,
@@ -26,6 +27,7 @@ import {
 } from './api'
 import { ConfirmButton } from './ConfirmButton'
 import { ObservabilityResilienceLab } from './ObservabilityResilienceLab'
+import { TerraformAdoptionDialog } from './TerraformAdoptionDialog'
 import { FreshnessIndicator, useFreshnessState } from './freshness'
 
 type MainTab = 'services' | 'tasks' | 'lab'
@@ -153,12 +155,14 @@ export function EcsConsole({
   connection,
   refreshNonce = 0,
   focusService,
+  observabilityLabEnabled = true,
   onRunTerminalCommand,
   onNavigateCloudWatch
 }: {
   connection: AwsConnection
   refreshNonce?: number
   focusService?: { token: number; clusterArn: string; serviceName: string } | null
+  observabilityLabEnabled?: boolean
   onRunTerminalCommand?: (command: string) => void
   onNavigateCloudWatch?: (focus: { logGroupNames?: string[]; queryString?: string; sourceLabel?: string; serviceHint?: ServiceId | '' }) => void
 }) {
@@ -185,6 +189,7 @@ export function EcsConsole({
   const [logStatus, setLogStatus] = useState('')
   const [desiredCount, setDesiredCount] = useState('1')
   const [appliedFocusToken, setAppliedFocusToken] = useState(0)
+  const [showTerraformAdoption, setShowTerraformAdoption] = useState(false)
   const [labReport, setLabReport] = useState<ObservabilityPostureReport | null>(null)
   const [labLoading, setLabLoading] = useState(false)
   const [labError, setLabError] = useState('')
@@ -200,6 +205,12 @@ export function EcsConsole({
     completeRefresh: completeLabRefresh,
     failRefresh: failLabRefresh
   } = useFreshnessState({ staleAfterMs: 5 * 60 * 1000 })
+
+  useEffect(() => {
+    if (!observabilityLabEnabled && mainTab === 'lab') {
+      setMainTab('services')
+    }
+  }, [mainTab, observabilityLabEnabled])
 
   const selectedCluster = useMemo(
     () => clusters.find((cluster) => cluster.clusterArn === selectedClusterArn) ?? null,
@@ -271,6 +282,19 @@ export function EcsConsole({
   const indicatorsTone = summarizeIndicators(diagnostics?.indicators ?? [])
   const availableServiceCount = services.filter((service) => service.status === 'ACTIVE').length
   const serviceSummaryTiles = diagnostics?.summaryTiles ?? []
+  const adoptionTarget: TerraformAdoptionTarget | null = selectedServiceSummary
+    ? {
+        serviceId: 'ecs',
+        resourceType: 'aws_ecs_service',
+        region: connection.region,
+        displayName: selectedServiceSummary.serviceName,
+        identifier: selectedCluster?.clusterName
+          ? `${selectedCluster.clusterName}/${selectedServiceSummary.serviceName}`
+          : selectedServiceSummary.serviceArn,
+        arn: selectedServiceSummary.serviceArn,
+        name: selectedServiceSummary.serviceName
+      }
+    : null
 
   async function load(
     clusterArn?: string,
@@ -516,6 +540,21 @@ export function EcsConsole({
   }
 
   function handleLabSignalNavigate(signal: CorrelatedSignalReference) {
+    if (signal.serviceId === 'cloudwatch' && signal.targetView === 'logs' && selectedLogTarget) {
+      onNavigateCloudWatch?.({
+        logGroupNames: [selectedLogTarget.logGroup],
+        queryString: [
+          'fields @timestamp, @logStream, @message',
+          `| filter @message like /(?i)(${selectedServiceName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|error|exception|timeout|unhealthy)/`,
+          '| sort @timestamp desc',
+          '| limit 50'
+        ].join('\n'),
+        sourceLabel: selectedServiceName,
+        serviceHint: 'ecs'
+      })
+      return
+    }
+
     if (signal.targetView === 'logs' || signal.targetView === 'services') {
       setMainTab(signal.targetView === 'logs' ? 'tasks' : 'services')
     }
@@ -602,6 +641,14 @@ export function EcsConsole({
           )}
           <button className="ecs-toolbar-btn accent" type="button" onClick={() => void load(selectedClusterArn, selectedServiceName, 'manual')}>
             Refresh
+          </button>
+          <button
+            className="ecs-toolbar-btn"
+            type="button"
+            onClick={() => setShowTerraformAdoption(true)}
+            disabled={!selectedServiceSummary}
+          >
+            Manage in Terraform
           </button>
         </div>
 
@@ -738,9 +785,11 @@ export function EcsConsole({
                 <button className={mainTab === 'tasks' ? 'active' : ''} type="button" onClick={() => setMainTab('tasks')}>
                   Tasks ({taskRows.length})
                 </button>
-                <button className={mainTab === 'lab' ? 'active' : ''} type="button" onClick={() => setMainTab('lab')}>
-                  Resilience Lab
-                </button>
+                {observabilityLabEnabled && (
+                  <button className={mainTab === 'lab' ? 'active' : ''} type="button" onClick={() => setMainTab('lab')}>
+                    Resilience Lab
+                  </button>
+                )}
               </div>
 
               {mainTab !== 'lab' && (
@@ -1214,6 +1263,12 @@ export function EcsConsole({
           )}
         </div>
       </div>
+      <TerraformAdoptionDialog
+        open={showTerraformAdoption}
+        onClose={() => setShowTerraformAdoption(false)}
+        connection={connection}
+        target={adoptionTarget}
+      />
     </div>
   )
 }

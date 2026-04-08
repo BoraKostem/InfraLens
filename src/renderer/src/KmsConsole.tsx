@@ -3,7 +3,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { decryptCiphertext, describeKmsKey, listKmsKeys } from './api'
 import './terraform.css'
 import './kms.css'
-import type { AwsConnection, KmsKeyDetail, KmsKeySummary } from '@shared/types'
+import type { AwsConnection, KmsKeyDetail, KmsKeySummary, TerraformAdoptionTarget } from '@shared/types'
+import { TerraformAdoptionDialog } from './TerraformAdoptionDialog'
 
 type ColKey = 'alias' | 'keyId' | 'keyState' | 'keyUsage'
 
@@ -49,6 +50,7 @@ export function KmsConsole({ connection }: { connection: AwsConnection }) {
   const [error, setError] = useState('')
   const [filter, setFilter] = useState('')
   const [visCols, setVisCols] = useState<Set<ColKey>>(() => new Set(COLUMNS.map((column) => column.key)))
+  const [showTerraformAdoption, setShowTerraformAdoption] = useState(false)
 
   async function refresh(nextKeyId?: string) {
     setError('')
@@ -123,6 +125,17 @@ export function KmsConsole({ connection }: { connection: AwsConnection }) {
     () => keys.filter((key) => !key.keySpec.includes('SYMMETRIC')).length,
     [keys]
   )
+  const adoptionTarget: TerraformAdoptionTarget | null = detail
+    ? {
+        serviceId: 'kms',
+        resourceType: 'aws_kms_key',
+        region: connection.region,
+        displayName: firstAlias(detail),
+        identifier: detail.keyId,
+        arn: detail.keyArn,
+        name: firstAlias(detail)
+      }
+    : null
 
   return (
     <div className="tf-console kms-console">
@@ -161,6 +174,14 @@ export function KmsConsole({ connection }: { connection: AwsConnection }) {
         <div className="tf-toolbar kms-primary-actions">
           <button type="button" className="tf-toolbar-btn accent" onClick={() => void refresh()} disabled={loading}>
             {loading ? 'Refreshing...' : 'Refresh inventory'}
+          </button>
+          <button
+            type="button"
+            className="tf-toolbar-btn"
+            onClick={() => setShowTerraformAdoption(true)}
+            disabled={!detail}
+          >
+            Manage in Terraform
           </button>
         </div>
         <div className="kms-filter-strip">
@@ -409,6 +430,12 @@ export function KmsConsole({ connection }: { connection: AwsConnection }) {
           )}
         </div>
       </div>
+      <TerraformAdoptionDialog
+        open={showTerraformAdoption}
+        onClose={() => setShowTerraformAdoption(false)}
+        connection={connection}
+        target={adoptionTarget}
+      />
     </div>
   )
 }

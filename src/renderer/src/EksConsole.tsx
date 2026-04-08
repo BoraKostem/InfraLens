@@ -10,7 +10,8 @@ import type {
   EksClusterSummary,
   EksNodegroupSummary,
   EksUpgradePlan,
-  ObservabilityPostureReport
+  ObservabilityPostureReport,
+  TerraformAdoptionTarget
 } from '@shared/types'
 import {
   addEksToKubeconfig,
@@ -26,6 +27,7 @@ import {
   updateEksNodegroupScaling
 } from './api'
 import { ObservabilityResilienceLab } from './ObservabilityResilienceLab'
+import { TerraformAdoptionDialog } from './TerraformAdoptionDialog'
 
 type ClusterCol = 'name' | 'status' | 'version'
 type NgCol = 'name' | 'status' | 'min' | 'desired' | 'max' | 'cpu7d' | 'mem7d' | 'recommendation' | 'instanceTypes'
@@ -156,6 +158,7 @@ export function EksConsole({
   const [kubeconfigLocation, setKubeconfigLocation] = useState('.kube/config')
   const [kubeconfigBusy, setKubeconfigBusy] = useState(false)
   const [kubeconfigErr, setKubeconfigErr] = useState('')
+  const [showTerraformAdoption, setShowTerraformAdoption] = useState(false)
   const [timelineEvents, setTimelineEvents] = useState<CloudTrailEventSummary[]>([])
   const [timelineLoading, setTimelineLoading] = useState(false)
   const [timelineError, setTimelineError] = useState('')
@@ -200,6 +203,23 @@ export function EksConsole({
     return nodegroups.filter((nodegroup) => activeNgCols.some((column) => getNgValue(nodegroup, column.key).toLowerCase().includes(q)))
   }, [activeNgCols, ngSearch, nodegroups])
   const selectedNodegroup = useMemo(() => nodegroups.find((nodegroup) => nodegroup.name === selectedNg) ?? null, [nodegroups, selectedNg])
+  const adoptionTarget: TerraformAdoptionTarget | null = detail
+    ? {
+        serviceId: 'eks',
+        resourceType: 'aws_eks_cluster',
+        region: connection.region,
+        displayName: detail.name,
+        identifier: detail.name,
+        arn: detail.name,
+        name: detail.name,
+        tags: detail.tags,
+        resourceContext: {
+          vpcId: detail.vpcId,
+          subnetId: detail.subnetIds[0],
+          securityGroupIds: detail.securityGroupIds
+        }
+      }
+    : null
   const healthyClusters = useMemo(() => clusters.filter((cluster) => statusTone(cluster.status) === 'success').length, [clusters])
   const totalDesiredNodes = useMemo(() => nodegroups.reduce((sum, nodegroup) => sum + Number(nodegroup.desired || 0), 0), [nodegroups])
 
@@ -508,6 +528,7 @@ export function EksConsole({
         <div className="eks-toolbar">
           <button className="eks-toolbar-btn accent" type="button" onClick={() => void reload()} disabled={loading}>Reload inventory</button>
           <button className="eks-toolbar-btn" type="button" onClick={() => setShowDescribe((current) => !current)} disabled={!selectedCluster}>{showDescribe ? 'Hide details' : 'Describe cluster'}</button>
+          <button className="eks-toolbar-btn" type="button" onClick={() => setShowTerraformAdoption(true)} disabled={!detail}>Manage in Terraform</button>
           <button className="eks-toolbar-btn" type="button" onClick={openKubeconfigForm} disabled={!selectedCluster}>Add to kubeconfig</button>
           <button className="eks-toolbar-btn" type="button" onClick={openScaleForm} disabled={!selectedCluster || !nodegroups.length}>Scale nodegroup</button>
           <button className="eks-toolbar-btn" type="button" onClick={openTerminal} disabled={!selectedCluster || terminalBusy}>Open kubectl terminal</button>
@@ -1000,6 +1021,12 @@ export function EksConsole({
           </div>
         </div>
       )}
+      <TerraformAdoptionDialog
+        open={showTerraformAdoption}
+        onClose={() => setShowTerraformAdoption(false)}
+        connection={connection}
+        target={adoptionTarget}
+      />
     </div>
   )
 }

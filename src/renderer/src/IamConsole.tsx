@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import './iam.css'
 
 import {
@@ -64,8 +64,10 @@ import type {
   IamPolicyVersion,
   IamAccountSummary,
   IamSimulationResult,
-  IamCredentialReportEntry
+  IamCredentialReportEntry,
+  TerraformAdoptionTarget
 } from '@shared/types'
+import { TerraformAdoptionDialog } from './TerraformAdoptionDialog'
 
 /* ── Types ────────────────────────────────────────────────── */
 
@@ -551,6 +553,7 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
   const [tabsOpen, setTabsOpen] = useState(true)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [showTerraformAdoption, setShowTerraformAdoption] = useState(false)
 
   /* ── Users ───────────────────────────────────────────────── */
   const [users, setUsers] = useState<IamUserSummary[]>([])
@@ -1206,6 +1209,53 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
   const activeRoleCols = ROLE_COLS.filter(c => roleVisibleCols.has(c.key))
   const filteredPolicies = filterItems(policies, policyFilter, POLICY_COLS, policyVisibleCols)
   const activePolicyCols = POLICY_COLS.filter(c => policyVisibleCols.has(c.key))
+  const adoptionTarget: TerraformAdoptionTarget | null = useMemo(() => {
+    if (mainTab === 'users' && selectedUser) {
+      return {
+        serviceId: 'iam',
+        resourceType: 'aws_iam_user',
+        region: connection.region,
+        displayName: selectedUser.userName,
+        identifier: selectedUser.userName,
+        arn: selectedUser.arn,
+        name: selectedUser.userName
+      }
+    }
+    if (mainTab === 'groups' && selectedGroup) {
+      return {
+        serviceId: 'iam',
+        resourceType: 'aws_iam_group',
+        region: connection.region,
+        displayName: selectedGroup.groupName,
+        identifier: selectedGroup.groupName,
+        arn: selectedGroup.arn,
+        name: selectedGroup.groupName
+      }
+    }
+    if (mainTab === 'roles' && selectedRole) {
+      return {
+        serviceId: 'iam',
+        resourceType: 'aws_iam_role',
+        region: connection.region,
+        displayName: selectedRole.roleName,
+        identifier: selectedRole.roleName,
+        arn: selectedRole.arn,
+        name: selectedRole.roleName
+      }
+    }
+    if (mainTab === 'policies' && selectedPolicy) {
+      return {
+        serviceId: 'iam',
+        resourceType: 'aws_iam_policy',
+        region: connection.region,
+        displayName: selectedPolicy.policyName,
+        identifier: selectedPolicy.arn,
+        arn: selectedPolicy.arn,
+        name: selectedPolicy.policyName
+      }
+    }
+    return null
+  }, [connection.region, mainTab, selectedGroup, selectedPolicy, selectedRole, selectedUser])
   const scopeLabel = connection.kind === 'profile' ? connection.profile : connection.sessionId
   const selectedSummary =
     mainTab === 'users'
@@ -1370,6 +1420,7 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
               <div className="iam-bottom-actions">
                 <input placeholder="New user name" value={newUserName} onChange={e => setNewUserName(e.target.value)} />
                 <button className="svc-btn success" type="button" onClick={() => void handleCreateUser()}>Create User</button>
+                <button className="svc-btn muted" type="button" disabled={!selectedUser} onClick={() => setShowTerraformAdoption(true)}>Manage in Terraform</button>
                 <button
                   className="svc-btn danger"
                   type="button"
@@ -1571,6 +1622,7 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
               <div className="iam-bottom-actions">
                 <input placeholder="New group name" value={newGroupName} onChange={e => setNewGroupName(e.target.value)} />
                 <button className="svc-btn success" type="button" onClick={() => void handleCreateGroup()}>Create Group</button>
+                <button className="svc-btn muted" type="button" disabled={!selectedGroup} onClick={() => setShowTerraformAdoption(true)}>Manage in Terraform</button>
                 <button
                   className="svc-btn danger"
                   type="button"
@@ -1673,6 +1725,7 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
               <div className="iam-bottom-actions">
                 <input placeholder="Role name" value={newRoleName} onChange={e => setNewRoleName(e.target.value)} />
                 <button className="svc-btn success" type="button" onClick={() => void handleCreateRole()}>Create Role</button>
+                <button className="svc-btn muted" type="button" disabled={!selectedRole} onClick={() => setShowTerraformAdoption(true)}>Manage in Terraform</button>
                 <button
                   className="svc-btn danger"
                   type="button"
@@ -1843,6 +1896,7 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
               <div className="iam-bottom-actions">
                 <input placeholder="Policy name" value={newPolicyName} onChange={e => setNewPolicyName(e.target.value)} />
                 <button className="svc-btn success" type="button" onClick={() => void handleCreatePolicy()}>Create Policy</button>
+                <button className="svc-btn muted" type="button" disabled={!selectedPolicy} onClick={() => setShowTerraformAdoption(true)}>Manage in Terraform</button>
                 <button
                   className="svc-btn danger"
                   type="button"
@@ -2006,6 +2060,12 @@ export function IamConsole({ connection }: { connection: AwsConnection }) {
           />
         </div>
       )}
+      <TerraformAdoptionDialog
+        open={showTerraformAdoption}
+        onClose={() => setShowTerraformAdoption(false)}
+        connection={connection}
+        target={adoptionTarget}
+      />
     </div>
   )
 }

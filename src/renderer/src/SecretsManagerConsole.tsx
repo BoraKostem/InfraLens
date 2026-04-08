@@ -21,9 +21,11 @@ import type {
   SecretDependencyReport,
   SecretsManagerSecretDetail,
   SecretsManagerSecretSummary,
-  SecretsManagerSecretValue
+  SecretsManagerSecretValue,
+  TerraformAdoptionTarget
 } from '@shared/types'
 import { ConfirmButton } from './ConfirmButton'
+import { TerraformAdoptionDialog } from './TerraformAdoptionDialog'
 
 type ColKey = 'name' | 'description' | 'rotation' | 'versions' | 'lastChanged' | 'lastAccessed'
 
@@ -96,6 +98,7 @@ export function SecretsManagerConsole({
   const [valueDraft, setValueDraft] = useState('')
   const [descriptionDraft, setDescriptionDraft] = useState('')
   const [policyDraft, setPolicyDraft] = useState('')
+  const [showTerraformAdoption, setShowTerraformAdoption] = useState(false)
 
   const [newName, setNewName] = useState('')
   const [newDescription, setNewDescription] = useState('')
@@ -302,6 +305,18 @@ export function SecretsManagerConsole({
 
   const activeCols = COLUMNS.filter((col) => visCols.has(col.key))
   const selectedSummary = secrets.find((secret) => secret.arn === selectedSecretId) ?? null
+  const adoptionTarget: TerraformAdoptionTarget | null = detail
+    ? {
+        serviceId: 'secrets-manager',
+        resourceType: 'aws_secretsmanager_secret',
+        region: connection.region,
+        displayName: detail.name,
+        identifier: detail.arn,
+        arn: detail.arn,
+        name: detail.name,
+        tags: detail.tags
+      }
+    : null
   const rotatingCount = secrets.filter((secret) => secret.rotationEnabled).length
   const deletedCount = secrets.filter((secret) => secret.deletedDate && secret.deletedDate !== '-').length
   const taggedCount = secrets.filter((secret) => secret.tags && Object.keys(secret.tags).length > 0).length
@@ -552,6 +567,7 @@ export function SecretsManagerConsole({
                 <h3>Actions</h3>
                 <div className="svc-actions">
                   <button className="svc-btn success" type="button" onClick={() => setMainTab('create')}>New Secret</button>
+                  <button className="svc-btn muted" type="button" disabled={!detail} onClick={() => setShowTerraformAdoption(true)}>Manage in Terraform</button>
                   <button className="svc-btn primary" type="button" disabled={!selectedSecretId} onClick={() => void doRotate()}>Rotate</button>
                   {detail?.deletedDate ? (
                     <button className="svc-btn warn" type="button" onClick={() => void doRestore()}>Restore</button>
@@ -860,6 +876,12 @@ export function SecretsManagerConsole({
           </div>
         </div>
       </div>
+      <TerraformAdoptionDialog
+        open={showTerraformAdoption}
+        onClose={() => setShowTerraformAdoption(false)}
+        connection={connection}
+        target={adoptionTarget}
+      />
     </div>
   )
 }

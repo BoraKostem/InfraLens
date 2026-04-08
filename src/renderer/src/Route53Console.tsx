@@ -8,6 +8,7 @@ import type {
   Route53HostedZoneSummary,
   Route53RecordChange,
   Route53RecordSummary,
+  TerraformAdoptionTarget,
   VpcSummary
 } from '@shared/types'
 import {
@@ -19,6 +20,7 @@ import {
   openExternalUrl,
   upsertRoute53Record
 } from './api'
+import { TerraformAdoptionDialog } from './TerraformAdoptionDialog'
 
 type ColKey = 'name' | 'type' | 'ttl' | 'values' | 'routingPolicy'
 type TemplateId = 'apex-alias' | 'www-cname' | 'mx-mail' | 'txt-verification'
@@ -116,6 +118,7 @@ export function Route53Console({
   const [filter, setFilter] = useState('')
   const [visCols, setVisCols] = useState<Set<ColKey>>(() => new Set(COLUMNS.map((column) => column.key)))
   const [appliedFocusToken, setAppliedFocusToken] = useState(0)
+  const [showTerraformAdoption, setShowTerraformAdoption] = useState(false)
 
   async function load(zoneId?: string) {
     setError('')
@@ -156,6 +159,17 @@ export function Route53Console({
 
   const activeCols = COLUMNS.filter((column) => visCols.has(column.key))
   const selectedZoneMeta = useMemo(() => zones.find((zone) => zone.id === selectedZone) ?? null, [zones, selectedZone])
+  const adoptionTarget: TerraformAdoptionTarget | null = selectedZoneMeta
+    ? {
+        serviceId: 'route53',
+        resourceType: 'aws_route53_zone',
+        region: connection.region,
+        displayName: selectedZoneMeta.name,
+        identifier: selectedZoneMeta.id,
+        arn: '',
+        name: selectedZoneMeta.name
+      }
+    : null
   const filteredRecords = useMemo(() => {
     if (!filter) return records
     const query = filter.toLowerCase()
@@ -327,6 +341,14 @@ export function Route53Console({
         <div className="route53-toolbar-actions">
           <button className="route53-toolbar-btn" type="button" onClick={() => setDraft(EMPTY_RECORD)}>New Draft</button>
           <button className="route53-toolbar-btn accent" type="button" onClick={() => void load(selectedZone)}>Refresh</button>
+          <button
+            className="route53-toolbar-btn"
+            type="button"
+            onClick={() => setShowTerraformAdoption(true)}
+            disabled={!selectedZoneMeta}
+          >
+            Manage in Terraform
+          </button>
         </div>
       </section>
 
@@ -531,6 +553,12 @@ export function Route53Console({
           </div>
         </aside>
       </div>
+      <TerraformAdoptionDialog
+        open={showTerraformAdoption}
+        onClose={() => setShowTerraformAdoption(false)}
+        connection={connection}
+        target={adoptionTarget}
+      />
     </div>
   )
 }

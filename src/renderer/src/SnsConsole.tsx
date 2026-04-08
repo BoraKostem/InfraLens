@@ -7,9 +7,10 @@ import {
   tagSnsTopic, untagSnsTopic
 } from './api'
 import type {
-  AwsConnection, SnsPublishResult, SnsSubscriptionSummary, SnsTopicSummary
+  AwsConnection, SnsPublishResult, SnsSubscriptionSummary, SnsTopicSummary, TerraformAdoptionTarget
 } from '@shared/types'
 import { ConfirmButton } from './ConfirmButton'
+import { TerraformAdoptionDialog } from './TerraformAdoptionDialog'
 
 type ColKey = 'name' | 'topicArn' | 'subscriptionCount' | 'type' | 'owner'
 type SideTab = 'details' | 'subscriptions' | 'tags' | 'publish'
@@ -75,6 +76,7 @@ export function SnsConsole({ connection }: { connection: AwsConnection }) {
   const [pubResult, setPubResult] = useState<SnsPublishResult | null>(null)
   const [newTagKey, setNewTagKey] = useState('')
   const [newTagValue, setNewTagValue] = useState('')
+  const [showTerraformAdoption, setShowTerraformAdoption] = useState(false)
 
   async function reload(selectArn?: string) {
     setLoading(true)
@@ -226,6 +228,18 @@ export function SnsConsole({ connection }: { connection: AwsConnection }) {
     () => topics.find((item) => item.topicArn === selectedArn) ?? topic,
     [selectedArn, topic, topics]
   )
+  const adoptionTarget: TerraformAdoptionTarget | null = topic
+    ? {
+        serviceId: 'sns',
+        resourceType: 'aws_sns_topic',
+        region: connection.region,
+        displayName: topic.name,
+        identifier: topic.topicArn,
+        arn: topic.topicArn,
+        name: topic.name,
+        tags: topic.tags
+      }
+    : null
   const totalSubscriptions = useMemo(() => topics.reduce((sum, item) => sum + item.subscriptionCount, 0), [topics])
   const fifoTopics = useMemo(() => topics.filter((item) => item.fifoTopic).length, [topics])
   const pendingSubscriptions = useMemo(() => subscriptions.filter((item) => item.pendingConfirmation).length, [subscriptions])
@@ -313,6 +327,14 @@ export function SnsConsole({ connection }: { connection: AwsConnection }) {
           </button>
           <button className="sns-toolbar-btn accent" type="button" onClick={() => void reload(selectedArn || undefined)}>
             Refresh
+          </button>
+          <button
+            className="sns-toolbar-btn"
+            type="button"
+            onClick={() => setShowTerraformAdoption(true)}
+            disabled={!topic}
+          >
+            Manage in Terraform
           </button>
         </div>
       </section>
@@ -768,6 +790,12 @@ export function SnsConsole({ connection }: { connection: AwsConnection }) {
             </>
           )}
         </section>
+        <TerraformAdoptionDialog
+          open={showTerraformAdoption}
+          onClose={() => setShowTerraformAdoption(false)}
+          connection={connection}
+          target={adoptionTarget}
+        />
       </div>
     </div>
   )
