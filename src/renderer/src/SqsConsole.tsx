@@ -22,9 +22,11 @@ import type {
   SqsMessage,
   SqsQueueSummary,
   SqsSendResult,
-  SqsTimelineEvent
+  SqsTimelineEvent,
+  TerraformAdoptionTarget
 } from '@shared/types'
 import { ConfirmButton } from './ConfirmButton'
+import { TerraformAdoptionDialog } from './TerraformAdoptionDialog'
 
 type ColKey = 'queueName' | 'type' | 'messages' | 'inFlight' | 'delayed' | 'visibility' | 'retention'
 type SideTab = 'overview' | 'timeline' | 'messages' | 'send' | 'tags' | 'policy'
@@ -124,11 +126,24 @@ export function SqsConsole({ connection }: { connection: AwsConnection }) {
 
   const [newTagKey, setNewTagKey] = useState('')
   const [newTagValue, setNewTagValue] = useState('')
+  const [showTerraformAdoption, setShowTerraformAdoption] = useState(false)
 
   const selectedMsg = useMemo(
     () => receivedMsgs.find((message) => message.messageId === selectedMsgId) ?? null,
     [receivedMsgs, selectedMsgId]
   )
+  const adoptionTarget: TerraformAdoptionTarget | null = queue
+    ? {
+        serviceId: 'sqs',
+        resourceType: 'aws_sqs_queue',
+        region: connection.region,
+        displayName: queue.queueName,
+        identifier: queue.queueUrl,
+        arn: '',
+        name: queue.queueName,
+        tags: queue.tags
+      }
+    : null
 
   const filteredQueues = useMemo(() => {
     if (!filter) return queues
@@ -605,6 +620,9 @@ export function SqsConsole({ connection }: { connection: AwsConnection }) {
                       <button type="button" className="sqs-toolbar-btn" onClick={() => void loadQueue(selectedUrl)}>
                         Refresh queue
                       </button>
+                      <button type="button" className="sqs-toolbar-btn" onClick={() => setShowTerraformAdoption(true)}>
+                        Manage in Terraform
+                      </button>
                       <ConfirmButton className="sqs-toolbar-btn danger" onConfirm={() => void handlePurge()}>
                         Purge
                       </ConfirmButton>
@@ -951,6 +969,12 @@ export function SqsConsole({ connection }: { connection: AwsConnection }) {
           )}
         </div>
       </div>
+      <TerraformAdoptionDialog
+        open={showTerraformAdoption}
+        onClose={() => setShowTerraformAdoption(false)}
+        connection={connection}
+        target={adoptionTarget}
+      />
     </div>
   )
 }

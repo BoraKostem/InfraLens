@@ -5,7 +5,8 @@ import type {
   SecurityGroupDetail,
   SecurityGroupRule,
   SecurityGroupRuleInput,
-  SecurityGroupSummary
+  SecurityGroupSummary,
+  TerraformAdoptionTarget
 } from '@shared/types'
 import {
   addInboundRule,
@@ -16,6 +17,7 @@ import {
   revokeOutboundRule
 } from './sgApi'
 import { ConfirmButton } from './ConfirmButton'
+import { TerraformAdoptionDialog } from './TerraformAdoptionDialog'
 import './sg.css'
 
 type ColKey = 'groupName' | 'groupId' | 'vpcId' | 'inbound' | 'outbound'
@@ -254,6 +256,7 @@ export function SecurityGroupsConsole({
     | { kind: 'add-rule'; direction: Direction }
     | { kind: 'delete-rule'; direction: Direction; rule: SecurityGroupRule }
   >({ kind: 'closed' })
+  const [showTerraformAdoption, setShowTerraformAdoption] = useState(false)
   const [sideTab, setSideTab] = useState<'details' | 'inbound' | 'outbound'>('details')
   const [appliedFocusToken, setAppliedFocusToken] = useState(0)
 
@@ -338,6 +341,21 @@ export function SecurityGroupsConsole({
 
   const selectedSummary = useMemo(() => summarizeSelection(detail), [detail])
   const selectedGroup = groups.find((group) => group.groupId === selectedId) ?? null
+  const adoptionTarget: TerraformAdoptionTarget | null = detail
+    ? {
+        serviceId: 'security-groups',
+        resourceType: 'aws_security_group',
+        region: connection.region,
+        displayName: detail.groupName || detail.groupId,
+        identifier: detail.groupId,
+        arn: '',
+        name: detail.groupName || detail.groupId,
+        tags: detail.tags,
+        resourceContext: {
+          vpcId: detail.vpcId
+        }
+      }
+    : null
 
   if (loading && !groups.length && !detail) {
     return <div className="svc-empty sg-loading-state">Loading security groups...</div>
@@ -404,6 +422,7 @@ export function SecurityGroupsConsole({
 
         <div className="sg-toolbar-actions">
           <button type="button" className="svc-btn muted" onClick={() => void reload()}>Refresh inventory</button>
+          <button type="button" className="svc-btn muted" disabled={!detail} onClick={() => setShowTerraformAdoption(true)}>Manage in Terraform</button>
         </div>
       </div>
 
@@ -669,6 +688,12 @@ export function SecurityGroupsConsole({
           onDone={(message) => void onModalDone(message)}
         />
       )}
+      <TerraformAdoptionDialog
+        open={showTerraformAdoption}
+        onClose={() => setShowTerraformAdoption(false)}
+        connection={connection}
+        target={adoptionTarget}
+      />
     </div>
   )
 }

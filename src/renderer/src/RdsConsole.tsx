@@ -15,7 +15,8 @@ import type {
   RdsPostureBadge,
   RdsRiskFinding,
   RdsSummaryTile,
-  ServiceId
+  ServiceId,
+  TerraformAdoptionTarget
 } from '@shared/types'
 import {
   createRdsClusterSnapshot,
@@ -35,6 +36,7 @@ import {
 } from './api'
 import { ConfirmButton } from './ConfirmButton'
 import { RdsConnectionHelpers } from './RdsConnectionHelpers'
+import { TerraformAdoptionDialog } from './TerraformAdoptionDialog'
 
 type MainTab = 'instances' | 'aurora'
 type SideTab = 'overview' | 'connect' | 'timeline'
@@ -271,6 +273,7 @@ export function RdsConsole({
   const [resizeClass, setResizeClass] = useState('')
   const [showResize, setShowResize] = useState(false)
   const [snapshotId, setSnapshotId] = useState('')
+  const [showTerraformAdoption, setShowTerraformAdoption] = useState(false)
 
   const [timelineEvents, setTimelineEvents] = useState<CloudTrailEventSummary[]>([])
   const [timelineLoading, setTimelineLoading] = useState(false)
@@ -489,6 +492,29 @@ export function RdsConsole({
   if (loading) return <div className="rds-empty">Loading RDS data...</div>
 
   const hasTimelineResource = mainTab === 'instances' ? !!selectedInstanceId : !!(selectedClusterId || selectedAuroraNodeId)
+  const adoptionTarget: TerraformAdoptionTarget | null = mainTab === 'instances' && instanceDetail
+    ? {
+        serviceId: 'rds',
+        resourceType: 'aws_db_instance',
+        region: connection.region,
+        displayName: instanceDetail.summary.dbInstanceIdentifier,
+        identifier: instanceDetail.summary.dbInstanceIdentifier,
+        arn: instanceDetail.arn,
+        name: instanceDetail.summary.dbInstanceIdentifier,
+        tags: instanceDetail.summary.tags
+      }
+    : mainTab === 'aurora' && clusterDetail
+      ? {
+          serviceId: 'rds',
+          resourceType: 'aws_rds_cluster',
+          region: connection.region,
+          displayName: clusterDetail.summary.dbClusterIdentifier,
+          identifier: clusterDetail.summary.dbClusterIdentifier,
+          arn: clusterDetail.summary.clusterArn,
+          name: clusterDetail.summary.dbClusterIdentifier,
+          tags: clusterDetail.summary.tags
+        }
+      : null
 
   return (
     <div className="rds-console">
@@ -862,6 +888,9 @@ export function RdsConsole({
                       <button className="rds-action-btn resize" type="button" disabled={busy} onClick={() => setShowResize((value) => !value)}>
                         Resize
                       </button>
+                      <button className="rds-action-btn" type="button" onClick={() => setShowTerraformAdoption(true)}>
+                        Manage in Terraform
+                      </button>
                       <button
                         className="rds-action-btn"
                         type="button"
@@ -1005,6 +1034,9 @@ export function RdsConsole({
                       </ConfirmButton>
                       <button className="rds-action-btn resize" type="button" disabled={busy} onClick={() => setShowResize((value) => !value)}>
                         Resize Node
+                      </button>
+                      <button className="rds-action-btn" type="button" onClick={() => setShowTerraformAdoption(true)}>
+                        Manage in Terraform
                       </button>
                       <button
                         className="rds-action-btn"
@@ -1155,6 +1187,12 @@ export function RdsConsole({
           )}
         </div>
       </div>
+      <TerraformAdoptionDialog
+        open={showTerraformAdoption}
+        onClose={() => setShowTerraformAdoption(false)}
+        connection={connection}
+        target={adoptionTarget}
+      />
     </div>
   )
 }

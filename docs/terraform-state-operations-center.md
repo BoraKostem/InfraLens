@@ -56,8 +56,9 @@ Backups are created before:
 
 - `state mv`
 - `state rm`
+- `force-unlock`
 
-Import and `force-unlock` do not create a backup.
+Import does not create a backup.
 
 ### How Backup Capture Works
 
@@ -192,6 +193,7 @@ terraform force-unlock -force <lock-id>
 Behavior notes:
 
 - requires typed confirmation in the UI
+- always creates a backup first
 - refreshes the remote state cache after a successful unlock
 
 ## Refresh State

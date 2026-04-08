@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
-import type { AwsConnection, LambdaCodeResult, LambdaCreateConfig, LambdaFunctionDetail, LambdaFunctionSummary, ServiceId } from '@shared/types'
+import type { AwsConnection, LambdaCodeResult, LambdaCreateConfig, LambdaFunctionDetail, LambdaFunctionSummary, ServiceId, TerraformAdoptionTarget } from '@shared/types'
 import { createLambdaFunction, deleteLambdaFunction, getLambdaFunction, getLambdaFunctionCode, invokeLambdaFunction, listLambdaFunctions } from './api'
 import { ConfirmButton } from './ConfirmButton'
 import { SvcState } from './SvcState'
+import { TerraformAdoptionDialog } from './TerraformAdoptionDialog'
 import './lambda.css'
 
 type ColKey = 'functionName' | 'handler' | 'runtime' | 'memory' | 'lastModified'
@@ -70,6 +71,7 @@ export function LambdaConsole({
   const [invokeResult, setInvokeResult] = useState('')
   const [invoking, setInvoking] = useState(false)
   const [appliedFocusToken, setAppliedFocusToken] = useState(0)
+  const [showTerraformAdoption, setShowTerraformAdoption] = useState(false)
   const [createForm, setCreateForm] = useState<LambdaCreateConfig>({
     functionName: '',
     runtime: 'python3.12',
@@ -88,6 +90,18 @@ export function LambdaConsole({
     return functions.filter((fn) => activeCols.some((column) => getVal(fn, column.key).toLowerCase().includes(query)))
   }, [activeCols, filter, functions])
   const selectedSummary = useMemo(() => functions.find((fn) => fn.functionName === selectedName) ?? null, [functions, selectedName])
+  const adoptionTarget: TerraformAdoptionTarget | null = detail
+    ? {
+        serviceId: 'lambda',
+        resourceType: 'aws_lambda_function',
+        region: connection.region,
+        displayName: detail.functionName,
+        identifier: detail.functionName,
+        arn: detail.functionArn,
+        name: detail.functionName,
+        tags: selectedSummary?.tags
+      }
+    : null
   const runtimeFamilies = useMemo(() => new Set(functions.map((fn) => runtimeFamily(fn.runtime))).size, [functions])
   const totalMemory = useMemo(() => functions.reduce((sum, fn) => sum + parseMemory(fn.memory), 0), [functions])
   const selectedEnvCount = detail ? Object.keys(detail.environment).length : 0
@@ -204,7 +218,7 @@ export function LambdaConsole({
         <div className="lambda-shell-hero-copy">
           <div className="eyebrow">Function authoring</div>
           <h2>Create Lambda Function</h2>
-          <p>Provision a new function in the current active context with the same operator-first visual system used by Terraform.</p>
+          <p>Provision a new function in the current AWS context with the same operator-first visual system used by Terraform.</p>
           <div className="lambda-shell-meta-strip">
             <div className="lambda-shell-meta-pill"><span>Connection</span><strong>{shellLabel(connection)}</strong></div>
             <div className="lambda-shell-meta-pill"><span>Region</span><strong>{connection.region}</strong></div>
@@ -278,6 +292,7 @@ export function LambdaConsole({
         </div>
         <div className="lambda-toolbar-actions">
           <button type="button" className="lambda-toolbar-btn" onClick={() => void load(selectedName || undefined)}>Refresh</button>
+          <button type="button" className="lambda-toolbar-btn" onClick={() => setShowTerraformAdoption(true)} disabled={!detail}>Manage in Terraform</button>
           <button type="button" className="lambda-toolbar-btn accent" onClick={() => setView('create')}>New Function</button>
         </div>
       </div>
@@ -416,6 +431,12 @@ export function LambdaConsole({
           )}
         </div>
       </div>
+      <TerraformAdoptionDialog
+        open={showTerraformAdoption}
+        onClose={() => setShowTerraformAdoption(false)}
+        connection={connection}
+        target={adoptionTarget}
+      />
     </div>
   )
 

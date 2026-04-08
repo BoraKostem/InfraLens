@@ -14,6 +14,7 @@ import { registerSecurityIpcHandlers } from './securityIpc'
 import { registerServiceIpcHandlers } from './serviceIpc'
 import { registerSgIpcHandlers } from './sgIpc'
 import { registerTerminalIpcHandlers } from './terminalIpc'
+import { registerTerraformIpcHandlers } from './terraformIpc'
 import { registerVpcIpcHandlers } from './vpcIpc'
 
 type ProviderIpcRegistrationContext = {
@@ -30,6 +31,7 @@ type ProviderCapabilityGroup =
   | 'containers'
   | 'networking'
   | 'security'
+  | 'terraform'
   | 'terminal'
 
 type ProviderIpcRegistryEntry = {
@@ -42,7 +44,7 @@ function registerAwsProviderHandlers(context: ProviderIpcRegistrationContext): v
   registerAwsIpcHandlers()
   registerCompareIpcHandlers()
   registerComplianceIpcHandlers()
-  registerEc2IpcHandlers()
+  registerEc2IpcHandlers(context.getWindow)
   registerEcrIpcHandlers()
   registerEksIpcHandlers(context.getWindow)
   registerFoundationIpcHandlers()
@@ -51,6 +53,7 @@ function registerAwsProviderHandlers(context: ProviderIpcRegistrationContext): v
   registerServiceIpcHandlers()
   registerSgIpcHandlers()
   registerTerminalIpcHandlers()
+  registerTerraformIpcHandlers(context.getWindow)
   registerVpcIpcHandlers()
 }
 
@@ -67,15 +70,16 @@ export const PROVIDER_IPC_REGISTRY: Record<CloudProviderId, ProviderIpcRegistryE
       'containers',
       'networking',
       'security',
+      'terraform',
       'terminal'
     ],
     registerHandlers: registerAwsProviderHandlers
   },
   gcp: {
     providerId: 'gcp',
-    capabilityGroups: [],
-    registerHandlers: () => {
-      // GCP handlers will be attached when the provider becomes available.
+    capabilityGroups: ['terraform'],
+    registerHandlers: (context) => {
+      registerTerraformIpcHandlers(context.getWindow)
     }
   },
   azure: {
