@@ -2570,11 +2570,20 @@ export type AppDiagnosticsSnapshot = {
     locationCount: number
   }
   azure?: {
+    modeId: string
     modeLabel: string
     selectedSubscriptionId?: string
     selectedLocation?: string
     catalogSubscriptionCount?: number
     catalogError?: string
+    cliDetected: boolean
+    cliPath: string
+    activeContextLabel: string
+    activeContextDetail: string
+    terraformContextKey: string
+    terminalReady: boolean
+    sharedWorkspaceCount: number
+    providerWorkspaceCount: number
   }
 }
 

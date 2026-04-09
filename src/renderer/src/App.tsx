@@ -89,6 +89,7 @@ import {
   type CacheTag
 } from './api'
 import { AcmConsole } from './AcmConsole'
+import { AzureCompareWorkspace, AzureComplianceCenter, AzureDirectAccessWorkspace, AzureOverviewConsole, AzureSessionHub } from './AzureSharedWorkspaces'
 import { AutoScalingConsole } from './AutoScalingConsole'
 import {
   AzureAksConsole,
@@ -4570,11 +4571,25 @@ export function App() {
         } : undefined,
         azure: activeProviderId === 'azure'
           ? {
+              modeId: selectedPreviewMode?.id ?? '',
               modeLabel: selectedPreviewMode?.label ?? '',
               selectedSubscriptionId: activeAzureConnectionDraft?.subscriptionId.trim() ?? '',
               selectedLocation: activeAzureConnectionDraft?.location.trim() ?? '',
               catalogSubscriptionCount: azureProviderContext?.subscriptions.length ?? 0,
-              catalogError: azureContextError
+              catalogError: azureContextError,
+              cliDetected: Boolean(detectedAzureCliPath),
+              cliPath: detectedAzureCliPath,
+              activeContextLabel: activeAzureConnectionDraft?.subscriptionLabel.trim()
+                || azureProviderState.activeScopeLabel
+                || selectedPreviewMode?.label
+                || '',
+              activeContextDetail: azureContextReady
+                ? `${activeAzureConnectionDraft?.location.trim() || azureProviderContext?.activeLocation || 'global'} | tenant ${activeAzureConnectionDraft?.tenantId.trim() || azureProviderContext?.activeTenantId || 'unknown'}`
+                : selectedPreviewMode?.detail ?? azureProviderState.profileMeta,
+              terraformContextKey: `provider:azure:terraform:${selectedPreviewMode?.id || 'unscoped'}:${activeAzureConnectionDraft?.subscriptionId.trim() || azureProviderContext?.activeSubscriptionId || 'global'}`,
+              terminalReady: Boolean(providerTerminalTarget),
+              sharedWorkspaceCount,
+              providerWorkspaceCount
             }
           : undefined
       }
@@ -5738,6 +5753,102 @@ export function App() {
               onNavigateService={navigateToServiceWithResourceId}
             />
           )
+        }
+
+        if (activeProviderId === 'azure') {
+          const azureTerraformContextKey = `provider:azure:terraform:${selectedPreviewMode?.id || 'unscoped'}:global`
+          const azureModeLabel = selectedPreviewMode?.label ?? 'Azure context pending'
+          const azureModeDetail = selectedPreviewMode?.detail ?? ''
+
+          if (targetScreen === 'session-hub') {
+            return (
+              <AzureSessionHub
+                modeLabel={azureModeLabel}
+                modeDetail={azureModeDetail}
+                contextKey={azureTerraformContextKey}
+                refreshNonce={pageRefreshNonceByScreen['session-hub'] ?? 0}
+                terminalReady={Boolean(providerTerminalTarget)}
+                canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+                onRunTerminalCommand={handleOpenTerminalCommand}
+                onOpenCompare={() => setScreen('compare')}
+                onOpenCompliance={() => setScreen('compliance-center')}
+                onOpenDirectAccess={() => setScreen('direct-access')}
+                onOpenTerraform={() => setScreen('terraform')}
+              />
+            )
+          }
+
+          if (targetScreen === 'compare') {
+            return (
+              <AzureCompareWorkspace
+                modeLabel={azureModeLabel}
+                contextKey={azureTerraformContextKey}
+                refreshNonce={pageRefreshNonceByScreen.compare ?? 0}
+                onNavigate={(serviceId) => navigateToService(serviceId)}
+                onOpenDirectAccess={() => setScreen('direct-access')}
+              />
+            )
+          }
+
+          if (targetScreen === 'overview') {
+            return (
+              <AzureOverviewConsole
+                modeLabel={azureModeLabel}
+                modeDetail={azureModeDetail}
+                contextKey={azureTerraformContextKey}
+                refreshNonce={pageRefreshNonceByScreen.overview ?? 0}
+                canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+                onRunTerminalCommand={handleOpenTerminalCommand}
+                onNavigate={(serviceId) => navigateToService(serviceId)}
+                onOpenDirectAccess={() => setScreen('direct-access')}
+              />
+            )
+          }
+
+          if (targetScreen === 'compliance-center') {
+            return (
+              <AzureComplianceCenter
+                modeLabel={azureModeLabel}
+                contextKey={azureTerraformContextKey}
+                refreshNonce={pageRefreshNonceByScreen['compliance-center'] ?? 0}
+                canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+                onRunTerminalCommand={handleOpenTerminalCommand}
+                onNavigate={(serviceId) => navigateToService(serviceId)}
+                onOpenDirectAccess={() => setScreen('direct-access')}
+              />
+            )
+          }
+
+          if (targetScreen === 'direct-access') {
+            return (
+              <AzureDirectAccessWorkspace
+                modeLabel={azureModeLabel}
+                contextKey={azureTerraformContextKey}
+                refreshNonce={pageRefreshNonceByScreen['direct-access'] ?? 0}
+                canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+                terminalReady={Boolean(providerTerminalTarget)}
+                onRunTerminalCommand={handleOpenTerminalCommand}
+                onNavigate={(serviceId) => navigateToService(serviceId)}
+                onOpenCompare={() => setScreen('compare')}
+                onOpenCompliance={() => setScreen('compliance-center')}
+              />
+            )
+          }
+
+          if (targetScreen === 'terraform') {
+            return (
+              <TerraformConsole
+                providerId="azure"
+                contextKeyOverride={azureTerraformContextKey}
+                contextLabel={azureModeLabel}
+                contextDetail={azureModeDetail}
+                commandsEnabled={enterpriseSettings.accessMode === 'operator'}
+                refreshNonce={pageRefreshNonceByScreen.terraform ?? 0}
+                onRunTerminalCommand={handleOpenTerminalCommand}
+                onNavigateService={navigateToServiceWithResourceId}
+              />
+            )
+          }
         }
 
         if (isProviderService(targetService ?? null, activeProviderId)) {

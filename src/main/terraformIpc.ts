@@ -43,6 +43,7 @@ import {
 } from './terraformAdoptionExecution'
 import { mapTerraformAdoption } from './terraformAdoptionMapping'
 import { validateTerraformAdoptionImport } from './terraformAdoptionValidation'
+import { generateAzureTerraformObservabilityReport, getAzureTerraformDriftReport } from './azureTerraformInsights'
 import { getTerraformDriftReport as getAwsTerraformDriftReport } from './terraformDrift'
 import { detectGovernanceTools, getCachedGovernanceToolkit, getGovernanceReport, runGovernanceChecks } from './terraformGovernance'
 import { deleteRunRecord, getRunOutput, listRunRecords } from './terraformHistoryStore'
@@ -169,6 +170,9 @@ export function registerTerraformIpcHandlers(getWindow: () => BrowserWindow | nu
       if (connection?.providerId === 'gcp' || profileName.startsWith('provider:gcp:terraform:')) {
         return getGcpTerraformDriftReport(profileName, projectId, connection, options)
       }
+      if (connection?.providerId === 'azure' || profileName.startsWith('provider:azure:terraform:')) {
+        return getAzureTerraformDriftReport(profileName, projectId, connection, options)
+      }
       return getAwsTerraformDriftReport(profileName, projectId, connection, options)
     })
   )
@@ -176,6 +180,9 @@ export function registerTerraformIpcHandlers(getWindow: () => BrowserWindow | nu
     wrap(() => {
       if (connection?.providerId === 'gcp' || profileName.startsWith('provider:gcp:terraform:')) {
         return generateGcpTerraformObservabilityReport(profileName, projectId, connection)
+      }
+      if (connection?.providerId === 'azure' || profileName.startsWith('provider:azure:terraform:')) {
+        return generateAzureTerraformObservabilityReport(profileName, projectId, connection)
       }
       return generateAwsTerraformObservabilityReport(profileName, projectId, connection)
     })
