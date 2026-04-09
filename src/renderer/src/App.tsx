@@ -5472,6 +5472,21 @@ export function App() {
               />
             )
           }
+
+          if (targetScreen === 'terraform') {
+            return (
+              <TerraformConsole
+                providerId="azure"
+                contextKeyOverride={azureTerraformContextKey}
+                contextLabel={azureModeLabel}
+                contextDetail={azureModeDetail}
+                commandsEnabled={enterpriseSettings.accessMode === 'operator'}
+                refreshNonce={pageRefreshNonceByScreen.terraform ?? 0}
+                onRunTerminalCommand={handleOpenTerminalCommand}
+                onNavigateService={navigateToServiceWithResourceId}
+              />
+            )
+          }
         }
 
         if (isProviderService(targetService ?? null, activeProviderId)) {
