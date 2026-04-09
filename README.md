@@ -1,225 +1,62 @@
 # Cloud Lens
 
-Cloud Lens is a desktop app for people who spend too much of the day jumping between a cloud console, Terraform, and a terminal.
-
-That is the whole idea. Keep the working context in one place so you can inspect something, figure out whether Terraform owns it, run the next command, and move on without rebuilding the same mental state three times.
-
-The repo still carries some legacy `aws-lens` naming in package metadata and local storage. That is intentional for now. The product name is `Cloud Lens`.
+Cloud Lens is an Electron desktop app for cloud operators who want the provider console view, Terraform context, and a working terminal in the same place. The codebase already uses the `Cloud Lens` brand, while some repository, package, and installer metadata still carry `AWS Lens` or `aws-lens` during the rename migration.
 
 ![Cloud Lens overview](images/overview.png)
 
-## Current state
+## What The App Covers
 
-Right now the app is in an uneven but usable place:
+The current product is centered on AWS, with GCP now wired into the same navigation and terminal model as an active preview surface. Azure groundwork exists in the repository, especially around provider abstractions and terminal handoff, but it is not a production-ready UI surface yet.
 
-- AWS is the main experience.
-- GCP is in beta.
-- Azure is not active yet and is still being built.
+Most of the day-to-day flow starts in a small set of shared workspaces rather than a single provider page. `Overview`, `Session Hub`, `Terraform`, `Compare`, and `Compliance Center` sit above the individual service consoles so you can keep context while moving between inspection, shell work, and infrastructure changes.
 
-If you open the codebase, you will see Azure scaffolding and some GCP plumbing beyond that label. That does not change the product status. AWS is the part you can lean on today. GCP is there if you want to try it. Azure is not ready.
+![Session Hub](images/session-hub.png)
 
-## Why this exists
+## What It Is Good At
 
-Cloud work gets scattered fast.
+The app is strongest when the job is not purely “click around a console” and not purely “stay in Terraform.” It is built for the in-between work: inspect a resource, check whether Terraform owns it, keep the same session and region, run the next command, and avoid rebuilding context each time.
 
-You open a provider console to inspect a resource. Then you switch to Terraform to see whether the thing is managed. Then you open a shell because the next step is a command, not a button. Somewhere in the middle you also switch account, role, region, project, or location and lose your place.
+On the AWS side, the repository already contains dedicated consoles for EC2, CloudWatch, CloudTrail, S3, Lambda, RDS, CloudFormation, ECR, EKS, ECS, VPC, Route 53, IAM, Identity Center, Secrets Manager, KMS, SNS, SQS, WAF, STS, key pairs, and related shared workflows. The same shell also includes local encrypted storage for app-managed credentials, session state, comparison baselines, and Terraform metadata, along with `operator` and `read-only` runtime modes.
 
-Cloud Lens tries to cut down that churn. It is not trying to replace AWS, GCP, or Terraform. It is trying to make the handoff between them less annoying.
+![EC2 console](images/ec2.png)
 
-## What is in the app
+![S3 console](images/s3.png)
 
-There are a few shared workspaces that sit above any single provider:
+## Terraform In The Loop
 
-- `Overview`
-- `Terraform`
-- `Session Hub`
-- `Compare`
-- `Compliance Center`
+Terraform is treated as a first-class operational surface, not an external tool that happens to live next to the app. The Electron main process handles project registration, workspace switching, plan and apply orchestration, drift inspection, governance checks, adoption/import flows, and state-related metadata. The code also supports choosing Terraform or OpenTofu and storing local tool path overrides in app settings.
 
-On top of that, the app has provider-specific workspaces.
+![Terraform workspace](images/terraform-main.png)
 
-### AWS
+![Terraform visualization](images/terraform-visualization.png)
 
-AWS is the most complete provider surface in Cloud Lens right now.
+## Security And Operations
 
-Current AWS workspaces include:
+The app keeps privileged behavior on the Electron main-process side and exposes renderer functionality through the preload bridge. App-created credentials are stored in the local encrypted vault instead of being written back into provider credential files, assumed-role session material stays scoped to the app flow, and critical actions can be blocked entirely when the runtime is set to `read-only`.
 
-- EC2
-- CloudWatch
-- CloudTrail
-- S3
-- Lambda
-- Auto Scaling
-- RDS
-- CloudFormation
-- ECR
-- EKS
-- ECS
-- VPC
-- Load Balancers
-- Route 53
-- Security Groups
-- ACM
-- IAM
-- Identity Center / SSO
-- SNS
-- SQS
-- STS
-- KMS
-- WAF
-- Secrets Manager
-- Key Pairs
+The compliance and diagnostics surfaces are part of that same operational model. Alongside the service consoles, the repository includes audit export, diagnostics bundles, update checks, and environment/toolchain detection for local operator workflows.
 
-This is also where most of the session, terminal, drift, adoption, and day-to-day operator flows are wired up.
+![Compliance Center](images/complience-center.png)
 
-### GCP beta
+## Running It Locally
 
-GCP has landed as a beta surface. It is not just a placeholder anymore, but I still would not describe it as finished.
-
-Current GCP workspaces include:
-
-- Projects
-- IAM Posture
-- Compute Engine
-- GKE
-- Cloud Storage
-- Cloud SQL
-- Logging
-- Billing Basics
-
-These screens already plug into the shared navigation and terminal model, which matters more than it sounds. The point is that GCP is starting to feel like part of the same app instead of a disconnected experiment.
-
-### Azure
-
-Azure is not active in the current product.
-
-There is early provider scaffolding in the repo, but the Azure side is still under construction. For now, treat Azure as planned work rather than something you can rely on in the UI.
-
-## What you can actually do with it
-
-### Keep Terraform close to live infrastructure
-
-Terraform is built into the app instead of being treated like a separate mode you mentally switch into.
-
-You can track projects, inspect plans, review drift, browse state, and keep command history near the resources those projects affect.
-
-There is also Terraform adoption work for unmanaged resources. In the better-supported paths, the app can walk you toward generated HCL and import guidance. In the rougher paths, it falls back to a manual adoption preview.
-
-### Move from inspection to action without losing context
-
-There is an embedded terminal, and it follows the active context. That means you can inspect something in the UI and then run the next command without redoing the same setup by hand.
-
-### Work with sessions and roles without the usual friction
-
-Session Hub is there for the usual AWS account and assume-role mess. Save targets, activate a session, keep using that context, and stop rebuilding short-lived credentials from scratch.
-
-### Compare environments
-
-When something looks wrong in one account, region, or project, Compare gives you a way to inspect differences side by side instead of flipping between tabs and hoping you remember what changed.
-
-### Store local secrets the app needs
-
-Cloud Lens has a local encrypted vault for app-managed credentials and other sensitive local material.
-
-That includes things like:
-
-- database logins
-- API tokens
-- kubeconfig fragments
-- PEM files
-- SSH private keys
-
-The app also has helper flows and presets around EC2 SSH, EKS kubeconfig work, and RDS connection handling.
-
-## Getting started
+This repository uses `pnpm`. The release workflow in `.github/workflows/release.yml` builds with Node.js `22` and `pnpm` `10`, so that is the safest local baseline if you want parity with CI packaging.
 
 ```powershell
 pnpm install
 pnpm dev
 ```
 
-For packaged builds:
+For normal development, the main verification commands are `pnpm typecheck` and `pnpm build`. Packaged builds are produced with `pnpm dist`, or with the platform-specific variants `pnpm dist:win`, `pnpm dist:mac`, and `pnpm dist:linux`.
 
-```powershell
-pnpm dist
-pnpm dist:win
-pnpm dist:mac
-pnpm dist:linux
-```
+The optional local tooling depends on which workflows you actually use. Terraform or OpenTofu matters for infrastructure workspaces, local AWS credentials matter for AWS flows, `gcloud` plus ADC matters for GCP flows, and tools such as `kubectl` and `docker` become useful once you lean on cluster and runtime helper flows.
 
-## Requirements
+## Project Shape
 
-- Node.js 20 or newer
-- `pnpm`
-- local AWS credentials if you want AWS workflows
-- Terraform CLI if you want Terraform features
+The repository is split along standard Electron boundaries. `src/main/` contains the privileged process code, IPC handlers, provider integrations, Terraform orchestration, diagnostics, release checks, and local persistence. `src/preload/` exposes the secure bridge with `contextBridge`. `src/renderer/src/` contains the React UI for the shared workspaces, AWS consoles, and current GCP pages. Shared branding, feature flags, provider descriptors, and contracts live in `src/shared/`, while packaging assets live in `assets/` and longer workflow notes live in `docs/`.
 
-Optional but useful:
+There is no dedicated automated test suite in the repository yet. The current contributor guidance in `CONTRIBUTING.md` expects local verification with `pnpm typecheck`, `pnpm build` when relevant, and manual validation in `pnpm dev`.
 
-- `gcloud` for GCP beta workflows
-- AWS CLI
-- `kubectl`
-- `docker`
-- `tflint`, `tfsec`, `checkov`
+## Further Reading
 
-## Technical notes
-
-This is an Electron app with:
-
-- `src/main/` for privileged logic, provider integrations, Terraform orchestration, and IPC
-- `src/preload/` for the secure renderer bridge
-- `src/renderer/` for the React UI
-- `src/shared/` for shared types and contracts
-
-The naming is still mid-migration:
-
-- product brand: `Cloud Lens`
-- package name: `aws-lens`
-- legacy local namespace: `aws-lens`
-
-That split is there so older local state does not break during the rename.
-
-The app reads local workstation context when it needs to, including:
-
-- `~/.aws/config`
-- `~/.aws/credentials`
-- local Terraform project folders
-- local `gcloud` / ADC context for GCP flows
-
-It also stores app state under Electron `userData`, including files such as:
-
-- `local-vault.json`
-- `phase1-foundations.json`
-- `compare-baselines.json`
-- `terraform-workspace-state.json`
-- `session-hub.json`
-- `profile-registry.json`
-- `terraform-state-backups/`
-
-Important behavior:
-
-- app-managed credentials stay in the encrypted local vault instead of being written back to provider credential files
-- temporary assumed-role credentials stay in memory
-- mutating actions run through the Electron main process
-- the renderer talks to that layer through the preload bridge
-
-## More docs
-
-The `docs/` directory has the implementation and workflow notes:
-
-- [AWS usage and security](docs/aws-lens-usage.md)
-- [Session Hub](docs/session-hub-usage.md)
-- [Terraform workspace management](docs/terraform-workspace-management.md)
-- [Terraform drift reconciliation](docs/terraform-drift-reconciliation.md)
-- [Terraform state operations center](docs/terraform-state-operations-center.md)
-- [Observability and resilience lab](docs/observability-and-resilience-lab.md)
-
-Some of those files still use the old `aws-lens` naming. That is just rename lag.
-
-## Contributing
-
-Start with [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+The `docs/` directory covers the operating model in more detail, especially around [AWS usage and security](docs/aws-lens-usage.md), [Session Hub](docs/session-hub-usage.md), [Terraform workspace management](docs/terraform-workspace-management.md), [Terraform drift reconciliation](docs/terraform-drift-reconciliation.md), [Terraform state operations center](docs/terraform-state-operations-center.md), and the [observability and resilience lab](docs/observability-and-resilience-lab.md).

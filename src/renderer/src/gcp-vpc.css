@@ -1,0 +1,149 @@
+.gcp-vpc-console .vpc-shell-hero,
+.gcp-vpc-console .vpc-detail-hero {
+  border-color: var(--provider-accent-border);
+  background:
+    radial-gradient(circle at top left, var(--provider-accent-glow), transparent 36%),
+    radial-gradient(circle at bottom right, rgba(59, 130, 246, 0.1), transparent 30%),
+    linear-gradient(180deg, rgba(14, 29, 22, 0.98), rgba(8, 18, 14, 0.98));
+}
+
+.gcp-vpc-console .vpc-toolbar-tab.active,
+.gcp-vpc-console .vpc-detail-tabs button.active {
+  border-color: var(--provider-accent-border-strong);
+  background: linear-gradient(180deg, rgba(52, 168, 83, 0.18), rgba(52, 168, 83, 0.08));
+}
+
+.gcp-vpc-console .vpc-toolbar-btn.accent {
+  background: linear-gradient(135deg, #34a853, #8bd467);
+  border-color: rgba(109, 202, 125, 0.32);
+  color: #08140b;
+}
+
+.gcp-vpc-console .vpc-inventory-card.active {
+  border-color: var(--provider-accent-border-strong);
+  background:
+    radial-gradient(circle at top right, var(--provider-accent-glow), transparent 42%),
+    linear-gradient(180deg, rgba(21, 39, 27, 0.98), rgba(10, 21, 14, 0.98));
+}
+
+.gcp-vpc-console .vpc-status-badge.success {
+  background: rgba(52, 168, 83, 0.16);
+  color: #8ce5a7;
+}
+
+.gcp-vpc-console .vpc-status-badge.warning {
+  background: rgba(251, 188, 5, 0.16);
+  color: #ffe089;
+}
+
+.gcp-vpc-console .vpc-status-badge.info {
+  background: rgba(66, 133, 244, 0.16);
+  color: #9cc2ff;
+}
+
+.gcp-vpc-architecture {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.gcp-vpc-architecture-row,
+.gcp-vpc-architecture-row-wrap {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+.gcp-vpc-architecture-row-wrap {
+  flex-wrap: wrap;
+}
+
+.gcp-vpc-architecture-arrow {
+  text-align: center;
+  color: #8db4a0;
+  font-size: 1.2rem;
+}
+
+.gcp-vpc-architecture-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.gcp-vpc-architecture-column {
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: rgba(10, 18, 14, 0.72);
+}
+
+.gcp-vpc-architecture-column > header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.gcp-vpc-architecture-column > header span,
+.gcp-vpc-architecture-node span,
+.gcp-vpc-architecture-node small {
+  color: #9db4a6;
+}
+
+.gcp-vpc-architecture-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.gcp-vpc-architecture-node {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(20, 33, 25, 0.96), rgba(11, 19, 14, 0.96));
+}
+
+.gcp-vpc-architecture-node strong,
+.gcp-vpc-architecture-node span,
+.gcp-vpc-architecture-node small {
+  display: block;
+}
+
+.gcp-vpc-architecture-node strong {
+  color: #edf5ff;
+  margin-bottom: 4px;
+}
+
+.gcp-vpc-architecture-node-core {
+  min-width: min(520px, 100%);
+  text-align: center;
+  border-color: var(--provider-accent-border-strong);
+  background:
+    radial-gradient(circle at top right, var(--provider-accent-glow), transparent 40%),
+    linear-gradient(180deg, rgba(22, 43, 29, 0.98), rgba(11, 22, 15, 0.98));
+}
+
+.gcp-vpc-architecture-node-edge {
+  text-align: center;
+}
+
+.gcp-vpc-architecture-node-accent {
+  border-color: rgba(251, 188, 5, 0.26);
+}
+
+.gcp-vpc-architecture-node-service {
+  border-color: rgba(66, 133, 244, 0.24);
+}
+
+.gcp-vpc-architecture-node-address {
+  border-color: rgba(168, 85, 247, 0.22);
+}
+
+.gcp-vpc-architecture-empty {
+  padding: 16px;
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
+  color: #9db4a6;
+  text-align: center;
+}

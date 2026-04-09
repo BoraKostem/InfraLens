@@ -20,6 +20,8 @@ import type {
   GcpComputeOperationResult,
   GcpComputeSerialOutput,
   GcpEnabledApiSummary,
+  GcpFirewallRuleSummary,
+  GcpGlobalAddressSummary,
   GcpIamBindingSummary,
   GcpIamCapabilityHint,
   GcpIamOverview,
@@ -35,16 +37,24 @@ import type {
   GcpLogEntrySummary,
   GcpLogFacetCount,
   GcpLogQueryResult,
+  GcpNetworkSummary,
   GcpProjectCapabilityHint,
   GcpProjectOverview,
+  GcpRouterNatSummary,
+  GcpRouterSummary,
   GcpServiceAccountSummary,
+  GcpServiceNetworkingConnectionSummary,
   GcpSqlDatabaseSummary,
   GcpSqlInstanceDetail,
   GcpSqlInstanceSummary,
   GcpSqlOperationSummary,
   GcpStorageBucketSummary,
   GcpStorageObjectContent,
-  GcpStorageObjectSummary
+  GcpStorageObjectSummary,
+  GcpSubnetworkSummary,
+  GcpServiceAccountKeySummary,
+  GcpIamRoleSummary,
+  GcpIamTestPermissionsResult
 } from '@shared/types'
 
 const GCP_SDK_SCOPES = ['https://www.googleapis.com/auth/cloud-platform']
@@ -84,56 +94,6 @@ type GcpStorageObjectRecord = {
   size: number
   lastModified: string
   storageClass: string
-}
-
-type GcpFirewallRuleSummary = {
-  name: string
-  network: string
-  direction: string
-  priority: string
-}
-
-type GcpNetworkSummary = {
-  name: string
-  autoCreateSubnetworks: boolean
-  routingMode: string
-}
-
-type GcpSubnetworkSummary = {
-  name: string
-  region: string
-  network: string
-  ipCidrRange: string
-  privateIpGoogleAccess: boolean
-}
-
-type GcpRouterSummary = {
-  name: string
-  region: string
-  network: string
-}
-
-type GcpRouterNatSummary = {
-  name: string
-  region: string
-  router: string
-  natIpAllocateOption: string
-}
-
-type GcpGlobalAddressSummary = {
-  name: string
-  address: string
-  addressType: string
-  purpose: string
-  network: string
-  prefixLength: string
-}
-
-type GcpServiceNetworkingConnectionSummary = {
-  network: string
-  service: string
-  peering: string
-  reservedPeeringRanges: string[]
 }
 
 type GcpSqlScopedDatabaseSummary = {
@@ -1424,6 +1384,8 @@ export async function listGcpServiceAccounts(projectId: string): Promise<GcpServ
       accounts.push({
         email,
         displayName: asString(entry.displayName),
+        uniqueId: asString(entry.uniqueId),
+        description: asString(entry.description),
         disabled: asBoolean(entry.disabled)
       })
     }
@@ -3159,6 +3121,325 @@ export async function getGcpIamOverview(projectId: string): Promise<GcpIamOvervi
       : 'cloudresourcemanager.googleapis.com'
 
     throw buildGcpSdkError(`loading IAM posture for project "${normalizedProjectId}"`, error, serviceName)
+  }
+}
+
+export async function addGcpIamBinding(projectId: string, role: string, member: string): Promise<void> {
+  const normalizedProjectId = projectId.trim()
+  try {
+    const policy = await getGcpProjectIamPolicy(normalizedProjectId)
+    const bindings = Array.isArray(policy.bindings) ? policy.bindings as Array<Record<string, unknown>> : []
+    const existing = bindings.find((b) => asString(b.role) === role)
+    if (existing) {
+      const members = Array.isArray(existing.members) ? existing.members as string[] : []
+      if (!members.includes(member)) {
+        members.push(member)
+        existing.members = members
+      }
+    } else {
+      bindings.push({ role, members: [member] })
+    }
+    await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+      url: `https://cloudresourcemanager.googleapis.com/v1/projects/${encodeURIComponent(normalizedProjectId)}:setIamPolicy`,
+      method: 'POST',
+      data: { policy: { ...policy, bindings }, updateMask: 'bindings' }
+    })
+  } catch (error) {
+    throw buildGcpSdkError(`adding IAM binding for project "${normalizedProjectId}"`, error, 'cloudresourcemanager.googleapis.com')
+  }
+}
+
+export async function removeGcpIamBinding(projectId: string, role: string, member: string): Promise<void> {
+  const normalizedProjectId = projectId.trim()
+  try {
+    const policy = await getGcpProjectIamPolicy(normalizedProjectId)
+    const bindings = Array.isArray(policy.bindings) ? (policy.bindings as Array<Record<string, unknown>>) : []
+    const updated = bindings
+      .map((b) => {
+        if (asString(b.role) !== role) return b
+        const members = (Array.isArray(b.members) ? b.members as string[] : []).filter((m) => m !== member)
+        return members.length ? { ...b, members } : null
+      })
+      .filter((b): b is Record<string, unknown> => b !== null)
+    await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+      url: `https://cloudresourcemanager.googleapis.com/v1/projects/${encodeURIComponent(normalizedProjectId)}:setIamPolicy`,
+      method: 'POST',
+      data: { policy: { ...policy, bindings: updated }, updateMask: 'bindings' }
+    })
+  } catch (error) {
+    throw buildGcpSdkError(`removing IAM binding for project "${normalizedProjectId}"`, error, 'cloudresourcemanager.googleapis.com')
+  }
+}
+
+export async function createGcpServiceAccount(
+  projectId: string,
+  accountId: string,
+  displayName: string,
+  description: string
+): Promise<GcpServiceAccountSummary> {
+  const normalizedProjectId = projectId.trim()
+  try {
+    const result = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+      url: `https://iam.googleapis.com/v1/projects/${encodeURIComponent(normalizedProjectId)}/serviceAccounts`,
+      method: 'POST',
+      data: { accountId, serviceAccount: { displayName, description } }
+    })
+    return {
+      email: asString(result.email),
+      displayName: asString(result.displayName),
+      uniqueId: asString(result.uniqueId),
+      description: asString(result.description),
+      disabled: asBoolean(result.disabled)
+    }
+  } catch (error) {
+    throw buildGcpSdkError(`creating service account in project "${normalizedProjectId}"`, error, 'iam.googleapis.com')
+  }
+}
+
+export async function deleteGcpServiceAccount(projectId: string, email: string): Promise<void> {
+  const normalizedProjectId = projectId.trim()
+  try {
+    await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+      url: `https://iam.googleapis.com/v1/projects/${encodeURIComponent(normalizedProjectId)}/serviceAccounts/${encodeURIComponent(email)}`,
+      method: 'DELETE'
+    })
+  } catch (error) {
+    throw buildGcpSdkError(`deleting service account "${email}" in project "${normalizedProjectId}"`, error, 'iam.googleapis.com')
+  }
+}
+
+export async function disableGcpServiceAccount(projectId: string, email: string, disable: boolean): Promise<void> {
+  const normalizedProjectId = projectId.trim()
+  const action = disable ? 'disable' : 'enable'
+  try {
+    await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+      url: `https://iam.googleapis.com/v1/projects/${encodeURIComponent(normalizedProjectId)}/serviceAccounts/${encodeURIComponent(email)}:${action}`,
+      method: 'POST',
+      data: {}
+    })
+  } catch (error) {
+    throw buildGcpSdkError(`${action}ing service account "${email}" in project "${normalizedProjectId}"`, error, 'iam.googleapis.com')
+  }
+}
+
+export async function listGcpServiceAccountKeys(projectId: string, email: string): Promise<GcpServiceAccountKeySummary[]> {
+  const normalizedProjectId = projectId.trim()
+  try {
+    const result = await requestGcp<{ keys?: Array<Record<string, unknown>> }>(normalizedProjectId, {
+      url: `https://iam.googleapis.com/v1/projects/${encodeURIComponent(normalizedProjectId)}/serviceAccounts/${encodeURIComponent(email)}/keys?keyTypes=USER_MANAGED`
+    })
+    return (result.keys ?? []).map((k) => {
+      const name = asString(k.name)
+      const keyId = name.split('/').pop() ?? name
+      return {
+        name,
+        keyId,
+        keyType: asString(k.keyType),
+        keyOrigin: asString(k.keyOrigin),
+        validAfterTime: asString(k.validAfterTime),
+        validBeforeTime: asString(k.validBeforeTime),
+        disabled: asBoolean(k.disabled)
+      } satisfies GcpServiceAccountKeySummary
+    })
+  } catch (error) {
+    throw buildGcpSdkError(`listing keys for service account "${email}"`, error, 'iam.googleapis.com')
+  }
+}
+
+export async function createGcpServiceAccountKey(
+  projectId: string,
+  email: string
+): Promise<{ keyId: string; privateKeyData: string; validAfterTime: string; validBeforeTime: string }> {
+  const normalizedProjectId = projectId.trim()
+  try {
+    const result = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+      url: `https://iam.googleapis.com/v1/projects/${encodeURIComponent(normalizedProjectId)}/serviceAccounts/${encodeURIComponent(email)}/keys`,
+      method: 'POST',
+      data: { privateKeyType: 'TYPE_GOOGLE_CREDENTIALS_FILE', keyAlgorithm: 'KEY_ALG_RSA_2048' }
+    })
+    const name = asString(result.name)
+    return {
+      keyId: name.split('/').pop() ?? name,
+      privateKeyData: asString(result.privateKeyData),
+      validAfterTime: asString(result.validAfterTime),
+      validBeforeTime: asString(result.validBeforeTime)
+    }
+  } catch (error) {
+    throw buildGcpSdkError(`creating key for service account "${email}"`, error, 'iam.googleapis.com')
+  }
+}
+
+export async function deleteGcpServiceAccountKey(projectId: string, email: string, keyId: string): Promise<void> {
+  const normalizedProjectId = projectId.trim()
+  try {
+    await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+      url: `https://iam.googleapis.com/v1/projects/${encodeURIComponent(normalizedProjectId)}/serviceAccounts/${encodeURIComponent(email)}/keys/${encodeURIComponent(keyId)}`,
+      method: 'DELETE'
+    })
+  } catch (error) {
+    throw buildGcpSdkError(`deleting key "${keyId}" for service account "${email}"`, error, 'iam.googleapis.com')
+  }
+}
+
+export async function listGcpRoles(projectId: string, scope: 'custom' | 'all'): Promise<GcpIamRoleSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  try {
+    const roles: GcpIamRoleSummary[] = []
+    let pageToken = ''
+    do {
+      const result = await requestGcp<{ roles?: Array<Record<string, unknown>>; nextPageToken?: string }>(normalizedProjectId, {
+        url: `https://iam.googleapis.com/v1/projects/${encodeURIComponent(normalizedProjectId)}/roles?view=FULL&pageSize=100${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`
+      })
+      for (const r of result.roles ?? []) {
+        const name = asString(r.name)
+        const perms = Array.isArray(r.includedPermissions) ? r.includedPermissions.map((p) => asString(p)).filter(Boolean) : []
+        roles.push({
+          name,
+          title: asString(r.title) || name.split('/').pop() || name,
+          description: asString(r.description),
+          stage: asString(r.stage) || 'GA',
+          isCustom: true,
+          permissionCount: perms.length,
+          includedPermissions: perms
+        } satisfies GcpIamRoleSummary)
+      }
+      pageToken = asString(result.nextPageToken)
+    } while (pageToken)
+
+    if (scope === 'all') {
+      let predefinedPageToken = ''
+      do {
+        const result = await requestGcp<{ roles?: Array<Record<string, unknown>>; nextPageToken?: string }>(normalizedProjectId, {
+          url: `https://iam.googleapis.com/v1/roles?view=BASIC&pageSize=200${predefinedPageToken ? `&pageToken=${encodeURIComponent(predefinedPageToken)}` : ''}`
+        })
+        for (const r of result.roles ?? []) {
+          const name = asString(r.name)
+          if (!name) continue
+          roles.push({
+            name,
+            title: asString(r.title) || name.split('/').pop() || name,
+            description: asString(r.description),
+            stage: asString(r.stage) || 'GA',
+            isCustom: false,
+            permissionCount: 0,
+            includedPermissions: []
+          } satisfies GcpIamRoleSummary)
+        }
+        predefinedPageToken = asString(result.nextPageToken)
+      } while (predefinedPageToken)
+    }
+
+    return roles.sort((a, b) => {
+      if (a.isCustom !== b.isCustom) return a.isCustom ? -1 : 1
+      return a.title.localeCompare(b.title)
+    })
+  } catch (error) {
+    throw buildGcpSdkError(`listing roles for project "${normalizedProjectId}"`, error, 'iam.googleapis.com')
+  }
+}
+
+export async function createGcpCustomRole(
+  projectId: string,
+  roleId: string,
+  title: string,
+  description: string,
+  includedPermissions: string[]
+): Promise<GcpIamRoleSummary> {
+  const normalizedProjectId = projectId.trim()
+  try {
+    const result = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+      url: `https://iam.googleapis.com/v1/projects/${encodeURIComponent(normalizedProjectId)}/roles`,
+      method: 'POST',
+      data: { roleId, role: { title, description, includedPermissions, stage: 'GA' } }
+    })
+    const name = asString(result.name)
+    const perms = Array.isArray(result.includedPermissions)
+      ? (result.includedPermissions as unknown[]).map((p) => asString(p as string)).filter(Boolean)
+      : includedPermissions
+    return {
+      name,
+      title: asString(result.title) || title,
+      description: asString(result.description) || description,
+      stage: asString(result.stage) || 'GA',
+      isCustom: true,
+      permissionCount: perms.length,
+      includedPermissions: perms
+    }
+  } catch (error) {
+    throw buildGcpSdkError(`creating custom role "${roleId}" in project "${normalizedProjectId}"`, error, 'iam.googleapis.com')
+  }
+}
+
+export async function deleteGcpCustomRole(projectId: string, roleName: string): Promise<void> {
+  const normalizedProjectId = projectId.trim()
+  try {
+    await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+      url: `https://iam.googleapis.com/v1/${encodeURIComponent(roleName)}`,
+      method: 'DELETE'
+    })
+  } catch (error) {
+    throw buildGcpSdkError(`deleting custom role "${roleName}" in project "${normalizedProjectId}"`, error, 'iam.googleapis.com')
+  }
+}
+
+export async function testGcpIamPermissions(projectId: string, permissions: string[]): Promise<GcpIamTestPermissionsResult[]> {
+  const normalizedProjectId = projectId.trim()
+  const normalizedPermissions = [...new Set(permissions.map((value) => value.trim()).filter(Boolean))]
+
+  if (!normalizedProjectId || normalizedPermissions.length === 0) {
+    return []
+  }
+
+  try {
+    const executePermissionTest = async (
+      targetPermissions: string[]
+    ): Promise<{
+      resolved: Map<string, boolean>
+      failures: Map<string, unknown>
+    }> => {
+      try {
+        const result = await requestGcp<{ permissions?: string[] }>(normalizedProjectId, {
+          url: `https://cloudresourcemanager.googleapis.com/v1/projects/${encodeURIComponent(normalizedProjectId)}:testIamPermissions`,
+          method: 'POST',
+          data: { permissions: targetPermissions }
+        })
+        const allowed = new Set(result.permissions ?? [])
+        return {
+          resolved: new Map(targetPermissions.map((permission) => [permission, allowed.has(permission)])),
+          failures: new Map()
+        }
+      } catch (error) {
+        if (targetPermissions.length === 1) {
+          return {
+            resolved: new Map(),
+            failures: new Map([[targetPermissions[0], error]])
+          }
+        }
+
+        const midpoint = Math.ceil(targetPermissions.length / 2)
+        const [left, right] = await Promise.all([
+          executePermissionTest(targetPermissions.slice(0, midpoint)),
+          executePermissionTest(targetPermissions.slice(midpoint))
+        ])
+
+        return {
+          resolved: new Map([...left.resolved, ...right.resolved]),
+          failures: new Map([...left.failures, ...right.failures])
+        }
+      }
+    }
+
+    const outcome = await executePermissionTest(normalizedPermissions)
+    if (outcome.resolved.size === 0 && outcome.failures.size > 0) {
+      throw outcome.failures.values().next().value
+    }
+
+    return normalizedPermissions.map((permission) => ({
+      permission,
+      allowed: outcome.resolved.get(permission) ?? false
+    }))
+  } catch (error) {
+    throw buildGcpSdkError(`testing IAM permissions for project "${normalizedProjectId}"`, error, 'cloudresourcemanager.googleapis.com')
   }
 }
 

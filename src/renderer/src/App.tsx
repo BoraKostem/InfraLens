@@ -93,9 +93,11 @@ import { GcpCompareWorkspace } from './GcpCompareWorkspace'
 import { GcpComplianceCenter } from './GcpComplianceCenter'
 import { GcpDirectAccessWorkspace } from './GcpDirectAccessWorkspace'
 import { GcpOverviewConsole } from './GcpOverviewConsole'
+import { GcpIamConsole } from './GcpIamConsole'
 import { GcpCloudSqlConsolePage, GcpComputeEngineConsolePage } from './GcpRuntimeConsoles'
 import { GcpGkeConsolePage } from './GcpGkeConsole'
 import { GcpSessionHub } from './GcpSessionHub'
+import { GcpVpcWorkspace } from './GcpVpcWorkspace'
 import { useAwsPageConnection } from './AwsPage'
 import { EcsConsole } from './EcsConsole'
 import { Ec2Console } from './Ec2Console'
@@ -249,6 +251,7 @@ const SERVICE_DESCRIPTIONS: Record<ServiceId, string> = {
   'gcp-projects': 'Project-aware metadata, enabled APIs, labels, hierarchy hints, and shell-linked project posture.',
   'gcp-iam': 'Project-aware IAM posture with bindings, principals, risky role surfacing, and service-account visibility.',
   'gcp-compute-engine': 'Project-aware Compute Engine inventory with live instance status, networking context, and refresh-aware discovery.',
+  'gcp-vpc': 'Project-aware VPC inventory with network topology, subnetworks, firewall posture, Cloud NAT, and service networking context.',
   'gcp-gke': 'Project-aware GKE inventory with live cluster status, version context, and refresh-aware discovery.',
   'gcp-cloud-storage': 'Project-aware Cloud Storage inventory with bucket posture, object browser workflows, preview/edit paths, and shell handoff.',
   'gcp-cloud-sql': 'Project-aware Cloud SQL entry point staged for database posture, instance inventory, and connection helpers.',
@@ -292,7 +295,8 @@ const IMPLEMENTED_SCREENS = new Set<ServiceId>([
   'key-pairs',
   'sts',
   'kms',
-  'waf'
+  'waf',
+  'gcp-vpc'
 ])
 
 const DEFAULT_PROVIDER_ID: CloudProviderId = 'aws'
@@ -477,7 +481,8 @@ const SOFT_REFRESH_SCREENS = new Set<Screen>([
   'ec2',
   'cloudformation',
   'ecs',
-  'load-balancers'
+  'load-balancers',
+  'gcp-vpc'
 ])
 
 function buildPreviewProviderTerminalEnv(
@@ -2065,281 +2070,6 @@ function GcpProjectsConsole({
   )
 }
 
-function GcpIamConsole({
-  projectId,
-  location,
-  refreshNonce,
-  onRunTerminalCommand,
-  canRunTerminalCommand
-}: {
-  projectId: string
-  location: string
-  refreshNonce: number
-  onRunTerminalCommand: (command: string) => void
-  canRunTerminalCommand: boolean
-}) {
-  const [overview, setOverview] = useState<GcpIamOverview | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    let cancelled = false
-
-    setLoading(true)
-    setError('')
-
-    void getGcpIamOverview(projectId)
-      .then((nextOverview) => {
-        if (!cancelled) {
-          setOverview(nextOverview)
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err))
-          setOverview(null)
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false)
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [projectId, refreshNonce])
-
-  const locationLabel = location.trim() || 'global'
-  const enableAction = error ? getGcpApiEnableAction(
-    error,
-    `gcloud services enable cloudresourcemanager.googleapis.com iam.googleapis.com --project ${projectId}`,
-    `IAM visibility is incomplete for project ${projectId}.`
-  ) : null
-  const inspectPolicyCommand = `gcloud projects get-iam-policy ${projectId}`
-  const listServiceAccountsCommand = `gcloud iam service-accounts list --project ${projectId}`
-
-  return (
-    <div className="overview-surface gcp-iam-console">
-      <div className="overview-hero-card">
-        <div className="overview-hero-copy">
-          <div className="eyebrow">IAM Posture</div>
-          <h3>{projectId}</h3>
-          <p>Project-level bindings, risky roles, principal rollups, and workload identities stay in a consistent summary-first shell pattern.</p>
-          <div className="overview-meta-strip">
-            <div className="overview-meta-pill">
-              <span>Project</span>
-              <strong>{projectId}</strong>
-            </div>
-            <div className="overview-meta-pill">
-              <span>Lens</span>
-              <strong>{locationLabel}</strong>
-            </div>
-            <div className="overview-meta-pill">
-              <span>Bindings</span>
-              <strong>{overview?.bindingCount ?? 0}</strong>
-            </div>
-            <div className="overview-meta-pill">
-              <span>Principals</span>
-              <strong>{overview?.principalCount ?? 0}</strong>
-            </div>
-          </div>
-        </div>
-        <div className="overview-hero-stats">
-          <div className="overview-glance-card overview-glance-card-accent">
-            <span>Risky bindings</span>
-            <strong>{overview?.riskyBindingCount ?? 0}</strong>
-            <small>Owner, editor, or admin-level grants in the project policy.</small>
-          </div>
-          <div className="overview-glance-card">
-            <span>Public principals</span>
-            <strong>{overview?.publicPrincipalCount ?? 0}</strong>
-            <small>`allUsers` and `allAuthenticatedUsers` grants in scope.</small>
-          </div>
-          <div className="overview-glance-card">
-            <span>Service accounts</span>
-            <strong>{overview?.serviceAccounts.length ?? 0}</strong>
-            <small>Workload identities surfaced for this project.</small>
-          </div>
-          <div className="overview-glance-card">
-            <span>Capability hints</span>
-            <strong>{overview?.capabilityHints.length ?? 0}</strong>
-            <small>Privilege, exposure, and sprawl signals for operators.</small>
-          </div>
-        </div>
-      </div>
-
-      {enableAction ? (
-        <div className="error-banner gcp-enable-error-banner">
-          <div className="gcp-enable-error-copy">
-            <strong>{enableAction.summary}</strong>
-            <p>
-              {canRunTerminalCommand
-                ? 'Run the enable command in the terminal, wait for propagation, then retry.'
-                : 'Switch Settings > Access Mode to Operator to enable terminal actions for this command.'}
-            </p>
-          </div>
-          <div className="gcp-enable-error-actions">
-            <button
-              type="button"
-              className="accent"
-              disabled={!canRunTerminalCommand}
-              onClick={() => onRunTerminalCommand(enableAction.command)}
-              title={canRunTerminalCommand ? enableAction.command : 'Switch to Operator mode to enable terminal actions'}
-            >
-              Run enable command in terminal
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {error && !enableAction ? <SvcState variant="error" error={error} /> : null}
-      {loading ? <SvcState variant="loading" resourceName="IAM posture" compact /> : null}
-
-      {overview ? (
-        <>
-          <div className="overview-section-title">Project IAM Context</div>
-          <section className="overview-account-grid">
-            <article className="overview-account-card">
-              <div className="panel-header minor">
-                <h3>Policy Summary</h3>
-              </div>
-              <div className="overview-account-kv">
-                <div>
-                  <span>Bindings</span>
-                  <strong>{overview.bindingCount}</strong>
-                </div>
-                <div>
-                  <span>Distinct principals</span>
-                  <strong>{overview.principalCount}</strong>
-                </div>
-                <div>
-                  <span>High privilege</span>
-                  <strong>{overview.riskyBindingCount}</strong>
-                </div>
-                <div>
-                  <span>Public exposure</span>
-                  <strong>{overview.publicPrincipalCount}</strong>
-                </div>
-              </div>
-              <div className="overview-note-list">
-                {overview.notes.map((note) => (
-                  <div key={note} className="overview-note-item">{note}</div>
-                ))}
-              </div>
-              <div className="catalog-toolbar" style={{ marginTop: '0.75rem' }}>
-                <button
-                  type="button"
-                  className="ghost"
-                  disabled={!canRunTerminalCommand}
-                  onClick={() => onRunTerminalCommand(inspectPolicyCommand)}
-                  title={canRunTerminalCommand ? inspectPolicyCommand : 'Switch to Operator mode to enable terminal actions'}
-                >
-                  Policy in terminal
-                </button>
-                <button
-                  type="button"
-                  className="ghost"
-                  disabled={!canRunTerminalCommand}
-                  onClick={() => onRunTerminalCommand(listServiceAccountsCommand)}
-                  title={canRunTerminalCommand ? listServiceAccountsCommand : 'Switch to Operator mode to enable terminal actions'}
-                >
-                  Service accounts in terminal
-                </button>
-              </div>
-            </article>
-
-            <article className="overview-account-card">
-              <div className="panel-header minor">
-                <h3>Service Accounts</h3>
-                <span className="hero-path" style={{ margin: 0 }}>{overview.serviceAccounts.length} visible</span>
-              </div>
-              {overview.serviceAccounts.length ? (
-                <div className="overview-linked-account-list">
-                  {overview.serviceAccounts.slice(0, 8).map((account) => (
-                    <div key={account.email} className="overview-linked-account-row">
-                      <div>
-                        <strong>{account.displayName || account.email}</strong>
-                        <span>{account.email}</span>
-                      </div>
-                      <strong>{account.disabled ? 'Disabled' : 'Active'}</strong>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <SvcState variant="empty" message="No project service accounts were surfaced." compact />
-              )}
-            </article>
-          </section>
-
-          <div className="overview-section-title">Capability Hints</div>
-          <section className="overview-hint-grid">
-            {overview.capabilityHints.map((hint) => (
-              <article key={hint.id} className={`overview-hint-card ${hint.severity}`}>
-                <span className="overview-hint-kicker">{hint.subject}</span>
-                <strong>{hint.title}</strong>
-                <p>{hint.summary}</p>
-                <small>{hint.recommendedAction}</small>
-              </article>
-            ))}
-          </section>
-
-          <div className="overview-section-title">Risky And Broad Bindings</div>
-          <section className="overview-ownership-grid">
-            {overview.bindings.filter((binding) => binding.risky || binding.publicAccess).slice(0, 8).map((binding) => (
-              <article key={`${binding.role}:${binding.members.join(',')}`} className="overview-ownership-card">
-                <div className="overview-ownership-header">
-                  <div>
-                    <span>{binding.publicAccess ? 'Public or shared' : 'High privilege'}</span>
-                    <strong>{binding.role}</strong>
-                  </div>
-                  <div className="overview-ownership-metrics">
-                    <span>{binding.memberCount} members</span>
-                    {binding.conditionTitle ? <span>{binding.conditionTitle}</span> : null}
-                  </div>
-                </div>
-                <div className="overview-note-list" style={{ marginTop: 0 }}>
-                  {binding.members.slice(0, 4).map((member) => (
-                    <div key={`${binding.role}:${member}`} className="overview-note-item">{summarizeGcpMember(member)}</div>
-                  ))}
-                </div>
-              </article>
-            ))}
-            {overview.bindings.filter((binding) => binding.risky || binding.publicAccess).length === 0 ? (
-              <article className="overview-ownership-card">
-                <p className="hero-path" style={{ margin: 0 }}>No risky or public project-level bindings were surfaced.</p>
-              </article>
-            ) : null}
-          </section>
-
-          <div className="overview-section-title">Principal Rollup</div>
-          <section className="overview-ownership-grid">
-            {overview.principals.slice(0, 8).map((principal) => (
-              <article key={principal.principal} className="overview-ownership-card">
-                <div className="overview-ownership-header">
-                  <div>
-                    <span>Principal</span>
-                    <strong>{summarizeGcpMember(principal.principal)}</strong>
-                  </div>
-                  <div className="overview-ownership-metrics">
-                    <span>{principal.bindingCount} bindings</span>
-                    <span>{principal.highPrivilegeRoleCount} high privilege</span>
-                  </div>
-                </div>
-                <div className="overview-note-list" style={{ marginTop: 0 }}>
-                  {principal.sampleRoles.map((role) => (
-                    <div key={`${principal.principal}:${role}`} className="overview-note-item">{role}</div>
-                  ))}
-                </div>
-              </article>
-            ))}
-          </section>
-        </>
-      ) : null}
-    </div>
-  )
-}
 
 function GcpBillingConsole({
   projectId,
@@ -2969,6 +2699,7 @@ function screenCacheTag(screen: Screen): CacheTag | null {
     case 'gcp-projects':
     case 'gcp-iam':
     case 'gcp-compute-engine':
+    case 'gcp-vpc':
     case 'gcp-gke':
     case 'gcp-cloud-storage':
     case 'gcp-cloud-sql':
@@ -3764,10 +3495,11 @@ export function App() {
   }
 
   function buildFocusFromResourceId(serviceId: ServiceId, resourceId: string): NavigationFocus | null {
-    switch (serviceId) {
+      switch (serviceId) {
       case 'ec2': return { service: 'ec2', instanceId: resourceId }
       case 'lambda': return { service: 'lambda', functionName: resourceId }
       case 'vpc': return { service: 'vpc', vpcId: resourceId }
+      case 'gcp-vpc': return { service: 'gcp-vpc', networkName: resourceId }
       case 'security-groups': return { service: 'security-groups', securityGroupId: resourceId }
       case 'load-balancers': return { service: 'load-balancers', loadBalancerArn: resourceId }
       case 'eks': return { service: 'eks', clusterName: resourceId }
@@ -5181,6 +4913,24 @@ export function App() {
           refreshNonce={pageRefreshNonceByScreen['gcp-compute-engine'] ?? 0}
           onRunTerminalCommand={handleOpenTerminalCommand}
           canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+        />
+      )
+    }
+
+    if (
+      activeProviderId === 'gcp'
+      && targetScreen === 'gcp-vpc'
+      && targetService?.id === 'gcp-vpc'
+      && gcpContextReady
+      && activeGcpConnectionDraft
+    ) {
+      return (
+        <GcpVpcWorkspace
+          projectId={activeGcpConnectionDraft.projectId.trim()}
+          location={activeGcpConnectionDraft.location.trim()}
+          refreshNonce={pageRefreshNonceByScreen['gcp-vpc'] ?? 0}
+          focusNetworkName={getFocus('gcp-vpc')}
+          onNavigate={(target, resourceId) => navigateToServiceWithResourceId(target, resourceId)}
         />
       )
     }

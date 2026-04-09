@@ -303,6 +303,15 @@
     linear-gradient(180deg, rgba(40, 54, 71, 0.98), rgba(24, 36, 48, 0.98)) !important;
 }
 
+.sim-row-clickable {
+  cursor: pointer;
+}
+
+.iam-mini-table tbody tr.sim-row-clickable:focus-visible {
+  outline: 1px solid rgba(52, 168, 83, 0.45);
+  outline-offset: -1px;
+}
+
 .iam-bottom-actions,
 .sim-panel-footer {
   display: flex;

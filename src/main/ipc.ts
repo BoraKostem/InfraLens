@@ -78,6 +78,42 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('gcp:iam:get-overview', async (_event, projectId: string) =>
     wrap(async () => (await loadGcpSdk()).getGcpIamOverview(projectId))
   )
+  ipcMain.handle('gcp:iam:add-binding', async (_event, projectId: string, role: string, member: string) =>
+    wrap(async () => (await loadGcpSdk()).addGcpIamBinding(projectId, role, member))
+  )
+  ipcMain.handle('gcp:iam:remove-binding', async (_event, projectId: string, role: string, member: string) =>
+    wrap(async () => (await loadGcpSdk()).removeGcpIamBinding(projectId, role, member))
+  )
+  ipcMain.handle('gcp:iam:create-service-account', async (_event, projectId: string, accountId: string, displayName: string, description: string) =>
+    wrap(async () => (await loadGcpSdk()).createGcpServiceAccount(projectId, accountId, displayName, description))
+  )
+  ipcMain.handle('gcp:iam:delete-service-account', async (_event, projectId: string, email: string) =>
+    wrap(async () => (await loadGcpSdk()).deleteGcpServiceAccount(projectId, email))
+  )
+  ipcMain.handle('gcp:iam:disable-service-account', async (_event, projectId: string, email: string, disable: boolean) =>
+    wrap(async () => (await loadGcpSdk()).disableGcpServiceAccount(projectId, email, disable))
+  )
+  ipcMain.handle('gcp:iam:list-service-account-keys', async (_event, projectId: string, email: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpServiceAccountKeys(projectId, email))
+  )
+  ipcMain.handle('gcp:iam:create-service-account-key', async (_event, projectId: string, email: string) =>
+    wrap(async () => (await loadGcpSdk()).createGcpServiceAccountKey(projectId, email))
+  )
+  ipcMain.handle('gcp:iam:delete-service-account-key', async (_event, projectId: string, email: string, keyId: string) =>
+    wrap(async () => (await loadGcpSdk()).deleteGcpServiceAccountKey(projectId, email, keyId))
+  )
+  ipcMain.handle('gcp:iam:list-roles', async (_event, projectId: string, scope: 'custom' | 'all') =>
+    wrap(async () => (await loadGcpSdk()).listGcpRoles(projectId, scope))
+  )
+  ipcMain.handle('gcp:iam:create-custom-role', async (_event, projectId: string, roleId: string, title: string, description: string, permissions: string[]) =>
+    wrap(async () => (await loadGcpSdk()).createGcpCustomRole(projectId, roleId, title, description, permissions))
+  )
+  ipcMain.handle('gcp:iam:delete-custom-role', async (_event, projectId: string, roleName: string) =>
+    wrap(async () => (await loadGcpSdk()).deleteGcpCustomRole(projectId, roleName))
+  )
+  ipcMain.handle('gcp:iam:test-permissions', async (_event, projectId: string, permissions: string[]) =>
+    wrap(async () => (await loadGcpSdk()).testGcpIamPermissions(projectId, permissions))
+  )
   ipcMain.handle('gcp:compute-engine:list', async (_event, projectId: string, location: string) =>
     wrap(async () => (await loadGcpSdk()).listGcpComputeInstances(projectId, location))
   )
@@ -101,6 +137,24 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   )
   ipcMain.handle('gcp:compute-engine:get-serial-output', async (_event, projectId: string, zone: string, instanceName: string, port?: number, start?: number) =>
     wrap(async () => (await loadGcpSdk()).getGcpComputeSerialOutput(projectId, zone, instanceName, port, start))
+  )
+  ipcMain.handle('gcp:vpc:list-networks', async (_event, projectId: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpNetworks(projectId))
+  )
+  ipcMain.handle('gcp:vpc:list-subnetworks', async (_event, projectId: string, location: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpSubnetworks(projectId, location))
+  )
+  ipcMain.handle('gcp:vpc:list-firewall-rules', async (_event, projectId: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpFirewallRules(projectId))
+  )
+  ipcMain.handle('gcp:vpc:list-routers', async (_event, projectId: string, location: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpRouters(projectId, location))
+  )
+  ipcMain.handle('gcp:vpc:list-global-addresses', async (_event, projectId: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpGlobalAddresses(projectId))
+  )
+  ipcMain.handle('gcp:vpc:list-service-networking-connections', async (_event, projectId: string, networkNames: string[]) =>
+    wrap(async () => (await loadGcpSdk()).listGcpServiceNetworkingConnections(projectId, networkNames))
   )
   ipcMain.handle('gcp:gke:list', async (_event, projectId: string, location: string) =>
     wrap(async () => (await loadGcpSdk()).listGcpGkeClusters(projectId, location))

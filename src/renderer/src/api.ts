@@ -28,8 +28,18 @@ import type {
   GcpComputeMachineTypeOption,
   GcpComputeOperationResult,
   GcpComputeSerialOutput,
+  GcpFirewallRuleSummary,
+  GcpGlobalAddressSummary,
   GcpIamOverview,
   GcpComputeInstanceSummary,
+  GcpNetworkSummary,
+  GcpRouterNatSummary,
+  GcpRouterSummary,
+  GcpServiceNetworkingConnectionSummary,
+  GcpServiceAccountSummary,
+  GcpServiceAccountKeySummary,
+  GcpIamRoleSummary,
+  GcpIamTestPermissionsResult,
   GcpGkeClusterCredentials,
   GcpGkeClusterDetail,
   GcpGkeOperationResult,
@@ -45,6 +55,7 @@ import type {
   GcpStorageObjectContent,
   GcpStorageObjectSummary,
   GcpStorageBucketSummary,
+  GcpSubnetworkSummary,
   GcpCliProject,
   AppReleaseInfo,
   AppSecuritySummary,
@@ -963,6 +974,14 @@ function normalizeUserFacingError(rawError: string): AwsLensApiError {
     )
   }
 
+  if (normalized.includes('google cloud sdk authorization failed')) {
+    return new AwsLensApiError(
+      rawError,
+      rawError,
+      'Google Cloud Authorization Failed'
+    )
+  }
+
   return new AwsLensApiError(
     'The operation failed. Review the current context and export diagnostics if the problem persists.',
     rawError
@@ -1329,6 +1348,54 @@ export async function getGcpIamOverview(projectId: string): Promise<GcpIamOvervi
   return unwrap((await rawAwsBridge().getGcpIamOverview(projectId)) as Wrapped<GcpIamOverview>)
 }
 
+export async function addGcpIamBinding(projectId: string, role: string, member: string): Promise<void> {
+  return unwrap((await rawAwsBridge().addGcpIamBinding(projectId, role, member)) as Wrapped<void>)
+}
+
+export async function removeGcpIamBinding(projectId: string, role: string, member: string): Promise<void> {
+  return unwrap((await rawAwsBridge().removeGcpIamBinding(projectId, role, member)) as Wrapped<void>)
+}
+
+export async function createGcpServiceAccount(projectId: string, accountId: string, displayName: string, description: string): Promise<GcpServiceAccountSummary> {
+  return unwrap((await rawAwsBridge().createGcpServiceAccount(projectId, accountId, displayName, description)) as Wrapped<GcpServiceAccountSummary>)
+}
+
+export async function deleteGcpServiceAccount(projectId: string, email: string): Promise<void> {
+  return unwrap((await rawAwsBridge().deleteGcpServiceAccount(projectId, email)) as Wrapped<void>)
+}
+
+export async function disableGcpServiceAccount(projectId: string, email: string, disable: boolean): Promise<void> {
+  return unwrap((await rawAwsBridge().disableGcpServiceAccount(projectId, email, disable)) as Wrapped<void>)
+}
+
+export async function listGcpServiceAccountKeys(projectId: string, email: string): Promise<GcpServiceAccountKeySummary[]> {
+  return unwrap((await rawAwsBridge().listGcpServiceAccountKeys(projectId, email)) as Wrapped<GcpServiceAccountKeySummary[]>)
+}
+
+export async function createGcpServiceAccountKey(projectId: string, email: string): Promise<{ keyId: string; privateKeyData: string; validAfterTime: string; validBeforeTime: string }> {
+  return unwrap((await rawAwsBridge().createGcpServiceAccountKey(projectId, email)) as Wrapped<{ keyId: string; privateKeyData: string; validAfterTime: string; validBeforeTime: string }>)
+}
+
+export async function deleteGcpServiceAccountKey(projectId: string, email: string, keyId: string): Promise<void> {
+  return unwrap((await rawAwsBridge().deleteGcpServiceAccountKey(projectId, email, keyId)) as Wrapped<void>)
+}
+
+export async function listGcpRoles(projectId: string, scope: 'custom' | 'all'): Promise<GcpIamRoleSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpRoles(projectId, scope)) as Wrapped<GcpIamRoleSummary[]>)
+}
+
+export async function createGcpCustomRole(projectId: string, roleId: string, title: string, description: string, permissions: string[]): Promise<GcpIamRoleSummary> {
+  return unwrap((await rawAwsBridge().createGcpCustomRole(projectId, roleId, title, description, permissions)) as Wrapped<GcpIamRoleSummary>)
+}
+
+export async function deleteGcpCustomRole(projectId: string, roleName: string): Promise<void> {
+  return unwrap((await rawAwsBridge().deleteGcpCustomRole(projectId, roleName)) as Wrapped<void>)
+}
+
+export async function testGcpIamPermissions(projectId: string, permissions: string[]): Promise<GcpIamTestPermissionsResult[]> {
+  return unwrap((await rawAwsBridge().testGcpIamPermissions(projectId, permissions)) as Wrapped<GcpIamTestPermissionsResult[]>)
+}
+
 export async function listGcpComputeInstances(projectId: string, location: string): Promise<GcpComputeInstanceSummary[]> {
   return unwrap((await rawAwsBridge().listGcpComputeInstances(projectId, location)) as Wrapped<GcpComputeInstanceSummary[]>)
 }
@@ -1380,6 +1447,30 @@ export async function getGcpComputeSerialOutput(
   start?: number
 ): Promise<GcpComputeSerialOutput> {
   return unwrap((await rawAwsBridge().getGcpComputeSerialOutput(projectId, zone, instanceName, port, start)) as Wrapped<GcpComputeSerialOutput>)
+}
+
+export async function listGcpNetworks(projectId: string): Promise<GcpNetworkSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpNetworks(projectId)) as Wrapped<GcpNetworkSummary[]>)
+}
+
+export async function listGcpSubnetworks(projectId: string, location: string): Promise<GcpSubnetworkSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpSubnetworks(projectId, location)) as Wrapped<GcpSubnetworkSummary[]>)
+}
+
+export async function listGcpFirewallRules(projectId: string): Promise<GcpFirewallRuleSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpFirewallRules(projectId)) as Wrapped<GcpFirewallRuleSummary[]>)
+}
+
+export async function listGcpRouters(projectId: string, location: string): Promise<{ routers: GcpRouterSummary[]; nats: GcpRouterNatSummary[] }> {
+  return unwrap((await rawAwsBridge().listGcpRouters(projectId, location)) as Wrapped<{ routers: GcpRouterSummary[]; nats: GcpRouterNatSummary[] }>)
+}
+
+export async function listGcpGlobalAddresses(projectId: string): Promise<GcpGlobalAddressSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpGlobalAddresses(projectId)) as Wrapped<GcpGlobalAddressSummary[]>)
+}
+
+export async function listGcpServiceNetworkingConnections(projectId: string, networkNames: string[]): Promise<GcpServiceNetworkingConnectionSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpServiceNetworkingConnections(projectId, networkNames)) as Wrapped<GcpServiceNetworkingConnectionSummary[]>)
 }
 
 export async function listGcpGkeClusters(projectId: string, location: string): Promise<GcpGkeClusterSummary[]> {

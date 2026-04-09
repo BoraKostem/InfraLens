@@ -928,11 +928,16 @@ textarea {
 }
 
 .gcp-iam-console .overview-ownership-card {
+  min-width: 0;
   overflow: hidden;
 }
 
 .gcp-iam-console .overview-ownership-header {
   gap: 0.55rem;
+}
+
+.gcp-iam-console .overview-ownership-header > div:first-child {
+  flex: 1 1 0;
 }
 
 .gcp-iam-console .overview-ownership-header > div,

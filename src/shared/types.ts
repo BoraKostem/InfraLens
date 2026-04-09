@@ -656,7 +656,34 @@ export type GcpIamPrincipalSummary = {
 export type GcpServiceAccountSummary = {
   email: string
   displayName: string
+  uniqueId: string
+  description: string
   disabled: boolean
+}
+
+export type GcpServiceAccountKeySummary = {
+  name: string
+  keyId: string
+  keyType: string
+  keyOrigin: string
+  validAfterTime: string
+  validBeforeTime: string
+  disabled: boolean
+}
+
+export type GcpIamRoleSummary = {
+  name: string
+  title: string
+  description: string
+  stage: string
+  isCustom: boolean
+  permissionCount: number
+  includedPermissions: string[]
+}
+
+export type GcpIamTestPermissionsResult = {
+  permission: string
+  allowed: boolean
 }
 
 export type GcpIamCapabilityHint = {
@@ -1051,6 +1078,56 @@ export type GcpBillingOverview = {
   linkedProjectLabelCoveragePercent: number
   visibility: GcpBillingVisibility
   lastUpdatedAt: string
+}
+
+export type GcpFirewallRuleSummary = {
+  name: string
+  network: string
+  direction: string
+  priority: string
+}
+
+export type GcpNetworkSummary = {
+  name: string
+  autoCreateSubnetworks: boolean
+  routingMode: string
+}
+
+export type GcpSubnetworkSummary = {
+  name: string
+  region: string
+  network: string
+  ipCidrRange: string
+  privateIpGoogleAccess: boolean
+}
+
+export type GcpRouterSummary = {
+  name: string
+  region: string
+  network: string
+}
+
+export type GcpRouterNatSummary = {
+  name: string
+  region: string
+  router: string
+  natIpAllocateOption: string
+}
+
+export type GcpGlobalAddressSummary = {
+  name: string
+  address: string
+  addressType: string
+  purpose: string
+  network: string
+  prefixLength: string
+}
+
+export type GcpServiceNetworkingConnectionSummary = {
+  network: string
+  service: string
+  peering: string
+  reservedPeeringRanges: string[]
 }
 
 export type Ec2SsmStatus = 'managed-online' | 'managed-offline' | 'not-managed'
@@ -1712,6 +1789,7 @@ export type ServiceId =
   | 'gcp-projects'
   | 'gcp-iam'
   | 'gcp-compute-engine'
+  | 'gcp-vpc'
   | 'gcp-gke'
   | 'gcp-cloud-storage'
   | 'gcp-cloud-sql'
@@ -2228,9 +2306,10 @@ export type NavigationFocus = (
       sourceLabel?: string
       serviceHint?: ServiceId | ''
     }
-    | { service: 'vpc'; vpcId: string }
-    | { service: 'security-groups'; securityGroupId: string }
-    | { service: 'waf'; webAclName: string }
+  | { service: 'vpc'; vpcId: string }
+  | { service: 'gcp-vpc'; networkName: string }
+  | { service: 'security-groups'; securityGroupId: string }
+  | { service: 'waf'; webAclName: string }
   ) & {
     providerId?: CloudProviderId
     locationId?: string
