@@ -7,8 +7,16 @@ import { DefaultAzureCredential } from '@azure/identity'
 
 import type {
   AzureAksClusterSummary,
+  AzureCostBreakdownEntry,
+  AzureCostOverview,
+  AzureMonitorActivityEvent,
+  AzureMonitorActivityResult,
+  AzureMonitorFacetCount,
   AzureRbacOverview,
   AzureRoleAssignmentSummary,
+  AzureSqlDatabaseSummary,
+  AzureSqlEstateOverview,
+  AzureSqlServerSummary,
   AzureStorageAccountSummary,
   AzureStorageBlobContent,
   AzureStorageBlobSummary,
@@ -129,6 +137,17 @@ function normalizeRegion<T extends { location: string }>(items: T[], location: s
   }
 
   return items.filter((item) => item.location.trim().toLowerCase() === normalizedLocation)
+}
+
+function toFacetCounts(values: string[]): AzureMonitorFacetCount[] {
+  const counts = new Map<string, number>()
+  for (const value of values.map((entry) => entry.trim()).filter(Boolean)) {
+    counts.set(value, (counts.get(value) ?? 0) + 1)
+  }
+
+  return [...counts.entries()]
+    .map(([label, count]) => ({ label, count }))
+    .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label))
 }
 
 function guessContentTypeFromKey(key: string): string {
@@ -837,5 +856,250 @@ export async function deleteAzureStorageBlob(
     await serviceClient.getContainerClient(containerName.trim()).deleteBlob(key.trim())
   } catch (error) {
     throw new Error(`Failed to delete Azure blob "${key}": ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+export async function listAzureSqlEstate(subscriptionId: string, location: string): Promise<AzureSqlEstateOverview> {
+  const servers = await fetchAzureArmCollection<{
+    id?: string
+    name?: string
+    location?: string
+    tags?: Record<string, string>
+    properties?: {
+      version?: string
+      fullyQualifiedDomainName?: string
+      publicNetworkAccess?: string
+      minimalTlsVersion?: string
+      administrators?: { administratorType?: string }
+      restrictOutboundNetworkAccess?: string
+    }
+  }>(`/subscriptions/${subscriptionId.trim()}/providers/Microsoft.Sql/servers`, '2023-08-01-preview')
+
+  const filteredServers = normalizeRegion(
+    servers.map((server) => ({
+      id: server.id?.trim() || '',
+      name: server.name?.trim() || extractResourceName(server.id ?? ''),
+      resourceGroup: extractResourceGroup(server.id ?? ''),
+      location: server.location?.trim() || '',
+      version: server.properties?.version?.trim() || '',
+      fullyQualifiedDomainName: server.properties?.fullyQualifiedDomainName?.trim() || '',
+      publicNetworkAccess: server.properties?.publicNetworkAccess?.trim() || 'Enabled',
+      minimalTlsVersion: server.properties?.minimalTlsVersion?.trim() || '',
+      administratorType: server.properties?.administrators?.administratorType?.trim() || '',
+      outboundNetworkRestriction: server.properties?.restrictOutboundNetworkAccess?.trim() || '',
+      tagCount: Object.keys(server.tags ?? {}).length
+    })),
+    location
+  )
+
+  const serverDetails = await Promise.all(filteredServers.map(async (server) => {
+    const [databases, elasticPools] = await Promise.all([
+      fetchAzureArmCollection<{
+        id?: string
+        name?: string
+        location?: string
+        sku?: { name?: string; tier?: string }
+        properties?: {
+          status?: string
+          maxSizeBytes?: number
+          zoneRedundant?: boolean
+          readScale?: string
+          autoPauseDelay?: number
+          requestedBackupStorageRedundancy?: string
+        }
+      }>(`/subscriptions/${encodeURIComponent(subscriptionId.trim())}/resourceGroups/${encodeURIComponent(server.resourceGroup)}/providers/Microsoft.Sql/servers/${encodeURIComponent(server.name)}/databases`, '2023-08-01-preview'),
+      fetchAzureArmCollection<unknown>(`/subscriptions/${encodeURIComponent(subscriptionId.trim())}/resourceGroups/${encodeURIComponent(server.resourceGroup)}/providers/Microsoft.Sql/servers/${encodeURIComponent(server.name)}/elasticPools`, '2023-08-01-preview')
+    ])
+
+    const mappedDatabases = databases
+      .filter((database) => (database.name?.trim().toLowerCase() ?? '') !== 'master')
+      .map((database) => ({
+        id: database.id?.trim() || '',
+        name: database.name?.trim() || '',
+        serverName: server.name,
+        resourceGroup: server.resourceGroup,
+        location: database.location?.trim() || server.location,
+        status: database.properties?.status?.trim() || '',
+        skuName: database.sku?.name?.trim() || '',
+        edition: database.sku?.tier?.trim() || '',
+        maxSizeGb: database.properties?.maxSizeBytes ? Number((database.properties.maxSizeBytes / (1024 ** 3)).toFixed(1)) : 0,
+        zoneRedundant: database.properties?.zoneRedundant === true,
+        readScale: database.properties?.readScale?.trim() || '',
+        autoPauseDelayMinutes: database.properties?.autoPauseDelay ?? 0,
+        backupStorageRedundancy: database.properties?.requestedBackupStorageRedundancy?.trim() || ''
+      } satisfies AzureSqlDatabaseSummary))
+
+    const notes: string[] = []
+    if (server.publicNetworkAccess.toLowerCase() === 'enabled') {
+      notes.push('Public network access is enabled for this SQL server.')
+    }
+    if ((server.minimalTlsVersion || '').toUpperCase() && (server.minimalTlsVersion || '').toUpperCase() !== '1.2') {
+      notes.push(`Minimal TLS version is ${server.minimalTlsVersion}.`)
+    }
+
+    return {
+      server: {
+        ...server,
+        databaseCount: mappedDatabases.length,
+        elasticPoolCount: elasticPools.length,
+        notes
+      } satisfies AzureSqlServerSummary,
+      databases: mappedDatabases
+    }
+  }))
+
+  const mappedServers = serverDetails.map((entry) => entry.server).sort((left, right) => left.name.localeCompare(right.name))
+  const mappedDatabases = serverDetails.flatMap((entry) => entry.databases).sort((left, right) => left.name.localeCompare(right.name))
+
+  return {
+    subscriptionId,
+    serverCount: mappedServers.length,
+    databaseCount: mappedDatabases.length,
+    publicServerCount: mappedServers.filter((server) => server.publicNetworkAccess.toLowerCase() === 'enabled').length,
+    servers: mappedServers,
+    databases: mappedDatabases,
+    notes: mappedServers.length === 0 ? ['No Azure SQL servers were visible for the selected subscription and region.'] : []
+  }
+}
+
+export async function listAzureMonitorActivity(subscriptionId: string, location: string, query: string, windowHours = 24): Promise<AzureMonitorActivityResult> {
+  const endTime = new Date()
+  const startTime = new Date(endTime.getTime() - windowHours * 60 * 60 * 1000)
+  const encodedFilter = encodeURIComponent(`eventTimestamp ge '${startTime.toISOString()}' and eventTimestamp le '${endTime.toISOString()}'`)
+  const response = await fetchAzureArmCollection<{
+    eventDataId?: string
+    eventTimestamp?: string
+    level?: string
+    resourceGroupName?: string
+    resourceProviderName?: { value?: string; localizedValue?: string }
+    operationName?: { value?: string; localizedValue?: string }
+    resourceId?: string
+    caller?: string
+    correlationId?: string
+    status?: { value?: string; localizedValue?: string }
+    subStatus?: { value?: string; localizedValue?: string }
+    resourceRegion?: string
+  }>(`/subscriptions/${subscriptionId.trim()}/providers/Microsoft.Insights/eventtypes/management/values?$filter=${encodedFilter}`, '2015-04-01')
+
+  const normalizedLocation = location.trim().toLowerCase()
+  const normalizedQuery = query.trim().toLowerCase()
+  const events = response
+    .map((event) => ({
+      id: event.eventDataId?.trim() || `${event.correlationId?.trim() || 'event'}:${event.eventTimestamp || ''}`,
+      timestamp: event.eventTimestamp?.trim() || '',
+      level: event.level?.trim() || '',
+      status: event.status?.localizedValue?.trim() || event.status?.value?.trim() || '',
+      resourceGroup: event.resourceGroupName?.trim() || '',
+      resourceType: event.resourceProviderName?.localizedValue?.trim() || event.resourceProviderName?.value?.trim() || '',
+      operationName: event.operationName?.localizedValue?.trim() || event.operationName?.value?.trim() || '',
+      resourceId: event.resourceId?.trim() || '',
+      caller: event.caller?.trim() || '',
+      correlationId: event.correlationId?.trim() || '',
+      summary: event.subStatus?.localizedValue?.trim() || event.subStatus?.value?.trim() || ''
+    } satisfies AzureMonitorActivityEvent))
+    .filter((event, index, all) => all.findIndex((candidate) => candidate.id === event.id) === index)
+    .filter((event) => {
+      if (normalizedLocation) {
+        const regionSource = (response.find((candidate) => (candidate.eventDataId?.trim() || `${candidate.correlationId?.trim() || 'event'}:${candidate.eventTimestamp || ''}`) === event.id)?.resourceRegion ?? '').trim().toLowerCase()
+        if (regionSource && regionSource !== normalizedLocation) {
+          return false
+        }
+      }
+
+      if (!normalizedQuery) {
+        return true
+      }
+
+      const haystack = [
+        event.level,
+        event.status,
+        event.resourceGroup,
+        event.resourceType,
+        event.operationName,
+        event.resourceId,
+        event.caller,
+        event.summary
+      ].join(' ').toLowerCase()
+
+      return haystack.includes(normalizedQuery)
+    })
+    .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
+    .slice(0, 100)
+
+  return {
+    query: query.trim(),
+    events,
+    statusCounts: toFacetCounts(events.map((event) => event.status)),
+    resourceTypeCounts: toFacetCounts(events.map((event) => event.resourceType)),
+    notes: events.length === 0 ? ['No Azure Monitor activity events matched the current query window.'] : []
+  }
+}
+
+export async function getAzureCostOverview(subscriptionId: string): Promise<AzureCostOverview> {
+  const response = await fetchAzureArmJson<{
+    properties?: {
+      columns?: Array<{ name?: string }>
+      rows?: Array<Array<string | number | null>>
+    }
+  }>(
+    `/subscriptions/${encodeURIComponent(subscriptionId.trim())}/providers/Microsoft.CostManagement/query`,
+    '2023-03-01',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'Usage',
+        timeframe: 'MonthToDate',
+        dataset: {
+          granularity: 'None',
+          aggregation: {
+            totalCost: { name: 'Cost', function: 'Sum' }
+          },
+          grouping: [
+            { type: 'Dimension', name: 'ServiceName' },
+            { type: 'Dimension', name: 'ResourceGroupName' }
+          ]
+        }
+      })
+    }
+  )
+
+  const columnNames = (response.properties?.columns ?? []).map((column) => column.name?.trim() || '')
+  const costIndex = columnNames.findIndex((name) => name === 'Cost')
+  const serviceIndex = columnNames.findIndex((name) => name === 'ServiceName')
+  const resourceGroupIndex = columnNames.findIndex((name) => name === 'ResourceGroupName')
+  const currencyIndex = columnNames.findIndex((name) => name === 'Currency')
+  const rows = response.properties?.rows ?? []
+
+  const totalAmount = rows.reduce((sum, row) => sum + Number(row[costIndex] ?? 0), 0)
+  const currency = String(rows[0]?.[currencyIndex] ?? 'USD')
+  const serviceTotals = new Map<string, number>()
+  const resourceGroupTotals = new Map<string, number>()
+
+  for (const row of rows) {
+    const cost = Number(row[costIndex] ?? 0)
+    const service = String(row[serviceIndex] ?? 'Unknown service')
+    const resourceGroup = String(row[resourceGroupIndex] ?? 'Unassigned')
+    serviceTotals.set(service, (serviceTotals.get(service) ?? 0) + cost)
+    resourceGroupTotals.set(resourceGroup, (resourceGroupTotals.get(resourceGroup) ?? 0) + cost)
+  }
+
+  const toBreakdown = (entries: Map<string, number>): AzureCostBreakdownEntry[] => [...entries.entries()]
+    .map(([label, amount]) => ({
+      label,
+      amount,
+      currency,
+      sharePercent: totalAmount > 0 ? Number(((amount / totalAmount) * 100).toFixed(1)) : 0
+    }))
+    .sort((left, right) => right.amount - left.amount || left.label.localeCompare(right.label))
+    .slice(0, 8)
+
+  return {
+    subscriptionId,
+    timeframeLabel: 'Month to date',
+    totalAmount: Number(totalAmount.toFixed(2)),
+    currency,
+    topServices: toBreakdown(serviceTotals),
+    topResourceGroups: toBreakdown(resourceGroupTotals),
+    notes: rows.length === 0 ? ['No subscription cost rows were returned for the current month-to-date window.'] : []
   }
 }

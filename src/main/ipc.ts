@@ -205,6 +205,15 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('azure:storage-blob:delete', async (_event, subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) =>
     wrap(async () => (await loadAzureSdk()).deleteAzureStorageBlob(subscriptionId, resourceGroup, accountName, containerName, key, blobEndpoint))
   )
+  ipcMain.handle('azure:sql:get-estate', async (_event, subscriptionId: string, location: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureSqlEstate(subscriptionId, location))
+  )
+  ipcMain.handle('azure:monitor:list-activity', async (_event, subscriptionId: string, location: string, query: string, windowHours?: number) =>
+    wrap(async () => (await loadAzureSdk()).listAzureMonitorActivity(subscriptionId, location, query, windowHours))
+  )
+  ipcMain.handle('azure:cost:get-overview', async (_event, subscriptionId: string) =>
+    wrap(async () => (await loadAzureSdk()).getAzureCostOverview(subscriptionId))
+  )
   ipcMain.handle('app:update:check', async () => wrap(() => checkForAppUpdates()))
   ipcMain.handle('app:update:download', async () => wrap(() => downloadAppUpdate()))
   ipcMain.handle('app:update:install', async () => wrap(() => installAppUpdate()))

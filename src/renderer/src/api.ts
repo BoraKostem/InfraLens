@@ -49,7 +49,10 @@ import type {
   AppReleaseInfo,
   AppSecuritySummary,
   AzureAksClusterSummary,
+  AzureCostOverview,
+  AzureMonitorActivityResult,
   AzureRbacOverview,
+  AzureSqlEstateOverview,
   AzureStorageAccountSummary,
   AzureStorageBlobContent,
   AzureStorageBlobSummary,
@@ -1518,6 +1521,18 @@ export async function downloadAzureStorageBlobToPath(subscriptionId: string, res
 
 export async function deleteAzureStorageBlob(subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint = ''): Promise<void> {
   await unwrap((await rawAwsBridge().deleteAzureStorageBlob(subscriptionId, resourceGroup, accountName, containerName, key, blobEndpoint)) as Wrapped<void>)
+}
+
+export async function getAzureSqlEstate(subscriptionId: string, location: string): Promise<AzureSqlEstateOverview> {
+  return unwrap((await rawAwsBridge().getAzureSqlEstate(subscriptionId, location)) as Wrapped<AzureSqlEstateOverview>)
+}
+
+export async function listAzureMonitorActivity(subscriptionId: string, location: string, query: string, windowHours?: number): Promise<AzureMonitorActivityResult> {
+  return unwrap((await rawAwsBridge().listAzureMonitorActivity(subscriptionId, location, query, windowHours)) as Wrapped<AzureMonitorActivityResult>)
+}
+
+export async function getAzureCostOverview(subscriptionId: string): Promise<AzureCostOverview> {
+  return unwrap((await rawAwsBridge().getAzureCostOverview(subscriptionId)) as Wrapped<AzureCostOverview>)
 }
 
 export async function checkForAppUpdates(): Promise<AppReleaseInfo> {

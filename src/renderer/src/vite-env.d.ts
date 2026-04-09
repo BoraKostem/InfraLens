@@ -146,6 +146,9 @@ declare global {
       uploadAzureStorageBlob: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, localPath: string, blobEndpoint?: string) => Promise<unknown>
       downloadAzureStorageBlobToPath: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) => Promise<unknown>
       deleteAzureStorageBlob: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) => Promise<unknown>
+      getAzureSqlEstate: (subscriptionId: string, location: string) => Promise<unknown>
+      listAzureMonitorActivity: (subscriptionId: string, location: string, query: string, windowHours?: number) => Promise<unknown>
+      getAzureCostOverview: (subscriptionId: string) => Promise<unknown>
       checkForAppUpdates: () => Promise<unknown>
       downloadAppUpdate: () => Promise<unknown>
       installAppUpdate: () => Promise<unknown>
