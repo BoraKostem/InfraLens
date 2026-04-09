@@ -180,6 +180,10 @@ const awsLensApi = {
     ipcRenderer.invoke('azure:storage-blob:download', subscriptionId, resourceGroup, accountName, containerName, key, blobEndpoint),
   deleteAzureStorageBlob: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) =>
     ipcRenderer.invoke('azure:storage-blob:delete', subscriptionId, resourceGroup, accountName, containerName, key, blobEndpoint),
+  getAzureSqlEstate: (subscriptionId: string, location: string) => ipcRenderer.invoke('azure:sql:get-estate', subscriptionId, location),
+  listAzureMonitorActivity: (subscriptionId: string, location: string, query: string, windowHours?: number) =>
+    ipcRenderer.invoke('azure:monitor:list-activity', subscriptionId, location, query, windowHours),
+  getAzureCostOverview: (subscriptionId: string) => ipcRenderer.invoke('azure:cost:get-overview', subscriptionId),
   checkForAppUpdates: () => ipcRenderer.invoke('app:update:check'),
   downloadAppUpdate: () => ipcRenderer.invoke('app:update:download'),
   installAppUpdate: () => ipcRenderer.invoke('app:update:install'),

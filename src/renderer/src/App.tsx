@@ -90,6 +90,7 @@ import {
   AzureSubscriptionsConsole,
   AzureVirtualMachinesConsole
 } from './AzureCoreConsoles'
+import { AzureCostConsole, AzureMonitorConsole, AzureSqlConsole } from './AzureOpsConsoles'
 import { AzureStorageAccountsConsole } from './AzureStorageConsole'
 import { AwsTerminalPanel } from './AwsTerminalPanel'
 import { CloudFormationConsole } from './CloudFormationConsole'
@@ -5723,6 +5724,59 @@ export function App() {
             subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
             location={activeAzureConnectionDraft.location.trim()}
             refreshNonce={pageRefreshNonceByScreen['azure-storage-accounts'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-sql'
+        && targetService?.id === 'azure-sql'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureSqlConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            location={activeAzureConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-sql'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-monitor'
+        && targetService?.id === 'azure-monitor'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureMonitorConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            location={activeAzureConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-monitor'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-cost'
+        && targetService?.id === 'azure-cost'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureCostConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-cost'] ?? 0}
             onRunTerminalCommand={handleOpenTerminalCommand}
             canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
           />

@@ -728,6 +728,93 @@ export type AzureStorageBlobContent = {
   contentType: string
 }
 
+export type AzureSqlServerSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  version: string
+  fullyQualifiedDomainName: string
+  publicNetworkAccess: string
+  minimalTlsVersion: string
+  administratorType: string
+  outboundNetworkRestriction: string
+  databaseCount: number
+  elasticPoolCount: number
+  tagCount: number
+  notes: string[]
+}
+
+export type AzureSqlDatabaseSummary = {
+  id: string
+  name: string
+  serverName: string
+  resourceGroup: string
+  location: string
+  status: string
+  skuName: string
+  edition: string
+  maxSizeGb: number
+  zoneRedundant: boolean
+  readScale: string
+  autoPauseDelayMinutes: number
+  backupStorageRedundancy: string
+}
+
+export type AzureSqlEstateOverview = {
+  subscriptionId: string
+  serverCount: number
+  databaseCount: number
+  publicServerCount: number
+  servers: AzureSqlServerSummary[]
+  databases: AzureSqlDatabaseSummary[]
+  notes: string[]
+}
+
+export type AzureMonitorFacetCount = {
+  label: string
+  count: number
+}
+
+export type AzureMonitorActivityEvent = {
+  id: string
+  timestamp: string
+  level: string
+  status: string
+  resourceGroup: string
+  resourceType: string
+  operationName: string
+  resourceId: string
+  caller: string
+  correlationId: string
+  summary: string
+}
+
+export type AzureMonitorActivityResult = {
+  query: string
+  events: AzureMonitorActivityEvent[]
+  statusCounts: AzureMonitorFacetCount[]
+  resourceTypeCounts: AzureMonitorFacetCount[]
+  notes: string[]
+}
+
+export type AzureCostBreakdownEntry = {
+  label: string
+  amount: number
+  currency: string
+  sharePercent: number
+}
+
+export type AzureCostOverview = {
+  subscriptionId: string
+  timeframeLabel: string
+  totalAmount: number
+  currency: string
+  topServices: AzureCostBreakdownEntry[]
+  topResourceGroups: AzureCostBreakdownEntry[]
+  notes: string[]
+}
+
 export type GcpProjectLabelSummary = {
   key: string
   value: string
