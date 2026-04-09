@@ -467,8 +467,17 @@ export type AppSettingsRefreshMode = 'manual' | 'automatic'
 export type AppSettingsReleaseChannelPreference = 'system' | 'stable' | 'preview'
 
 export type AppSettingsGeneral = {
+  defaultProviderId: CloudProviderId
   defaultProfileName: string
   defaultRegion: string
+  gcpDefaultModeId: string
+  gcpDefaultProjectId: string
+  gcpDefaultLocation: string
+  azureDefaultModeId: string
+  azureDefaultSubscriptionId: string
+  azureDefaultSubscriptionLabel: string
+  azureDefaultTenantId: string
+  azureDefaultLocation: string
   launchScreen: AppSettingsLaunchScreen
 }
 

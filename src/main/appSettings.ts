@@ -21,8 +21,17 @@ import { readSecureJsonFile, writeSecureJsonFile } from './secureJson'
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
   general: {
+    defaultProviderId: 'aws',
     defaultProfileName: '',
     defaultRegion: 'us-east-1',
+    gcpDefaultModeId: 'gcp-adc',
+    gcpDefaultProjectId: '',
+    gcpDefaultLocation: 'us-central1',
+    azureDefaultModeId: 'azure-subscription',
+    azureDefaultSubscriptionId: '',
+    azureDefaultSubscriptionLabel: '',
+    azureDefaultTenantId: '',
+    azureDefaultLocation: '',
     launchScreen: 'profiles'
   },
   terminal: {
@@ -70,6 +79,17 @@ function sanitizeLaunchScreen(value: unknown): AppSettingsLaunchScreen {
       return value
     default:
       return DEFAULT_APP_SETTINGS.general.launchScreen
+  }
+}
+
+function sanitizeProviderId(value: unknown): AppSettings['general']['defaultProviderId'] {
+  switch (value) {
+    case 'aws':
+    case 'gcp':
+    case 'azure':
+      return value
+    default:
+      return DEFAULT_APP_SETTINGS.general.defaultProviderId
   }
 }
 
@@ -138,8 +158,17 @@ function sanitizeGeneral(value: unknown): AppSettingsGeneral {
     : {}
 
   return {
+    defaultProviderId: sanitizeProviderId(raw.defaultProviderId),
     defaultProfileName: sanitizeString(raw.defaultProfileName),
     defaultRegion: sanitizeString(raw.defaultRegion, DEFAULT_APP_SETTINGS.general.defaultRegion),
+    gcpDefaultModeId: sanitizeString(raw.gcpDefaultModeId, DEFAULT_APP_SETTINGS.general.gcpDefaultModeId),
+    gcpDefaultProjectId: sanitizeString(raw.gcpDefaultProjectId),
+    gcpDefaultLocation: sanitizeString(raw.gcpDefaultLocation, DEFAULT_APP_SETTINGS.general.gcpDefaultLocation),
+    azureDefaultModeId: sanitizeString(raw.azureDefaultModeId, DEFAULT_APP_SETTINGS.general.azureDefaultModeId),
+    azureDefaultSubscriptionId: sanitizeString(raw.azureDefaultSubscriptionId),
+    azureDefaultSubscriptionLabel: sanitizeString(raw.azureDefaultSubscriptionLabel),
+    azureDefaultTenantId: sanitizeString(raw.azureDefaultTenantId),
+    azureDefaultLocation: sanitizeString(raw.azureDefaultLocation),
     launchScreen: sanitizeLaunchScreen(raw.launchScreen)
   }
 }

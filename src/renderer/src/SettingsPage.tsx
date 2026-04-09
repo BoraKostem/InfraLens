@@ -9,13 +9,17 @@ import type {
   AppSettings,
   AwsProfile,
   AwsRegionOption,
+  AzureProviderContextSnapshot,
+  CloudProviderId,
   EnterpriseAccessMode,
   EnterpriseAuditEvent,
   EnterpriseSettings,
   EnvironmentPermissionCheck,
   EnvironmentHealthReport,
   EnvironmentToolCheck,
+  GcpCliContext,
   GovernanceTagDefaults,
+  ProviderDescriptor,
   TerraformCliInfo
 } from '@shared/types'
 import type { ProviderPermissionDiagnosticsReport } from './providerPermissionDiagnostics'
@@ -25,8 +29,12 @@ type SettingsTab = 'general' | 'terminal' | 'refresh' | 'governance' | 'toolchai
 type SettingsPageProps = {
   isVisible: boolean
   appSettings: AppSettings | null
+  providers: ProviderDescriptor[]
+  providerConnectionModes: Record<CloudProviderId, Array<{ id: string; label: string }>>
   profiles: AwsProfile[]
   regions: AwsRegionOption[]
+  gcpCliContext: GcpCliContext | null
+  azureProviderContext: AzureProviderContextSnapshot | null
   toolchainInfo: TerraformCliInfo | null
   securitySummary: AppSecuritySummary | null
   enterpriseSettings: EnterpriseSettings
@@ -111,6 +119,10 @@ function environmentPermissionTone(status: EnvironmentPermissionCheck['status'])
   return status === 'ok' ? 'stable' : status === 'error' ? 'preview' : 'unknown'
 }
 
+function mergeDistinctStrings(values: Array<string | undefined>): string[] {
+  return [...new Set(values.map((value) => value?.trim() ?? '').filter(Boolean))].sort((left, right) => left.localeCompare(right))
+}
+
 function SettingSection({
   title,
   children
@@ -149,8 +161,12 @@ function SettingRow({
 export function SettingsPage({
   isVisible,
   appSettings,
+  providers,
+  providerConnectionModes,
   profiles,
   regions,
+  gcpCliContext,
+  azureProviderContext,
   toolchainInfo,
   securitySummary,
   enterpriseSettings,
@@ -185,8 +201,17 @@ export function SettingsPage({
 }: SettingsPageProps): JSX.Element {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
   const [generalDraft, setGeneralDraft] = useState<AppSettings['general']>({
+    defaultProviderId: 'aws',
     defaultProfileName: '',
     defaultRegion: 'us-east-1',
+    gcpDefaultModeId: 'gcp-adc',
+    gcpDefaultProjectId: '',
+    gcpDefaultLocation: 'us-central1',
+    azureDefaultModeId: 'azure-subscription',
+    azureDefaultSubscriptionId: '',
+    azureDefaultSubscriptionLabel: '',
+    azureDefaultTenantId: '',
+    azureDefaultLocation: '',
     launchScreen: 'profiles'
   })
   const [terminalDraft, setTerminalDraft] = useState<AppSettings['terminal']>({
@@ -252,35 +277,215 @@ export function SettingsPage({
     return `${toolchainInfo.label} ${toolchainInfo.version}`
   }, [toolchainInfo])
 
+  const selectedStartupProvider = useMemo<ProviderDescriptor>(() => (
+    providers.find((provider) => provider.id === generalDraft.defaultProviderId) ?? providers[0] ?? {
+      id: 'aws',
+      label: 'AWS',
+      shortLabel: 'AWS',
+      availability: 'available',
+      profileLabel: 'Profile',
+      locationLabel: 'Region',
+      connectionLabel: 'AWS profile or assumed role'
+    }
+  ), [generalDraft.defaultProviderId, providers])
+
+  const selectedStartupProviderModes = providerConnectionModes[selectedStartupProvider.id] ?? []
+  const selectedAzureSubscription = useMemo(
+    () => azureProviderContext?.subscriptions.find((subscription) => subscription.subscriptionId === generalDraft.azureDefaultSubscriptionId) ?? null,
+    [azureProviderContext?.subscriptions, generalDraft.azureDefaultSubscriptionId]
+  )
+  const gcpLocationOptions = useMemo(
+    () => mergeDistinctStrings([
+      generalDraft.gcpDefaultLocation,
+      ...(gcpCliContext?.locations ?? []),
+      gcpCliContext?.activeRegion,
+      gcpCliContext?.activeZone
+    ]),
+    [gcpCliContext?.activeRegion, gcpCliContext?.activeZone, gcpCliContext?.locations, generalDraft.gcpDefaultLocation]
+  )
+  const azureLocationOptions = useMemo(
+    () => mergeDistinctStrings([
+      generalDraft.azureDefaultLocation,
+      ...(selectedAzureSubscription?.locations ?? []),
+      ...(azureProviderContext?.locations.map((location) => location.name) ?? []),
+      azureProviderContext?.activeLocation
+    ]),
+    [
+      azureProviderContext?.activeLocation,
+      azureProviderContext?.locations,
+      generalDraft.azureDefaultLocation,
+      selectedAzureSubscription?.locations
+    ]
+  )
+
   function renderGeneralTab(): JSX.Element {
+    const selectedProviderId = generalDraft.defaultProviderId
+    const selectedModeId = selectedProviderId === 'gcp'
+      ? generalDraft.gcpDefaultModeId
+      : selectedProviderId === 'azure'
+        ? generalDraft.azureDefaultModeId
+        : ''
+
     return (
       <>
         <SettingSection title="Startup">
-          <SettingRow label="Default profile" description="Select the profile the shell should prefer when no manual profile is pinned.">
+          <SettingRow label="Startup provider" description="Choose which cloud provider should be preselected when the app shell opens.">
             <select
-              value={generalDraft.defaultProfileName}
-              onChange={(event) => setGeneralDraft((current) => ({ ...current, defaultProfileName: event.target.value }))}
+              value={selectedProviderId}
+              onChange={(event) => setGeneralDraft((current) => ({
+                ...current,
+                defaultProviderId: event.target.value as CloudProviderId
+              }))}
               disabled={!appSettings}
             >
-              <option value="">Follow manual selection</option>
-              {profiles.map((profile) => (
-                <option key={profile.name} value={profile.name}>{profile.name}</option>
+              {providers.map((provider) => (
+                <option key={provider.id} value={provider.id}>{provider.label}</option>
               ))}
             </select>
           </SettingRow>
-          <SettingRow label="Default region" description="Used when the workspace starts without an explicit region context.">
-            <select
-              value={generalDraft.defaultRegion}
-              onChange={(event) => setGeneralDraft((current) => ({ ...current, defaultRegion: event.target.value }))}
-              disabled={!appSettings}
+          {selectedProviderId !== 'aws' && (
+            <SettingRow
+              label="Connection mode"
+              description={`Choose which ${selectedStartupProvider.label} context model should seed the shared shell.`}
             >
-              {regions.map((region) => (
-                <option key={region.id} value={region.id}>{region.id} - {region.name}</option>
-              ))}
-              {!regions.some((region) => region.id === generalDraft.defaultRegion) && (
-                <option value={generalDraft.defaultRegion}>{generalDraft.defaultRegion}</option>
-              )}
-            </select>
+              <select
+                value={selectedModeId}
+                onChange={(event) => setGeneralDraft((current) => (
+                  selectedProviderId === 'gcp'
+                    ? { ...current, gcpDefaultModeId: event.target.value }
+                    : { ...current, azureDefaultModeId: event.target.value }
+                ))}
+                disabled={!appSettings}
+              >
+                {selectedStartupProviderModes.map((mode) => (
+                  <option key={mode.id} value={mode.id}>{mode.label}</option>
+                ))}
+                {!selectedStartupProviderModes.some((mode) => mode.id === selectedModeId) && selectedModeId && (
+                  <option value={selectedModeId}>{selectedModeId}</option>
+                )}
+              </select>
+            </SettingRow>
+          )}
+          <SettingRow
+            label={`Default ${selectedStartupProvider.profileLabel.toLowerCase()}`}
+            description={`Choose which ${selectedStartupProvider.profileLabel.toLowerCase()} the shell should restore for ${selectedStartupProvider.label}.`}
+          >
+            {selectedProviderId === 'aws' ? (
+              <select
+                value={generalDraft.defaultProfileName}
+                onChange={(event) => setGeneralDraft((current) => ({ ...current, defaultProfileName: event.target.value }))}
+                disabled={!appSettings}
+              >
+                <option value="">Follow manual selection</option>
+                {profiles.map((profile) => (
+                  <option key={profile.name} value={profile.name}>{profile.name}</option>
+                ))}
+              </select>
+            ) : selectedProviderId === 'gcp' ? (
+              <select
+                value={generalDraft.gcpDefaultProjectId}
+                onChange={(event) => setGeneralDraft((current) => ({ ...current, gcpDefaultProjectId: event.target.value }))}
+                disabled={!appSettings}
+              >
+                <option value="">Follow detected project</option>
+                {(gcpCliContext?.projects ?? []).map((project) => (
+                  <option key={project.projectId} value={project.projectId}>
+                    {project.projectId}{project.name ? ` - ${project.name}` : ''}
+                  </option>
+                ))}
+                {generalDraft.gcpDefaultProjectId && !(gcpCliContext?.projects ?? []).some((project) => project.projectId === generalDraft.gcpDefaultProjectId) && (
+                  <option value={generalDraft.gcpDefaultProjectId}>{generalDraft.gcpDefaultProjectId}</option>
+                )}
+              </select>
+            ) : (
+              <select
+                value={generalDraft.azureDefaultSubscriptionId}
+                onChange={(event) => {
+                  const subscriptionId = event.target.value
+                  const subscription = azureProviderContext?.subscriptions.find((entry) => entry.subscriptionId === subscriptionId) ?? null
+                  const nextLocations = mergeDistinctStrings([
+                    generalDraft.azureDefaultLocation,
+                    ...(subscription?.locations ?? []),
+                    ...(azureProviderContext?.locations.map((location) => location.name) ?? [])
+                  ])
+
+                  setGeneralDraft((current) => ({
+                    ...current,
+                    azureDefaultSubscriptionId: subscriptionId,
+                    azureDefaultSubscriptionLabel: subscription?.displayName ?? '',
+                    azureDefaultTenantId: subscription?.tenantId ?? '',
+                    azureDefaultLocation: subscriptionId
+                      ? (nextLocations.includes(current.azureDefaultLocation) ? current.azureDefaultLocation : nextLocations[0] ?? '')
+                      : current.azureDefaultLocation
+                  }))
+                }}
+                disabled={!appSettings}
+              >
+                <option value="">Follow active subscription</option>
+                {(azureProviderContext?.subscriptions ?? []).map((subscription) => (
+                  <option key={subscription.subscriptionId} value={subscription.subscriptionId}>
+                    {subscription.displayName || subscription.subscriptionId}
+                  </option>
+                ))}
+                {generalDraft.azureDefaultSubscriptionId
+                  && !(azureProviderContext?.subscriptions ?? []).some((subscription) => subscription.subscriptionId === generalDraft.azureDefaultSubscriptionId) && (
+                  <option value={generalDraft.azureDefaultSubscriptionId}>
+                    {generalDraft.azureDefaultSubscriptionLabel || generalDraft.azureDefaultSubscriptionId}
+                  </option>
+                )}
+              </select>
+            )}
+          </SettingRow>
+          <SettingRow
+            label={`Default ${selectedStartupProvider.locationLabel.toLowerCase()}`}
+            description={`Used when ${selectedStartupProvider.label} opens without an explicit ${selectedStartupProvider.locationLabel.toLowerCase()} context.`}
+          >
+            {selectedProviderId === 'aws' ? (
+              <select
+                value={generalDraft.defaultRegion}
+                onChange={(event) => setGeneralDraft((current) => ({ ...current, defaultRegion: event.target.value }))}
+                disabled={!appSettings}
+              >
+                {regions.map((region) => (
+                  <option key={region.id} value={region.id}>{region.id} - {region.name}</option>
+                ))}
+                {!regions.some((region) => region.id === generalDraft.defaultRegion) && (
+                  <option value={generalDraft.defaultRegion}>{generalDraft.defaultRegion}</option>
+                )}
+              </select>
+            ) : selectedProviderId === 'gcp' ? (
+              <select
+                value={generalDraft.gcpDefaultLocation}
+                onChange={(event) => setGeneralDraft((current) => ({ ...current, gcpDefaultLocation: event.target.value }))}
+                disabled={!appSettings}
+              >
+                {gcpLocationOptions.map((location) => (
+                  <option key={location} value={location}>{location}</option>
+                ))}
+                {!gcpLocationOptions.includes(generalDraft.gcpDefaultLocation) && (
+                  <option value={generalDraft.gcpDefaultLocation}>{generalDraft.gcpDefaultLocation}</option>
+                )}
+              </select>
+            ) : (
+              <select
+                value={generalDraft.azureDefaultLocation}
+                onChange={(event) => setGeneralDraft((current) => ({ ...current, azureDefaultLocation: event.target.value }))}
+                disabled={!appSettings}
+              >
+                {azureLocationOptions.length === 0 ? (
+                  <option value="">
+                    {selectedAzureSubscription ? 'Select location' : 'Load Azure context to list locations'}
+                  </option>
+                ) : (
+                  azureLocationOptions.map((location) => (
+                    <option key={location} value={location}>{location}</option>
+                  ))
+                )}
+                {!azureLocationOptions.includes(generalDraft.azureDefaultLocation) && generalDraft.azureDefaultLocation && (
+                  <option value={generalDraft.azureDefaultLocation}>{generalDraft.azureDefaultLocation}</option>
+                )}
+              </select>
+            )}
           </SettingRow>
           <SettingRow label="Launch screen" description="Choose which workspace opens first after the shell loads.">
             <select
@@ -300,7 +505,7 @@ export function SettingsPage({
 
         <div className="settings-tab-actions">
           <button type="button" className="accent" disabled={!appSettings} onClick={() => onUpdateGeneralSettings(generalDraft)}>
-            Save app preferences
+            Save startup preferences
           </button>
         </div>
       </>

@@ -2818,6 +2818,73 @@ function buildAzureDraftFromProviderSnapshot(
   }
 }
 
+function resolveGcpStartupModeId(settings: AppSettings['general'], context: GcpCliContext | null): string {
+  return settings.gcpDefaultModeId.trim() || (context ? inferGcpModeIdFromContext(context) : 'gcp-adc')
+}
+
+function resolveAzureStartupModeId(settings: AppSettings['general'], context: AzureProviderContextSnapshot | null): string {
+  if (settings.azureDefaultModeId.trim()) {
+    return settings.azureDefaultModeId.trim()
+  }
+
+  if (context?.activeSubscriptionId) {
+    return 'azure-subscription'
+  }
+
+  if (context?.activeTenantId) {
+    return 'azure-tenant'
+  }
+
+  return 'azure-subscription'
+}
+
+function buildGcpDraftFromGeneralSettings(
+  settings: AppSettings['general'],
+  modeId: string,
+  current?: GcpConnectionDraft | null
+): GcpConnectionDraft {
+  const baseDraft = current ?? createDefaultGcpConnectionDraft(modeId)
+
+  return {
+    ...baseDraft,
+    projectId: settings.gcpDefaultProjectId.trim() || baseDraft.projectId,
+    location: settings.gcpDefaultLocation.trim() || baseDraft.location
+  }
+}
+
+function buildAzureDraftFromGeneralSettings(
+  settings: AppSettings['general'],
+  snapshot: AzureProviderContextSnapshot | null,
+  modeId: string,
+  current?: AzureConnectionDraft | null
+): AzureConnectionDraft {
+  const baseDraft = snapshot
+    ? buildAzureDraftFromProviderSnapshot(snapshot, modeId, current)
+    : { ...(current ?? createDefaultAzureConnectionDraft()) }
+  const matchingSubscription = snapshot?.subscriptions.find(
+    (subscription) => subscription.subscriptionId === settings.azureDefaultSubscriptionId.trim()
+  ) ?? null
+  const availableLocations = normalizeAzureLocations([
+    ...baseDraft.availableLocations,
+    ...(matchingSubscription?.locations ?? []),
+    ...(snapshot?.locations.map((location) => location.name) ?? []),
+    settings.azureDefaultLocation.trim()
+  ])
+
+  return {
+    ...baseDraft,
+    subscriptionId: settings.azureDefaultSubscriptionId.trim() || baseDraft.subscriptionId,
+    subscriptionLabel: settings.azureDefaultSubscriptionLabel.trim()
+      || matchingSubscription?.displayName
+      || baseDraft.subscriptionLabel,
+    tenantId: settings.azureDefaultTenantId.trim()
+      || matchingSubscription?.tenantId
+      || baseDraft.tenantId,
+    location: settings.azureDefaultLocation.trim() || baseDraft.location || availableLocations[0] || '',
+    availableLocations
+  }
+}
+
 function screenCacheTag(screen: Screen): CacheTag | null {
   switch (screen) {
     case 'overview':
@@ -2946,6 +3013,7 @@ export function App() {
   const [catalogError, setCatalogError] = useState('')
   const [profileSearch, setProfileSearch] = useState('')
   const [gcpProjectSearch, setGcpProjectSearch] = useState('')
+  const [azureSubscriptionSearch, setAzureSubscriptionSearch] = useState('')
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [pendingTerminalCommand, setPendingTerminalCommand] = useState<PendingTerminalCommand>(null)
   const [pageRefreshNonceByScreen, setPageRefreshNonceByScreen] = useState<Record<string, number>>({})
@@ -2985,6 +3053,8 @@ export function App() {
   const enterpriseSettings = useEnterpriseSettings()
   const launchScreenInitializedRef = useRef(false)
   const terminalAutoOpenedScopeRef = useRef('')
+  const startupGeneralSettingsAppliedRef = useRef(false)
+  const startupAzureContextAppliedRef = useRef(false)
 
   useEffect(() => {
     void Promise.all([listProviders(), getWorkspaceCatalog(activeProviderId)])
@@ -3109,6 +3179,87 @@ export function App() {
     }
   }
 
+  function applyGeneralSettingsToRuntime(general: AppSettings['general']): void {
+    setActiveProviderId(general.defaultProviderId)
+
+    if (general.defaultProviderId === 'aws') {
+      connectionState.clearActiveSession()
+      connectionState.setProfile(general.defaultProfileName)
+      connectionState.setRegion(general.defaultRegion || 'us-east-1')
+      return
+    }
+
+    if (general.defaultProviderId === 'gcp') {
+      const modeId = resolveGcpStartupModeId(general, gcpCliContext)
+      setSelectedPreviewModeIds((current) => ({ ...current, gcp: modeId }))
+      setGcpConnectionDrafts((current) => ({
+        ...current,
+        [modeId]: buildGcpDraftFromGeneralSettings(general, modeId, current[modeId] ?? null)
+      }))
+      return
+    }
+
+    const modeId = resolveAzureStartupModeId(general, azureProviderContext)
+    setSelectedPreviewModeIds((current) => ({ ...current, azure: modeId }))
+    setAzureConnectionDrafts((current) => ({
+      ...current,
+      [modeId]: buildAzureDraftFromGeneralSettings(general, azureProviderContext, modeId, current[modeId] ?? null)
+    }))
+  }
+
+  async function syncAzureStartupContext(general: AppSettings['general']): Promise<void> {
+    if (general.defaultProviderId !== 'azure' || !general.azureDefaultSubscriptionId.trim() || !azureProviderContext) {
+      return
+    }
+
+    setAzureContextBusy(true)
+    setAzureContextError('')
+
+    try {
+      let snapshot = azureProviderContext
+
+      if (general.azureDefaultTenantId.trim() && snapshot.activeTenantId !== general.azureDefaultTenantId.trim()) {
+        snapshot = await setAzureActiveTenant(general.azureDefaultTenantId.trim())
+      }
+
+      if (snapshot.activeSubscriptionId !== general.azureDefaultSubscriptionId.trim()) {
+        snapshot = await setAzureActiveSubscription(general.azureDefaultSubscriptionId.trim())
+      }
+
+      if (general.azureDefaultLocation.trim() && snapshot.activeLocation !== general.azureDefaultLocation.trim()) {
+        snapshot = await setAzureActiveLocation(general.azureDefaultLocation.trim())
+      }
+
+      setAzureProviderContext(snapshot)
+    } catch (error) {
+      setAzureContextError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setAzureContextBusy(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!appSettings || startupGeneralSettingsAppliedRef.current) {
+      return
+    }
+
+    startupGeneralSettingsAppliedRef.current = true
+    applyGeneralSettingsToRuntime(appSettings.general)
+  }, [appSettings])
+
+  useEffect(() => {
+    if (!appSettings || startupAzureContextAppliedRef.current || !azureProviderContext) {
+      return
+    }
+
+    if (appSettings.general.defaultProviderId !== 'azure') {
+      return
+    }
+
+    startupAzureContextAppliedRef.current = true
+    void syncAzureStartupContext(appSettings.general)
+  }, [appSettings, azureProviderContext])
+
   useEffect(() => {
     if (!appSettings || launchScreenInitializedRef.current) {
       return
@@ -3127,14 +3278,38 @@ export function App() {
     }
 
     if (targetScreen === 'overview') {
-      if (connectionState.profile || connectionState.activeSession || !appSettings.general.defaultProfileName) {
+      if (appSettings.general.defaultProviderId === 'aws') {
+        if (connectionState.profile || connectionState.activeSession || !appSettings.general.defaultProfileName) {
+          launchScreenInitializedRef.current = true
+          if (connectionState.profile || connectionState.activeSession) {
+            setScreen('overview')
+          }
+        }
+        return
+      }
+
+      if (appSettings.general.defaultProviderId === 'gcp') {
+        if (appSettings.general.gcpDefaultProjectId && appSettings.general.gcpDefaultLocation) {
+          launchScreenInitializedRef.current = true
+          if (activeProviderId !== 'gcp') {
+            setActiveProviderId('gcp')
+          }
+          setScreen('overview')
+        }
+        return
+      }
+
+      if (appSettings.general.azureDefaultSubscriptionId && appSettings.general.azureDefaultLocation) {
         launchScreenInitializedRef.current = true
-        if (connectionState.profile || connectionState.activeSession) {
+        if (activeProviderId !== 'azure') {
+          setActiveProviderId('azure')
+        }
+        if (azureProviderContext?.auth.status === 'authenticated' || azureProviderContext?.activeSubscriptionId) {
           setScreen('overview')
         }
       }
     }
-  }, [appSettings, connectionState.activeSession, connectionState.profile])
+  }, [appSettings, activeProviderId, azureProviderContext?.activeSubscriptionId, azureProviderContext?.auth.status, connectionState.activeSession, connectionState.profile])
 
   useEffect(() => {
     void getEnterpriseSettings().catch(() => {
@@ -3170,15 +3345,16 @@ export function App() {
     if (
       status !== 'starting'
       && status !== 'waiting-for-device-code'
+      && status !== 'authenticating'
     ) {
       return
     }
 
-    const timeoutId = window.setTimeout(() => {
+    const intervalId = window.setInterval(() => {
       void loadAzureContext()
     }, 1500)
 
-    return () => window.clearTimeout(timeoutId)
+    return () => window.clearInterval(intervalId)
   }, [activeProviderId, azureProviderContext?.auth.status])
 
   useEffect(() => {
@@ -4628,6 +4804,8 @@ export function App() {
     try {
       const nextSettings = await updateAppSettings({ general: update })
       setAppSettings(nextSettings)
+      applyGeneralSettingsToRuntime(nextSettings.general)
+      await syncAzureStartupContext(nextSettings.general)
       setSettingsMessage('Startup defaults saved.')
     } catch (err) {
       setSettingsMessage(err instanceof Error ? err.message : String(err))
@@ -4797,9 +4975,20 @@ export function App() {
   let onboardingGuidance: string[] = []
 
   if (environmentOnboardingStep === 'region') {
+    const currentProviderLocation = activeProviderId === 'aws'
+      ? connectionState.region
+      : activeProviderId === 'gcp'
+        ? activeGcpConnectionDraft?.location.trim() || gcpCliContext?.activeRegion || gcpCliContext?.activeZone || 'not set'
+        : activeAzureConnectionDraft?.location.trim() || azureProviderContext?.activeLocation || 'not set'
+    const savedProviderLocation = activeProviderId === 'aws'
+      ? appSettings?.general.defaultRegion ?? 'us-east-1'
+      : activeProviderId === 'gcp'
+        ? appSettings?.general.gcpDefaultLocation ?? 'us-central1'
+        : appSettings?.general.azureDefaultLocation || 'not set'
+
     onboardingTitle = `Confirm the ${providerLocationLabel} and launch defaults for this workspace.`
     onboardingDescription = `${activeProvider.locationLabel} choice is global inside the shell. It affects overview, service consoles, direct access, compare, and assumed sessions.`
-    onboardingSummary = `Current ${providerLocationLabel}: ${connectionState.region}. Saved default: ${appSettings?.general.defaultRegion ?? 'us-east-1'}. Launch screen: ${appSettings?.general.launchScreen ?? 'profiles'}.`
+    onboardingSummary = `Current ${providerLocationLabel}: ${currentProviderLocation}. Saved default: ${savedProviderLocation}. Launch screen: ${appSettings?.general.launchScreen ?? 'profiles'}.`
     onboardingPrimaryActionLabel = 'Open settings'
     onboardingPrimaryAction = () => dismissEnvironmentOnboarding('settings')
     onboardingSecondaryActionLabel = 'Go to overview'
@@ -5106,14 +5295,14 @@ export function App() {
                     ? 'Choose an AWS profile from the catalog'
                     : activeProviderId === 'gcp'
                       ? 'Choose a Google Cloud project from the catalog'
-                      : `${activeProvider.label} connection modes`}
+                      : 'Choose an Azure subscription from the catalog'}
                 </h3>
                 <p className="hero-path">
                   {isAwsProviderActive
                     ? 'Search by profile name, pin frequent targets, or remove credentials managed by the app. Each AWS profile returns to its own last workspace.'
                     : activeProviderId === 'gcp'
                       ? 'Projects are loaded from the active Google credentials. Pick one project and the shell reuses that context across the shared workspaces.'
-                      : `${activeProvider.label} onboarding is staged here first so the adaptive rail, terminal, and diagnostics can attach to the same provider-aware selector later.`}
+                      : 'Subscriptions are loaded from the local az login session on this machine. Pick one subscription and the shared workspace reuses that Azure context.'}
                 </p>
               </div>
               {isAwsProviderActive ? (
@@ -5153,6 +5342,40 @@ export function App() {
                     </div>
                     <button type="button" onClick={() => void loadGcpCliContext()} disabled={gcpCliBusy || gcpProjectCatalogBusy}>
                       {gcpCliBusy ? 'Refreshing...' : gcpProjectCatalogBusy ? 'Syncing projects...' : 'Refresh catalog'}
+                    </button>
+                  </div>
+                </div>
+              ) : activeProviderId === 'azure' ? (
+                <div className="provider-selector-tools">
+                  <label className="profile-search-field">
+                    <span>Search Azure subscriptions</span>
+                    <input
+                      value={azureSubscriptionSearch}
+                      onChange={(event) => setAzureSubscriptionSearch(event.target.value)}
+                      placeholder={
+                        azureProviderContext?.auth.status === 'authenticated'
+                          ? 'Search subscription or tenant'
+                          : 'Search becomes available after az login'
+                      }
+                      disabled={azureProviderContext?.auth.status !== 'authenticated'}
+                    />
+                  </label>
+                  <div className="provider-selector-summary provider-selector-summary-actions">
+                    <div className="provider-selector-summary-copy">
+                      <span>Azure catalog</span>
+                      <strong>{azureProviderContext?.subscriptions.length ?? 0}</strong>
+                      <small>
+                        {azureContextError
+                          ? azureContextError
+                          : azureContextBusy
+                            ? 'Refreshing the Azure subscription catalog from az login.'
+                            : azureProviderContext?.auth.status === 'authenticated'
+                              ? `${azureProviderContext?.tenants.length ?? 0} tenants | ${azureProviderContext?.activeAccountLabel || 'Ready'}`
+                              : azureProviderContext?.auth.message || 'No local az login session found.'}
+                      </small>
+                    </div>
+                    <button type="button" onClick={() => void loadAzureContext()} disabled={azureContextBusy}>
+                      {azureContextBusy ? 'Refreshing...' : 'Refresh catalog'}
                     </button>
                   </div>
                 </div>
@@ -5283,14 +5506,10 @@ export function App() {
                 <AzureFoundationPanel
                   snapshot={azureProviderContext}
                   busy={azureContextBusy}
-                  error={azureContextError}
-                  modes={activeProviderModes}
-                  selectedModeId={selectedPreviewModeId}
-                  onSelectMode={handleSelectPreviewMode}
+                  searchQuery={azureSubscriptionSearch}
                   onRefresh={() => void loadAzureContext()}
                   onSignIn={() => void handleAzureDeviceCodeSignIn()}
                   onSignOut={() => void handleAzureSignOut()}
-                  onSelectTenant={(tenantId) => void handleApplyAzureTenant(tenantId)}
                   onSelectSubscription={(subscriptionId) => void handleApplyAzureSubscription(subscriptionId)}
                   onSelectLocation={(location) => void handleApplyAzureLocation(location)}
                   onOpenVerification={(url) => void openExternalUrl(url)}
@@ -5923,8 +6142,12 @@ export function App() {
         <SettingsPage
           isVisible={screen === 'settings'}
           appSettings={appSettings}
+          providers={providers}
+          providerConnectionModes={PROVIDER_CONNECTION_MODES}
           profiles={connectionState.profiles}
           regions={connectionState.regions}
+          gcpCliContext={gcpCliContext}
+          azureProviderContext={azureProviderContext}
           toolchainInfo={toolchainInfo}
           securitySummary={securitySummary}
           enterpriseSettings={enterpriseSettings}
