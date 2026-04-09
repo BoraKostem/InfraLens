@@ -316,7 +316,8 @@ export function AzureOverviewConsole({
   refreshNonce = 0,
   canRunTerminalCommand,
   onRunTerminalCommand,
-  onNavigate
+  onNavigate,
+  onOpenDirectAccess
 }: {
   modeLabel: string
   modeDetail: string
@@ -325,6 +326,7 @@ export function AzureOverviewConsole({
   canRunTerminalCommand: boolean
   onRunTerminalCommand: (command: string) => void
   onNavigate: (serviceId: ServiceId) => void
+  onOpenDirectAccess: () => void
 }) {
   const { projects, loading, error, freshness, refresh } = useAzureTrackedProjects(contextKey, refreshNonce)
   const summary = useMemo(() => aggregateSignals(projects), [projects])
@@ -402,6 +404,7 @@ export function AzureOverviewConsole({
           <button type="button" onClick={() => onNavigate('terraform')}>Open Terraform</button>
           <button type="button" onClick={() => onNavigate('compare')}>Open Compare</button>
           <button type="button" onClick={() => onNavigate('compliance-center')}>Open Compliance</button>
+          <button type="button" onClick={onOpenDirectAccess}>Open Direct Access</button>
           <button type="button" className="ghost" disabled={!canRunTerminalCommand} onClick={() => onRunTerminalCommand('az account show --output table')} title={!canRunTerminalCommand ? 'Switch to Operator mode to enable terminal actions' : 'az account show --output table'}>Inspect account</button>
           <button type="button" className="ghost" onClick={() => void openExternalUrl(azurePortalUrl())}>Open Azure Portal</button>
         </div>
@@ -578,12 +581,14 @@ export function AzureCompareWorkspace({
   modeLabel,
   contextKey,
   refreshNonce = 0,
-  onNavigate
+  onNavigate,
+  onOpenDirectAccess
 }: {
   modeLabel: string
   contextKey: string
   refreshNonce?: number
   onNavigate: (serviceId: ServiceId) => void
+  onOpenDirectAccess: () => void
 }) {
   const { projects, loading, error, freshness, refresh } = useAzureTrackedProjects(contextKey, refreshNonce)
   const [leftProjectId, setLeftProjectId] = useState('')
@@ -642,6 +647,7 @@ export function AzureCompareWorkspace({
           <button type="button" className="accent" onClick={() => void refresh('manual')} disabled={loading}>{loading ? 'Refreshing...' : 'Refresh compare'}</button>
           <button type="button" onClick={() => onNavigate('terraform')}>Open Terraform</button>
           <button type="button" onClick={() => onNavigate('compliance-center')}>Open Compliance</button>
+          <button type="button" onClick={onOpenDirectAccess}>Open Direct Access</button>
         </div>
         <div className="tf-shell-status"><FreshnessIndicator freshness={freshness} label="Azure compare" staleLabel="Refresh compare" /></div>
       </div>
@@ -695,7 +701,8 @@ export function AzureComplianceCenter({
   refreshNonce = 0,
   canRunTerminalCommand,
   onRunTerminalCommand,
-  onNavigate
+  onNavigate,
+  onOpenDirectAccess
 }: {
   modeLabel: string
   contextKey: string
@@ -703,6 +710,7 @@ export function AzureComplianceCenter({
   canRunTerminalCommand: boolean
   onRunTerminalCommand: (command: string) => void
   onNavigate: (serviceId: ServiceId) => void
+  onOpenDirectAccess: () => void
 }) {
   const { projects, loading, error, freshness, refresh } = useAzureTrackedProjects(contextKey, refreshNonce)
   const findings = useMemo<AzureFinding[]>(() => {
@@ -817,6 +825,7 @@ export function AzureComplianceCenter({
           <button type="button" className="accent" onClick={() => void refresh('manual')} disabled={loading}>{loading ? 'Refreshing...' : 'Refresh findings'}</button>
           <button type="button" onClick={() => onNavigate('terraform')}>Open Terraform</button>
           <button type="button" onClick={() => onNavigate('compare')}>Open Compare</button>
+          <button type="button" onClick={onOpenDirectAccess}>Open Direct Access</button>
         </div>
         <div className="tf-shell-status compliance-shell-status"><FreshnessIndicator freshness={freshness} label="Azure compliance report" staleLabel="Refresh findings" /></div>
       </div>
@@ -871,7 +880,9 @@ export function AzureDirectAccessWorkspace({
   canRunTerminalCommand,
   terminalReady,
   onRunTerminalCommand,
-  onNavigate
+  onNavigate,
+  onOpenCompare,
+  onOpenCompliance
 }: {
   modeLabel: string
   contextKey: string
@@ -880,6 +891,8 @@ export function AzureDirectAccessWorkspace({
   terminalReady: boolean
   onRunTerminalCommand: (command: string) => void
   onNavigate: (serviceId: ServiceId) => void
+  onOpenCompare: () => void
+  onOpenCompliance: () => void
 }) {
   const { projects, loading, error, freshness, refresh } = useAzureTrackedProjects(contextKey, refreshNonce)
   const [category, setCategory] = useState<AzureDirectCategory>('all')
@@ -971,6 +984,8 @@ export function AzureDirectAccessWorkspace({
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Resource name, type, group, id" />
           </label>
           <button type="button" onClick={() => onNavigate('terraform')}>Open Terraform</button>
+          <button type="button" onClick={onOpenCompare}>Open Compare</button>
+          <button type="button" onClick={onOpenCompliance}>Open Compliance</button>
         </div>
         <div className="tf-shell-status"><FreshnessIndicator freshness={freshness} label="Azure direct access catalog" staleLabel="Refresh resources" /></div>
       </div>
@@ -1023,6 +1038,8 @@ export function AzureDirectAccessWorkspace({
                 <div className="gcp-session-action-row">
                   <button type="button" disabled={!canRunTerminalCommand || !terminalReady} onClick={() => onRunTerminalCommand(command)} title={!canRunTerminalCommand || !terminalReady ? 'Switch to Operator mode and prepare the terminal context to enable direct lookup commands' : command}>Inspect in terminal</button>
                   <button type="button" onClick={() => onNavigate('terraform')}>Open Terraform</button>
+                  <button type="button" onClick={onOpenCompare}>Open Compare</button>
+                  <button type="button" onClick={onOpenCompliance}>Open Compliance</button>
                   <button type="button" className="ghost" onClick={() => void openExternalUrl(azurePortalUrl())}>Open Azure Portal</button>
                 </div>
                 <div className="tf-section">

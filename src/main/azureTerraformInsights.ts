@@ -251,7 +251,9 @@ export async function generateAzureTerraformObservabilityReport(
 
   const correlatedSignals: CorrelatedSignalReference[] = [
     { id: 'azure-terraform', title: 'Terraform workspace', detail: project.name, serviceId: 'terraform', targetView: 'drift' },
-    { id: 'azure-overview', title: 'Shared overview', detail: context.contextId, serviceId: 'overview', targetView: 'overview' }
+    { id: 'azure-overview', title: 'Shared overview', detail: context.contextId, serviceId: 'overview', targetView: 'overview' },
+    { id: 'azure-compliance', title: 'Compliance queue', detail: 'Azure heuristic findings', serviceId: 'compliance-center', targetView: 'tasks' },
+    { id: 'azure-compare', title: 'Compare workspace', detail: 'Cross-project Azure Terraform comparison', serviceId: 'compare', targetView: 'services' }
   ]
 
   return {
