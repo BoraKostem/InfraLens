@@ -2197,6 +2197,8 @@ export type AppDiagnosticsSnapshot = {
     cliPath: string
     activeContextLabel: string
     activeContextDetail: string
+    terraformContextKey: string
+    terminalReady: boolean
     sharedWorkspaceCount: number
     providerWorkspaceCount: number
   }
