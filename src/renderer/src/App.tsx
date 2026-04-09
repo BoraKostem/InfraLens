@@ -5428,6 +5428,7 @@ export function App() {
                 contextKey={azureTerraformContextKey}
                 refreshNonce={pageRefreshNonceByScreen.compare ?? 0}
                 onNavigate={(serviceId) => navigateToService(serviceId)}
+                onOpenDirectAccess={() => setScreen('direct-access')}
               />
             )
           }
@@ -5442,6 +5443,7 @@ export function App() {
                 canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
                 onRunTerminalCommand={handleOpenTerminalCommand}
                 onNavigate={(serviceId) => navigateToService(serviceId)}
+                onOpenDirectAccess={() => setScreen('direct-access')}
               />
             )
           }
@@ -5455,6 +5457,7 @@ export function App() {
                 canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
                 onRunTerminalCommand={handleOpenTerminalCommand}
                 onNavigate={(serviceId) => navigateToService(serviceId)}
+                onOpenDirectAccess={() => setScreen('direct-access')}
               />
             )
           }
@@ -5469,6 +5472,8 @@ export function App() {
                 terminalReady={Boolean(providerTerminalTarget)}
                 onRunTerminalCommand={handleOpenTerminalCommand}
                 onNavigate={(serviceId) => navigateToService(serviceId)}
+                onOpenCompare={() => setScreen('compare')}
+                onOpenCompliance={() => setScreen('compliance-center')}
               />
             )
           }
