@@ -141,6 +141,7 @@ type PendingTerminalCommand = { id: number; command: string } | null
 type RefreshState = { screen: Screen; sawPending: boolean } | null
 type FabMode = 'closed' | 'menu' | 'credentials'
 type CompareSeed = { token: number; request: ComparisonRequest } | null
+type AzureMonitorSeed = { query: string; token: number } | null
 type CompareSeedByScope = Partial<Record<string, NonNullable<CompareSeed>>>
 type ProfileContextMenuState = { profileName: string; x: number; y: number } | null
 type AuditSummary = {
@@ -3144,6 +3145,7 @@ export function App() {
   const [gcpCliError, setGcpCliError] = useState('')
   const [azureCatalogBusy, setAzureCatalogBusy] = useState(false)
   const [azureCatalogError, setAzureCatalogError] = useState('')
+  const [azureMonitorSeed, setAzureMonitorSeed] = useState<AzureMonitorSeed>(null)
   const [workspaceCatalog, setWorkspaceCatalog] = useState<WorkspaceCatalog | null>(null)
   const [services, setServices] = useState<ServiceDescriptor[]>([])
   const [pinnedServiceIds, setPinnedServiceIds] = useState<ServiceId[]>([])
@@ -3927,6 +3929,14 @@ export function App() {
       })
     }
     setScreen(serviceId)
+  }
+
+  function openAzureMonitor(query: string): void {
+    setAzureMonitorSeed({
+      query: query.trim(),
+      token: Date.now()
+    })
+    setScreen('azure-monitor')
   }
 
   function navigateWithFocus(focus: NavigationFocus, region?: string): void {
@@ -5655,6 +5665,8 @@ export function App() {
             refreshNonce={pageRefreshNonceByScreen['azure-subscriptions'] ?? 0}
             onRunTerminalCommand={handleOpenTerminalCommand}
             canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            onOpenCost={() => setScreen('azure-cost')}
+            onOpenMonitor={() => openAzureMonitor(activeAzureConnectionDraft.subscriptionLabel.trim())}
           />
         )
       }
@@ -5672,6 +5684,8 @@ export function App() {
             refreshNonce={pageRefreshNonceByScreen['azure-rbac'] ?? 0}
             onRunTerminalCommand={handleOpenTerminalCommand}
             canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            onOpenCompliance={() => setScreen('compliance-center')}
+            onOpenMonitor={() => openAzureMonitor('Microsoft.Authorization')}
           />
         )
       }
@@ -5690,6 +5704,8 @@ export function App() {
             refreshNonce={pageRefreshNonceByScreen['azure-virtual-machines'] ?? 0}
             onRunTerminalCommand={handleOpenTerminalCommand}
             canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            onOpenMonitor={(query) => openAzureMonitor(query)}
+            onOpenDirectAccess={() => setScreen('direct-access')}
           />
         )
       }
@@ -5708,6 +5724,7 @@ export function App() {
             refreshNonce={pageRefreshNonceByScreen['azure-aks'] ?? 0}
             onRunTerminalCommand={handleOpenTerminalCommand}
             canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            onOpenMonitor={(query) => openAzureMonitor(query)}
           />
         )
       }
@@ -5726,6 +5743,8 @@ export function App() {
             refreshNonce={pageRefreshNonceByScreen['azure-storage-accounts'] ?? 0}
             onRunTerminalCommand={handleOpenTerminalCommand}
             canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            onOpenMonitor={(query) => openAzureMonitor(query)}
+            onOpenDirectAccess={() => setScreen('direct-access')}
           />
         )
       }
@@ -5744,6 +5763,7 @@ export function App() {
             refreshNonce={pageRefreshNonceByScreen['azure-sql'] ?? 0}
             onRunTerminalCommand={handleOpenTerminalCommand}
             canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            onOpenMonitor={(query) => openAzureMonitor(query)}
           />
         )
       }
@@ -5762,6 +5782,11 @@ export function App() {
             refreshNonce={pageRefreshNonceByScreen['azure-monitor'] ?? 0}
             onRunTerminalCommand={handleOpenTerminalCommand}
             canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            initialQuery={azureMonitorSeed?.query ?? ''}
+            seedToken={azureMonitorSeed?.token ?? 0}
+            onOpenCompliance={() => setScreen('compliance-center')}
+            onOpenDirectAccess={() => setScreen('direct-access')}
+            onOpenService={(serviceId) => navigateToService(serviceId)}
           />
         )
       }
@@ -5779,6 +5804,7 @@ export function App() {
             refreshNonce={pageRefreshNonceByScreen['azure-cost'] ?? 0}
             onRunTerminalCommand={handleOpenTerminalCommand}
             canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            onOpenCompliance={() => setScreen('compliance-center')}
           />
         )
       }

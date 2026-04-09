@@ -30,18 +30,30 @@ function formatDateTime(value: string): string {
   return Number.isNaN(date.valueOf()) ? value : date.toLocaleString()
 }
 
+function inferAzureServiceFromMonitor(resourceType: string): 'azure-virtual-machines' | 'azure-aks' | 'azure-storage-accounts' | 'azure-sql' | 'azure-rbac' | null {
+  const normalized = resourceType.trim().toLowerCase()
+  if (normalized.includes('microsoft.compute')) return 'azure-virtual-machines'
+  if (normalized.includes('microsoft.containerservice')) return 'azure-aks'
+  if (normalized.includes('microsoft.storage')) return 'azure-storage-accounts'
+  if (normalized.includes('microsoft.sql')) return 'azure-sql'
+  if (normalized.includes('microsoft.authorization')) return 'azure-rbac'
+  return null
+}
+
 export function AzureSqlConsole({
   subscriptionId,
   location,
   refreshNonce,
   onRunTerminalCommand,
-  canRunTerminalCommand
+  canRunTerminalCommand,
+  onOpenMonitor
 }: {
   subscriptionId: string
   location: string
   refreshNonce: number
   onRunTerminalCommand: (command: string) => void
   canRunTerminalCommand: boolean
+  onOpenMonitor: (query: string) => void
 }): JSX.Element {
   const [overview, setOverview] = useState<AzureSqlEstateOverview | null>(null)
   const [loading, setLoading] = useState(true)
@@ -152,6 +164,7 @@ export function AzureSqlConsole({
                 <div className="gcp-overview-actions">
                   <button type="button" className="ghost" disabled={!canRunTerminalCommand || !selectedServer} onClick={() => selectedServer && onRunTerminalCommand(`az sql server show -g "${selectedServer.resourceGroup}" -n "${selectedServer.name}" --subscription "${subscriptionId}" --output jsonc`)}>Server snapshot</button>
                   <button type="button" className="ghost" disabled={!canRunTerminalCommand || !selectedServer} onClick={() => selectedServer && onRunTerminalCommand(`az sql db list -g "${selectedServer.resourceGroup}" -s "${selectedServer.name}" --subscription "${subscriptionId}" --output table`)}>List databases</button>
+                  <button type="button" className="ghost" disabled={!selectedServer} onClick={() => selectedServer && onOpenMonitor(`Microsoft.Sql ${selectedServer.name}`)}>Open monitor</button>
                 </div>
               </div>
             </div>
@@ -167,13 +180,23 @@ export function AzureMonitorConsole({
   location,
   refreshNonce,
   onRunTerminalCommand,
-  canRunTerminalCommand
+  canRunTerminalCommand,
+  initialQuery,
+  seedToken,
+  onOpenCompliance,
+  onOpenDirectAccess,
+  onOpenService
 }: {
   subscriptionId: string
   location: string
   refreshNonce: number
   onRunTerminalCommand: (command: string) => void
   canRunTerminalCommand: boolean
+  initialQuery: string
+  seedToken: number
+  onOpenCompliance: () => void
+  onOpenDirectAccess: () => void
+  onOpenService: (serviceId: 'azure-virtual-machines' | 'azure-aks' | 'azure-storage-accounts' | 'azure-sql' | 'azure-rbac') => void
 }): JSX.Element {
   const storageKey = `cloud-lens:azure-monitor-saved:${subscriptionId}`
   const [queryDraft, setQueryDraft] = useState('')
@@ -194,6 +217,12 @@ export function AzureMonitorConsole({
       setSavedQueries([])
     }
   }, [storageKey])
+
+  useEffect(() => {
+    if (!initialQuery.trim()) return
+    setQueryDraft(initialQuery)
+    setAppliedQuery(initialQuery)
+  }, [initialQuery, seedToken])
 
   useEffect(() => {
     let cancelled = false
@@ -219,6 +248,7 @@ export function AzureMonitorConsole({
   }, [appliedQuery, location, refreshNonce, subscriptionId])
 
   const selectedEvent = result?.events.find((event) => event.id === selectedEventId) ?? result?.events[0] ?? null
+  const relatedService = inferAzureServiceFromMonitor(selectedEvent?.resourceType || '')
 
   function persistQueries(nextQueries: string[]): void {
     setSavedQueries(nextQueries)
@@ -291,15 +321,22 @@ export function AzureMonitorConsole({
             <div className="panel overview-insights-panel">
               <div className="panel-header"><h3>Selected Event</h3></div>
               {!selectedEvent ? <SvcState variant="no-selection" resourceName="activity event" message="Choose an event to review operation, caller, and correlation data." /> : (
-                <div className="overview-note-list">
-                  <div className="overview-note-item">Status: {selectedEvent.status || 'Unknown'}</div>
-                  <div className="overview-note-item">Level: {selectedEvent.level || 'Unknown'}</div>
-                  <div className="overview-note-item">Caller: {selectedEvent.caller || 'Unknown caller'}</div>
-                  <div className="overview-note-item">Resource group: {selectedEvent.resourceGroup || 'Unknown group'}</div>
-                  <div className="overview-note-item">Resource type: {selectedEvent.resourceType || 'Unknown type'}</div>
-                  <div className="overview-note-item">Correlation: {selectedEvent.correlationId || 'Unavailable'}</div>
-                  <div className="overview-note-item">Summary: {selectedEvent.summary || 'No sub-status provided.'}</div>
-                </div>
+                <>
+                  <div className="overview-note-list">
+                    <div className="overview-note-item">Status: {selectedEvent.status || 'Unknown'}</div>
+                    <div className="overview-note-item">Level: {selectedEvent.level || 'Unknown'}</div>
+                    <div className="overview-note-item">Caller: {selectedEvent.caller || 'Unknown caller'}</div>
+                    <div className="overview-note-item">Resource group: {selectedEvent.resourceGroup || 'Unknown group'}</div>
+                    <div className="overview-note-item">Resource type: {selectedEvent.resourceType || 'Unknown type'}</div>
+                    <div className="overview-note-item">Correlation: {selectedEvent.correlationId || 'Unavailable'}</div>
+                    <div className="overview-note-item">Summary: {selectedEvent.summary || 'No sub-status provided.'}</div>
+                  </div>
+                  <div className="gcp-overview-actions">
+                    {relatedService ? <button type="button" className="ghost" onClick={() => onOpenService(relatedService)}>Open related service</button> : null}
+                    <button type="button" className="ghost" onClick={onOpenDirectAccess}>Direct access</button>
+                    <button type="button" className="ghost" onClick={onOpenCompliance}>Compliance</button>
+                  </div>
+                </>
               )}
             </div>
           </div>
@@ -313,12 +350,14 @@ export function AzureCostConsole({
   subscriptionId,
   refreshNonce,
   onRunTerminalCommand,
-  canRunTerminalCommand
+  canRunTerminalCommand,
+  onOpenCompliance
 }: {
   subscriptionId: string
   refreshNonce: number
   onRunTerminalCommand: (command: string) => void
   canRunTerminalCommand: boolean
+  onOpenCompliance: () => void
 }): JSX.Element {
   const [overview, setOverview] = useState<AzureCostOverview | null>(null)
   const [loading, setLoading] = useState(true)
@@ -407,6 +446,7 @@ export function AzureCostConsole({
                 </div>
                 <div className="gcp-overview-actions">
                   <button type="button" className="ghost" disabled={!canRunTerminalCommand} onClick={() => onRunTerminalCommand(`az costmanagement query --scope "/subscriptions/${subscriptionId}" --type Usage --timeframe MonthToDate --output jsonc`)}>Run cost query in terminal</button>
+                  <button type="button" className="ghost" onClick={onOpenCompliance}>Open compliance</button>
                 </div>
               </div>
             </div>
