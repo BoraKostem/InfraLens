@@ -11,7 +11,7 @@
   "type": "module",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "build": "node --max-old-space-size=4096 ./node_modules/electron-vite/bin/electron-vite.js build",
     "postinstall": "electron-builder install-app-deps",
     "dist": "pnpm build && electron-builder --publish never",
     "dist:win": "pnpm build && electron-builder --win nsis --publish never",
