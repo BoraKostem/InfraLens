@@ -51,8 +51,10 @@ const wrap: <T>(
 
 type GcpSdkModule = typeof import('./gcpSdk')
 type AzureFoundationModule = typeof import('./azureFoundation')
+type AzureSdkModule = typeof import('./azureSdk')
 
 let gcpSdkPromise: Promise<GcpSdkModule> | null = null
+let azureSdkPromise: Promise<AzureSdkModule> | null = null
 let azureFoundationPromise: Promise<AzureFoundationModule> | null = null
 
 function loadGcpSdk(): Promise<GcpSdkModule> {
@@ -69,6 +71,14 @@ function loadAzureFoundation(): Promise<AzureFoundationModule> {
   }
 
   return azureFoundationPromise
+}
+
+function loadAzureSdk(): Promise<AzureSdkModule> {
+  if (!azureSdkPromise) {
+    azureSdkPromise = import('./azureSdk')
+  }
+
+  return azureSdkPromise
 }
 
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void {
@@ -249,6 +259,51 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   )
   ipcMain.handle('gcp:billing:get-overview', async (_event, projectId: string, catalogProjectIds: string[]) =>
     wrap(async () => (await loadGcpSdk()).getGcpBillingOverview(projectId, catalogProjectIds))
+  )
+  ipcMain.handle('azure:subscriptions:list', async () =>
+    wrap(async () => (await loadAzureSdk()).listAzureSubscriptions())
+  )
+  ipcMain.handle('azure:rbac:get-overview', async (_event, subscriptionId: string) =>
+    wrap(async () => (await loadAzureSdk()).getAzureRbacOverview(subscriptionId))
+  )
+  ipcMain.handle('azure:virtual-machines:list', async (_event, subscriptionId: string, location: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureVirtualMachines(subscriptionId, location))
+  )
+  ipcMain.handle('azure:aks:list', async (_event, subscriptionId: string, location: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureAksClusters(subscriptionId, location))
+  )
+  ipcMain.handle('azure:storage-accounts:list', async (_event, subscriptionId: string, location: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureStorageAccounts(subscriptionId, location))
+  )
+  ipcMain.handle('azure:storage-containers:list', async (_event, subscriptionId: string, resourceGroup: string, accountName: string, blobEndpoint?: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureStorageContainers(subscriptionId, resourceGroup, accountName, blobEndpoint))
+  )
+  ipcMain.handle('azure:storage-blobs:list', async (_event, subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, prefix: string, blobEndpoint?: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureStorageBlobs(subscriptionId, resourceGroup, accountName, containerName, prefix, blobEndpoint))
+  )
+  ipcMain.handle('azure:storage-blob:get-content', async (_event, subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) =>
+    wrap(async () => (await loadAzureSdk()).getAzureStorageBlobContent(subscriptionId, resourceGroup, accountName, containerName, key, blobEndpoint))
+  )
+  ipcMain.handle('azure:storage-blob:put-content', async (_event, subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, content: string, blobEndpoint?: string) =>
+    wrap(async () => (await loadAzureSdk()).putAzureStorageBlobContent(subscriptionId, resourceGroup, accountName, containerName, key, content, blobEndpoint))
+  )
+  ipcMain.handle('azure:storage-blob:upload', async (_event, subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, localPath: string, blobEndpoint?: string) =>
+    wrap(async () => (await loadAzureSdk()).uploadAzureStorageBlob(subscriptionId, resourceGroup, accountName, containerName, key, localPath, blobEndpoint))
+  )
+  ipcMain.handle('azure:storage-blob:download', async (_event, subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) =>
+    wrap(async () => (await loadAzureSdk()).downloadAzureStorageBlobToPath(subscriptionId, resourceGroup, accountName, containerName, key, blobEndpoint))
+  )
+  ipcMain.handle('azure:storage-blob:delete', async (_event, subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) =>
+    wrap(async () => (await loadAzureSdk()).deleteAzureStorageBlob(subscriptionId, resourceGroup, accountName, containerName, key, blobEndpoint))
+  )
+  ipcMain.handle('azure:sql:get-estate', async (_event, subscriptionId: string, location: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureSqlEstate(subscriptionId, location))
+  )
+  ipcMain.handle('azure:monitor:list-activity', async (_event, subscriptionId: string, location: string, query: string, windowHours?: number) =>
+    wrap(async () => (await loadAzureSdk()).listAzureMonitorActivity(subscriptionId, location, query, windowHours))
+  )
+  ipcMain.handle('azure:cost:get-overview', async (_event, subscriptionId: string) =>
+    wrap(async () => (await loadAzureSdk()).getAzureCostOverview(subscriptionId))
   )
   ipcMain.handle('app:update:check', async () => wrap(() => checkForAppUpdates()))
   ipcMain.handle('app:update:download', async () => wrap(() => downloadAppUpdate()))

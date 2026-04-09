@@ -60,6 +60,17 @@ import type {
   GcpCliProject,
   AppReleaseInfo,
   AppSecuritySummary,
+  AzureAksClusterSummary,
+  AzureCostOverview,
+  AzureMonitorActivityResult,
+  AzureRbacOverview,
+  AzureSqlEstateOverview,
+  AzureStorageAccountSummary,
+  AzureStorageBlobContent,
+  AzureStorageBlobSummary,
+  AzureStorageContainerSummary,
+  AzureSubscriptionSummary,
+  AzureVirtualMachineSummary,
   CloudProviderId,
   CloudWatchInvestigationHistoryEntry,
   CloudWatchInvestigationHistoryInput,
@@ -1578,6 +1589,66 @@ export async function listGcpSqlOperations(projectId: string, instanceName: stri
 
 export async function getGcpBillingOverview(projectId: string, catalogProjectIds: string[]): Promise<GcpBillingOverview> {
   return unwrap((await rawAwsBridge().getGcpBillingOverview(projectId, catalogProjectIds)) as Wrapped<GcpBillingOverview>)
+}
+
+export async function listAzureSubscriptions(): Promise<AzureSubscriptionSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureSubscriptions()) as Wrapped<AzureSubscriptionSummary[]>)
+}
+
+export async function getAzureRbacOverview(subscriptionId: string): Promise<AzureRbacOverview> {
+  return unwrap((await rawAwsBridge().getAzureRbacOverview(subscriptionId)) as Wrapped<AzureRbacOverview>)
+}
+
+export async function listAzureVirtualMachines(subscriptionId: string, location: string): Promise<AzureVirtualMachineSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureVirtualMachines(subscriptionId, location)) as Wrapped<AzureVirtualMachineSummary[]>)
+}
+
+export async function listAzureAksClusters(subscriptionId: string, location: string): Promise<AzureAksClusterSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureAksClusters(subscriptionId, location)) as Wrapped<AzureAksClusterSummary[]>)
+}
+
+export async function listAzureStorageAccounts(subscriptionId: string, location: string): Promise<AzureStorageAccountSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureStorageAccounts(subscriptionId, location)) as Wrapped<AzureStorageAccountSummary[]>)
+}
+
+export async function listAzureStorageContainers(subscriptionId: string, resourceGroup: string, accountName: string, blobEndpoint = ''): Promise<AzureStorageContainerSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureStorageContainers(subscriptionId, resourceGroup, accountName, blobEndpoint)) as Wrapped<AzureStorageContainerSummary[]>)
+}
+
+export async function listAzureStorageBlobs(subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, prefix: string, blobEndpoint = ''): Promise<AzureStorageBlobSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureStorageBlobs(subscriptionId, resourceGroup, accountName, containerName, prefix, blobEndpoint)) as Wrapped<AzureStorageBlobSummary[]>)
+}
+
+export async function getAzureStorageBlobContent(subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint = ''): Promise<AzureStorageBlobContent> {
+  return unwrap((await rawAwsBridge().getAzureStorageBlobContent(subscriptionId, resourceGroup, accountName, containerName, key, blobEndpoint)) as Wrapped<AzureStorageBlobContent>)
+}
+
+export async function putAzureStorageBlobContent(subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, content: string, blobEndpoint = ''): Promise<void> {
+  await unwrap((await rawAwsBridge().putAzureStorageBlobContent(subscriptionId, resourceGroup, accountName, containerName, key, content, blobEndpoint)) as Wrapped<void>)
+}
+
+export async function uploadAzureStorageBlob(subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, localPath: string, blobEndpoint = ''): Promise<void> {
+  await unwrap((await rawAwsBridge().uploadAzureStorageBlob(subscriptionId, resourceGroup, accountName, containerName, key, localPath, blobEndpoint)) as Wrapped<void>)
+}
+
+export async function downloadAzureStorageBlobToPath(subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint = ''): Promise<string> {
+  return unwrap((await rawAwsBridge().downloadAzureStorageBlobToPath(subscriptionId, resourceGroup, accountName, containerName, key, blobEndpoint)) as Wrapped<string>)
+}
+
+export async function deleteAzureStorageBlob(subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint = ''): Promise<void> {
+  await unwrap((await rawAwsBridge().deleteAzureStorageBlob(subscriptionId, resourceGroup, accountName, containerName, key, blobEndpoint)) as Wrapped<void>)
+}
+
+export async function getAzureSqlEstate(subscriptionId: string, location: string): Promise<AzureSqlEstateOverview> {
+  return unwrap((await rawAwsBridge().getAzureSqlEstate(subscriptionId, location)) as Wrapped<AzureSqlEstateOverview>)
+}
+
+export async function listAzureMonitorActivity(subscriptionId: string, location: string, query: string, windowHours?: number): Promise<AzureMonitorActivityResult> {
+  return unwrap((await rawAwsBridge().listAzureMonitorActivity(subscriptionId, location, query, windowHours)) as Wrapped<AzureMonitorActivityResult>)
+}
+
+export async function getAzureCostOverview(subscriptionId: string): Promise<AzureCostOverview> {
+  return unwrap((await rawAwsBridge().getAzureCostOverview(subscriptionId)) as Wrapped<AzureCostOverview>)
 }
 
 export async function checkForAppUpdates(): Promise<AppReleaseInfo> {

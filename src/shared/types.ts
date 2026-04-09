@@ -631,13 +631,18 @@ export type AzureTenantSummary = {
 }
 
 export type AzureSubscriptionSummary = {
-  id: string
+  id?: string
   subscriptionId: string
   displayName: string
-  state: string
   tenantId: string
+  state: string
   authorizationSource: string
-  managedByTenants: string[]
+  managedByTenants?: string[]
+  spendingLimit?: string
+  quotaId?: string
+  locationCount?: number
+  locations?: string[]
+  managementGroupHints?: string[]
 }
 
 export type AzureLocationSummary = {
@@ -690,6 +695,205 @@ export type AzureProviderContextSnapshot = {
   recentSubscriptions: AzureSubscriptionSummary[]
   providerRegistrations: AzureProviderRegistrationSummary[]
   diagnostics: AzureContextDiagnostic[]
+}
+
+export type AzureRoleAssignmentSummary = {
+  id: string
+  principalId: string
+  principalType: string
+  roleName: string
+  scope: string
+  scopeKind: 'subscription' | 'resourceGroup' | 'resource'
+  inherited: boolean
+  risky: boolean
+  condition: string
+}
+
+export type AzureRbacOverview = {
+  subscriptionId: string
+  assignmentCount: number
+  principalCount: number
+  roleCount: number
+  riskyAssignmentCount: number
+  inheritedAssignmentCount: number
+  assignments: AzureRoleAssignmentSummary[]
+  notes: string[]
+}
+
+export type AzureVirtualMachineSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  vmSize: string
+  powerState: string
+  provisioningState: string
+  osType: string
+  identityType: string
+  privateIp: string
+  publicIp: string
+  hasPublicIp: boolean
+  subnetName: string
+  networkInterfaceCount: number
+  diagnosticsState: string
+  tagCount: number
+}
+
+export type AzureAksClusterSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  kubernetesVersion: string
+  provisioningState: string
+  powerState: string
+  nodePoolCount: number
+  nodeCount: number
+  privateCluster: boolean
+  identityType: string
+  workloadIdentityEnabled: boolean
+  oidcIssuerEnabled: boolean
+  networkPlugin: string
+  ingressProfile: string
+  agentPoolNames: string[]
+  notes: string[]
+}
+
+export type AzureStorageAccountSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  kind: string
+  skuName: string
+  accessTier: string
+  publicNetworkAccess: string
+  defaultNetworkAction: string
+  minimumTlsVersion: string
+  allowBlobPublicAccess: boolean
+  allowSharedKeyAccess: boolean
+  httpsOnly: boolean
+  versioningEnabled: boolean
+  changeFeedEnabled: boolean
+  blobDeleteRetentionDays: number
+  containerDeleteRetentionDays: number
+  primaryBlobEndpoint: string
+  containerCount: number
+  tagCount: number
+  notes: string[]
+}
+
+export type AzureStorageContainerSummary = {
+  name: string
+  publicAccess: string
+  metadataCount: number
+  leaseStatus: string
+  lastModified: string
+  hasImmutabilityPolicy: boolean
+  hasLegalHold: boolean
+  defaultEncryptionScope: string
+  denyEncryptionScopeOverride: boolean
+}
+
+export type AzureStorageBlobSummary = {
+  key: string
+  size: number
+  lastModified: string
+  contentType: string
+  accessTier: string
+  isFolder: boolean
+}
+
+export type AzureStorageBlobContent = {
+  body: string
+  contentType: string
+}
+
+export type AzureSqlServerSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  version: string
+  fullyQualifiedDomainName: string
+  publicNetworkAccess: string
+  minimalTlsVersion: string
+  administratorType: string
+  outboundNetworkRestriction: string
+  databaseCount: number
+  elasticPoolCount: number
+  tagCount: number
+  notes: string[]
+}
+
+export type AzureSqlDatabaseSummary = {
+  id: string
+  name: string
+  serverName: string
+  resourceGroup: string
+  location: string
+  status: string
+  skuName: string
+  edition: string
+  maxSizeGb: number
+  zoneRedundant: boolean
+  readScale: string
+  autoPauseDelayMinutes: number
+  backupStorageRedundancy: string
+}
+
+export type AzureSqlEstateOverview = {
+  subscriptionId: string
+  serverCount: number
+  databaseCount: number
+  publicServerCount: number
+  servers: AzureSqlServerSummary[]
+  databases: AzureSqlDatabaseSummary[]
+  notes: string[]
+}
+
+export type AzureMonitorFacetCount = {
+  label: string
+  count: number
+}
+
+export type AzureMonitorActivityEvent = {
+  id: string
+  timestamp: string
+  level: string
+  status: string
+  resourceGroup: string
+  resourceType: string
+  operationName: string
+  resourceId: string
+  caller: string
+  correlationId: string
+  summary: string
+}
+
+export type AzureMonitorActivityResult = {
+  query: string
+  events: AzureMonitorActivityEvent[]
+  statusCounts: AzureMonitorFacetCount[]
+  resourceTypeCounts: AzureMonitorFacetCount[]
+  notes: string[]
+}
+
+export type AzureCostBreakdownEntry = {
+  label: string
+  amount: number
+  currency: string
+  sharePercent: number
+}
+
+export type AzureCostOverview = {
+  subscriptionId: string
+  timeframeLabel: string
+  totalAmount: number
+  currency: string
+  topServices: AzureCostBreakdownEntry[]
+  topResourceGroups: AzureCostBreakdownEntry[]
+  notes: string[]
 }
 
 export type GcpProjectLabelSummary = {
@@ -1884,6 +2088,14 @@ export type ServiceId =
   | 'gcp-cloud-sql'
   | 'gcp-logging'
   | 'gcp-billing'
+  | 'azure-subscriptions'
+  | 'azure-rbac'
+  | 'azure-virtual-machines'
+  | 'azure-aks'
+  | 'azure-storage-accounts'
+  | 'azure-sql'
+  | 'azure-monitor'
+  | 'azure-cost'
 
 export type GovernanceTagKey = 'Owner' | 'Environment' | 'Project' | 'CostCenter'
 
@@ -2359,6 +2571,10 @@ export type AppDiagnosticsSnapshot = {
   }
   azure?: {
     modeLabel: string
+    selectedSubscriptionId?: string
+    selectedLocation?: string
+    catalogSubscriptionCount?: number
+    catalogError?: string
   }
 }
 

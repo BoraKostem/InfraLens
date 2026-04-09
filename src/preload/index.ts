@@ -187,6 +187,29 @@ const awsLensApi = {
   listGcpSqlDatabases: (projectId: string, instanceName: string) => ipcRenderer.invoke('gcp:cloud-sql:databases:list', projectId, instanceName),
   listGcpSqlOperations: (projectId: string, instanceName: string) => ipcRenderer.invoke('gcp:cloud-sql:operations:list', projectId, instanceName),
   getGcpBillingOverview: (projectId: string, catalogProjectIds: string[]) => ipcRenderer.invoke('gcp:billing:get-overview', projectId, catalogProjectIds),
+  listAzureSubscriptions: () => ipcRenderer.invoke('azure:subscriptions:list'),
+  getAzureRbacOverview: (subscriptionId: string) => ipcRenderer.invoke('azure:rbac:get-overview', subscriptionId),
+  listAzureVirtualMachines: (subscriptionId: string, location: string) => ipcRenderer.invoke('azure:virtual-machines:list', subscriptionId, location),
+  listAzureAksClusters: (subscriptionId: string, location: string) => ipcRenderer.invoke('azure:aks:list', subscriptionId, location),
+  listAzureStorageAccounts: (subscriptionId: string, location: string) => ipcRenderer.invoke('azure:storage-accounts:list', subscriptionId, location),
+  listAzureStorageContainers: (subscriptionId: string, resourceGroup: string, accountName: string, blobEndpoint?: string) =>
+    ipcRenderer.invoke('azure:storage-containers:list', subscriptionId, resourceGroup, accountName, blobEndpoint),
+  listAzureStorageBlobs: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, prefix: string, blobEndpoint?: string) =>
+    ipcRenderer.invoke('azure:storage-blobs:list', subscriptionId, resourceGroup, accountName, containerName, prefix, blobEndpoint),
+  getAzureStorageBlobContent: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) =>
+    ipcRenderer.invoke('azure:storage-blob:get-content', subscriptionId, resourceGroup, accountName, containerName, key, blobEndpoint),
+  putAzureStorageBlobContent: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, content: string, blobEndpoint?: string) =>
+    ipcRenderer.invoke('azure:storage-blob:put-content', subscriptionId, resourceGroup, accountName, containerName, key, content, blobEndpoint),
+  uploadAzureStorageBlob: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, localPath: string, blobEndpoint?: string) =>
+    ipcRenderer.invoke('azure:storage-blob:upload', subscriptionId, resourceGroup, accountName, containerName, key, localPath, blobEndpoint),
+  downloadAzureStorageBlobToPath: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) =>
+    ipcRenderer.invoke('azure:storage-blob:download', subscriptionId, resourceGroup, accountName, containerName, key, blobEndpoint),
+  deleteAzureStorageBlob: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) =>
+    ipcRenderer.invoke('azure:storage-blob:delete', subscriptionId, resourceGroup, accountName, containerName, key, blobEndpoint),
+  getAzureSqlEstate: (subscriptionId: string, location: string) => ipcRenderer.invoke('azure:sql:get-estate', subscriptionId, location),
+  listAzureMonitorActivity: (subscriptionId: string, location: string, query: string, windowHours?: number) =>
+    ipcRenderer.invoke('azure:monitor:list-activity', subscriptionId, location, query, windowHours),
+  getAzureCostOverview: (subscriptionId: string) => ipcRenderer.invoke('azure:cost:get-overview', subscriptionId),
   checkForAppUpdates: () => ipcRenderer.invoke('app:update:check'),
   downloadAppUpdate: () => ipcRenderer.invoke('app:update:download'),
   installAppUpdate: () => ipcRenderer.invoke('app:update:install'),

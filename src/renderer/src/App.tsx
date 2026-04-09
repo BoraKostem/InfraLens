@@ -13,6 +13,7 @@ import type {
   AppSecuritySummary,
   AppSettings,
   AzureProviderContextSnapshot,
+  AzureSubscriptionSummary,
   CloudProviderId,
   ComparisonRequest,
   EnvironmentHealthReport,
@@ -89,6 +90,14 @@ import {
 } from './api'
 import { AcmConsole } from './AcmConsole'
 import { AutoScalingConsole } from './AutoScalingConsole'
+import {
+  AzureAksConsole,
+  AzureRbacConsole,
+  AzureSubscriptionsConsole,
+  AzureVirtualMachinesConsole
+} from './AzureCoreConsoles'
+import { AzureCostConsole, AzureMonitorConsole, AzureSqlConsole } from './AzureOpsConsoles'
+import { AzureStorageAccountsConsole } from './AzureStorageConsole'
 import { AwsTerminalPanel } from './AwsTerminalPanel'
 import { AzureFoundationPanel } from './AzureFoundationPanel'
 import { CloudFormationConsole } from './CloudFormationConsole'
@@ -142,6 +151,7 @@ type PendingTerminalCommand = { id: number; command: string } | null
 type RefreshState = { screen: Screen; sawPending: boolean } | null
 type FabMode = 'closed' | 'menu' | 'credentials'
 type CompareSeed = { token: number; request: ComparisonRequest } | null
+type AzureMonitorSeed = { query: string; token: number } | null
 type CompareSeedByScope = Partial<Record<string, NonNullable<CompareSeed>>>
 type ProfileContextMenuState = { profileName: string; x: number; y: number } | null
 type AuditSummary = {
@@ -155,6 +165,7 @@ const GCP_CONNECTION_CONTEXT_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:gcp-conn
 const GCP_CLI_CONTEXT_CACHE_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:gcp-cli-context-cache-v1`
 const GCP_RECENT_PROJECTS_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:gcp-recent-projects-v1`
 const PREVIEW_MODE_SELECTION_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:provider-preview-mode-selection-v1`
+const AZURE_CONNECTION_CONTEXT_STORAGE_KEY = `${LEGACY_STORAGE_NAMESPACE}:azure-connection-context-v1`
 type EnvironmentOnboardingStep = 'profile' | 'region' | 'tooling' | 'access'
 type EnvironmentOnboardingState = {
   dismissed: boolean
@@ -175,6 +186,15 @@ type GcpConnectionDraft = {
   credentialHint: string
 }
 type GcpConnectionDraftByMode = Partial<Record<string, GcpConnectionDraft>>
+type AzureConnectionDraft = {
+  subscriptionId: string
+  subscriptionLabel: string
+  tenantId: string
+  location: string
+  availableLocations: string[]
+  credentialHint: string
+}
+type AzureConnectionDraftByMode = Partial<Record<string, AzureConnectionDraft>>
 
 type ProviderPreviewNavItem = {
   id: string
@@ -266,7 +286,15 @@ const SERVICE_DESCRIPTIONS: Record<ServiceId, string> = {
   'gcp-cloud-storage': 'Project-aware Cloud Storage inventory with bucket posture, object browser workflows, preview/edit paths, and shell handoff.',
   'gcp-cloud-sql': 'Project-aware Cloud SQL entry point staged for database posture, instance inventory, and connection helpers.',
   'gcp-logging': 'Project-aware Logging entry point staged for log exploration, query posture, and shell handoff.',
-  'gcp-billing': 'Project-aware Billing posture with project linkage, ownership signals, and billing account visibility.'
+  'gcp-billing': 'Project-aware Billing posture with project linkage, ownership signals, and billing account visibility.',
+  'azure-subscriptions': 'Tenant-aware subscription inventory with management-group hints, location coverage, and cost-facing context.',
+  'azure-rbac': 'Scope-aware RBAC posture with inherited assignments, risky roles, and principal filters.',
+  'azure-virtual-machines': 'Subscription-aware VM inventory with power state, identity posture, diagnostics links, and operator actions.',
+  'azure-aks': 'AKS inventory with cluster posture, node pool visibility, version context, and kubeconfig handoff.',
+  'azure-storage-accounts': 'Storage account posture plus container and blob workflows with preview, edit, upload, download, and delete flows.',
+  'azure-sql': 'Azure SQL server and database posture with network visibility, maintenance metadata, and connection helper handoff.',
+  'azure-monitor': 'Azure Monitor query workflows, saved investigations, and diagnostics entry points across Azure services.',
+  'azure-cost': 'Subscription cost posture with spend visibility, service mix, and budget-facing ownership hints.'
 }
 
 const SERVICE_MATURITY_LABELS: Record<ServiceMaturity, string> = {
@@ -372,52 +400,27 @@ const PROVIDER_CONNECTION_MODES: Record<CloudProviderId, ProviderConnectionMode[
     {
       id: 'azure-subscription',
       label: 'Subscription selector',
-      detail: 'Stage subscription-focused onboarding without breaking the shared workspaces that already exist.',
-      status: 'Phase 4 preview'
+      detail: 'Bind the shared shell to a real Azure subscription and keep service pages aligned to that selection.',
+      status: 'Live now'
     },
     {
       id: 'azure-tenant',
       label: 'Tenant-aware access flow',
-      detail: 'Prepare room for tenant selection and identity validation before the first Azure provider slices ship.',
-      status: 'Phase 4 preview'
+      detail: 'Keep tenant identity visible so RBAC posture and downstream service pages explain scope correctly.',
+      status: 'Live now'
     },
     {
       id: 'azure-cli-assist',
       label: 'CLI-assisted verification',
-      detail: 'Reserve shell messaging for future device login, `az` validation, and scoped diagnostics.',
-      status: 'Phase 4 preview'
+      detail: 'Expose Azure-aware terminal env hints without making core page loading depend on CLI parsing.',
+      status: 'Live now'
     }
   ]
 }
 
 const PROVIDER_PREVIEW_NAV_SECTIONS: Record<Exclude<CloudProviderId, 'aws'>, ProviderPreviewNavSection[]> = {
   gcp: [],
-  azure: [
-    {
-      id: 'azure-core',
-      label: 'Core',
-      items: [
-        { id: 'azure-resource-groups', label: 'Resource Groups', detail: 'Subscription inventory and grouping' },
-        { id: 'azure-vm', label: 'Virtual Machines', detail: 'VM operations and access context' }
-      ]
-    },
-    {
-      id: 'azure-platform',
-      label: 'Platform',
-      items: [
-        { id: 'azure-aks', label: 'AKS', detail: 'Cluster lifecycle and kubectl handoff' },
-        { id: 'azure-storage', label: 'Storage Accounts', detail: 'Storage posture and object workflows' }
-      ]
-    },
-    {
-      id: 'azure-ops',
-      label: 'Operations',
-      items: [
-        { id: 'azure-sql', label: 'Azure SQL', detail: 'Database inventory and connection helpers' },
-        { id: 'azure-monitor', label: 'Monitor', detail: 'Telemetry, alerts, and diagnostics posture' }
-      ]
-    }
-  ]
+  azure: []
 }
 
 const PROVIDER_AFFORDANCE_LABELS: Record<CloudProviderId, string> = {
@@ -501,8 +504,9 @@ function buildPreviewProviderTerminalEnv(
   mode: ProviderConnectionMode,
   options?: {
     gcpContext?: GcpConnectionDraft | null
+    azureDraftContext?: AzureConnectionDraft | null
     gcpCliPath?: string
-    azureContext?: AzureProviderContextSnapshot | null
+    azureProviderContext?: AzureProviderContextSnapshot | null
     azureCliPath?: string
   }
 ): Record<string, string> {
@@ -530,10 +534,12 @@ function buildPreviewProviderTerminalEnv(
     ...baseEnv,
     CLOUD_LENS_AZURE_MODE: mode.label,
     CLOUD_LENS_AZURE_MODE_ID: mode.id,
-    CLOUD_LENS_AZURE_TENANT: options?.azureContext?.activeTenantId.trim() || '',
-    CLOUD_LENS_AZURE_SUBSCRIPTION: options?.azureContext?.activeSubscriptionId.trim() || '',
-    CLOUD_LENS_AZURE_LOCATION: options?.azureContext?.activeLocation.trim() || '',
-    CLOUD_LENS_AZURE_ACCOUNT_LABEL: options?.azureContext?.activeAccountLabel.trim() || '',
+    CLOUD_LENS_AZURE_SUBSCRIPTION: options?.azureDraftContext?.subscriptionId.trim() || options?.azureProviderContext?.activeSubscriptionId.trim() || '',
+    CLOUD_LENS_AZURE_SUBSCRIPTION_LABEL: options?.azureDraftContext?.subscriptionLabel.trim() || '',
+    CLOUD_LENS_AZURE_TENANT: options?.azureProviderContext?.activeTenantId.trim() || options?.azureDraftContext?.tenantId.trim() || '',
+    CLOUD_LENS_AZURE_LOCATION: options?.azureDraftContext?.location.trim() || options?.azureProviderContext?.activeLocation.trim() || '',
+    CLOUD_LENS_AZURE_ACCOUNT_LABEL: options?.azureProviderContext?.activeAccountLabel.trim() || '',
+    CLOUD_LENS_AZURE_CREDENTIAL_HINT: options?.azureDraftContext?.credentialHint.trim() || '',
     CLOUD_LENS_AZURE_CLI_PATH: options?.azureCliPath?.trim() || ''
   }
 }
@@ -2533,6 +2539,25 @@ function mergeGcpLocations(...lists: Array<string[]>): string[] {
   })
 }
 
+function createDefaultAzureConnectionDraft(): AzureConnectionDraft {
+  return {
+    subscriptionId: '',
+    subscriptionLabel: '',
+    tenantId: '',
+    location: '',
+    availableLocations: [],
+    credentialHint: ''
+  }
+}
+
+function normalizeAzureLocations(locations: string[]): string[] {
+  return [...new Set(
+    locations
+      .map((value) => value.trim())
+      .filter(Boolean)
+  )].sort((left, right) => left.localeCompare(right))
+}
+
 function readGcpConnectionDrafts(): GcpConnectionDraftByMode {
   try {
     const raw = window.localStorage.getItem(GCP_CONNECTION_CONTEXT_STORAGE_KEY)
@@ -2563,6 +2588,42 @@ function writeGcpConnectionDrafts(drafts: GcpConnectionDraftByMode): void {
     window.localStorage.setItem(GCP_CONNECTION_CONTEXT_STORAGE_KEY, JSON.stringify(drafts))
   } catch {
     // Ignore preview context persistence failures and keep the current in-memory state.
+  }
+}
+
+function readAzureConnectionDrafts(): AzureConnectionDraftByMode {
+  try {
+    const raw = window.localStorage.getItem(AZURE_CONNECTION_CONTEXT_STORAGE_KEY)
+    if (!raw) {
+      return {}
+    }
+
+    const parsed = JSON.parse(raw) as Record<string, Partial<AzureConnectionDraft>>
+    const entries = Object.entries(parsed).map(([modeId, draft]) => [
+      modeId,
+      {
+        subscriptionId: typeof draft.subscriptionId === 'string' ? draft.subscriptionId : '',
+        subscriptionLabel: typeof draft.subscriptionLabel === 'string' ? draft.subscriptionLabel : '',
+        tenantId: typeof draft.tenantId === 'string' ? draft.tenantId : '',
+        location: typeof draft.location === 'string' ? draft.location : '',
+        availableLocations: Array.isArray(draft.availableLocations)
+          ? normalizeAzureLocations(draft.availableLocations.filter((value): value is string => typeof value === 'string'))
+          : [],
+        credentialHint: typeof draft.credentialHint === 'string' ? draft.credentialHint : ''
+      } satisfies AzureConnectionDraft
+    ] as const)
+
+    return Object.fromEntries(entries)
+  } catch {
+    return {}
+  }
+}
+
+function writeAzureConnectionDrafts(drafts: AzureConnectionDraftByMode): void {
+  try {
+    window.localStorage.setItem(AZURE_CONNECTION_CONTEXT_STORAGE_KEY, JSON.stringify(drafts))
+  } catch {
+    // Ignore Azure preview context persistence failures and keep the current in-memory state.
   }
 }
 
@@ -2680,6 +2741,10 @@ function isGcpContextReady(mode: ProviderConnectionMode | null, draft: GcpConnec
   return Boolean(mode && draft?.projectId.trim() && draft.location.trim())
 }
 
+function isAzureContextReady(mode: ProviderConnectionMode | null, draft: AzureConnectionDraft | null): boolean {
+  return Boolean(mode && draft?.subscriptionId.trim() && draft.location.trim())
+}
+
 function inferGcpModeIdFromContext(context: GcpCliContext): string {
   if (context.activeAccount.endsWith('.iam.gserviceaccount.com')) {
     return 'gcp-service-account'
@@ -2702,6 +2767,53 @@ function buildGcpDraftFromContext(context: GcpCliContext, modeId: string, curren
     projectId: current?.projectId.trim() || context.activeProjectId || current?.projectId || '',
     location: current?.location.trim() || inferredLocation,
     credentialHint: current?.credentialHint.trim() || inferredCredentialHint || ''
+  }
+}
+
+function buildAzureDraftFromSubscription(
+  subscription: AzureSubscriptionSummary,
+  modeId: string,
+  current?: AzureConnectionDraft | null
+): AzureConnectionDraft {
+  const defaultDraft = createDefaultAzureConnectionDraft()
+  const availableLocations = normalizeAzureLocations(subscription.locations ?? [])
+  const keepCurrentLocation = current?.subscriptionId.trim() === subscription.subscriptionId && current?.location.trim()
+
+  return {
+    subscriptionId: subscription.subscriptionId,
+    subscriptionLabel: subscription.displayName || subscription.subscriptionId,
+    tenantId: subscription.tenantId || current?.tenantId || '',
+    location: keepCurrentLocation ? current?.location.trim() || '' : availableLocations[0] ?? defaultDraft.location,
+    availableLocations,
+    credentialHint: modeId === 'azure-tenant'
+      ? (subscription.tenantId || current?.credentialHint || '')
+      : (subscription.displayName || subscription.subscriptionId)
+  }
+}
+
+function buildAzureDraftFromProviderSnapshot(
+  snapshot: AzureProviderContextSnapshot,
+  modeId: string,
+  current?: AzureConnectionDraft | null
+): AzureConnectionDraft {
+  const activeSubscription = snapshot.subscriptions.find((entry) => entry.subscriptionId === snapshot.activeSubscriptionId) ?? null
+  const baseDraft = activeSubscription
+    ? buildAzureDraftFromSubscription(activeSubscription, modeId, current)
+    : { ...(current ?? createDefaultAzureConnectionDraft()) }
+  const availableLocations = normalizeAzureLocations([
+    ...baseDraft.availableLocations,
+    ...snapshot.locations.map((entry) => entry.name),
+    snapshot.activeLocation
+  ])
+
+  return {
+    ...baseDraft,
+    subscriptionId: snapshot.activeSubscriptionId.trim() || baseDraft.subscriptionId,
+    subscriptionLabel: activeSubscription?.displayName || baseDraft.subscriptionLabel,
+    tenantId: snapshot.activeTenantId.trim() || baseDraft.tenantId,
+    location: snapshot.activeLocation.trim() || baseDraft.location || availableLocations[0] || '',
+    availableLocations,
+    credentialHint: baseDraft.credentialHint || snapshot.activeAccountLabel.trim()
   }
 }
 
@@ -2745,6 +2857,14 @@ function screenCacheTag(screen: Screen): CacheTag | null {
     case 'gcp-cloud-sql':
     case 'gcp-logging':
     case 'gcp-billing':
+    case 'azure-subscriptions':
+    case 'azure-rbac':
+    case 'azure-virtual-machines':
+    case 'azure-aks':
+    case 'azure-storage-accounts':
+    case 'azure-sql':
+    case 'azure-monitor':
+    case 'azure-cost':
       return 'shell'
     case 'session-hub':
       return null
@@ -2762,7 +2882,7 @@ function isProviderRefreshReady(
   activeCacheTag: CacheTag | null,
   activeShellConnection: AwsConnection | null,
   activeShellConnected: boolean,
-  gcpContextReady: boolean,
+  previewContextReady: boolean,
   selectedPreviewMode: ProviderConnectionMode | null,
   selectedService: ServiceDescriptor | null
 ): boolean {
@@ -2778,7 +2898,7 @@ function isProviderRefreshReady(
     return false
   }
 
-  return providerId === 'gcp' ? gcpContextReady : selectedPreviewMode !== null
+  return previewContextReady && selectedPreviewMode !== null
 }
 
 function refreshTagsForScreen(screen: Screen): CacheTag[] {
@@ -2809,6 +2929,7 @@ export function App() {
   const [activeProviderId, setActiveProviderId] = useState<CloudProviderId>(DEFAULT_PROVIDER_ID)
   const [selectedPreviewModeIds, setSelectedPreviewModeIds] = useState<Partial<Record<PreviewProviderId, string>>>(() => readPreviewModeSelections())
   const [gcpConnectionDrafts, setGcpConnectionDrafts] = useState<GcpConnectionDraftByMode>(() => readGcpConnectionDrafts())
+  const [azureConnectionDrafts, setAzureConnectionDrafts] = useState<AzureConnectionDraftByMode>(() => readAzureConnectionDrafts())
   const [gcpCliContext, setGcpCliContext] = useState<GcpCliContext | null>(() => readGcpCliContextCache())
   const [recentGcpProjectIds, setRecentGcpProjectIds] = useState<string[]>(() => readGcpRecentProjectIds())
   const [gcpCliBusy, setGcpCliBusy] = useState(false)
@@ -2817,6 +2938,7 @@ export function App() {
   const [azureProviderContext, setAzureProviderContext] = useState<AzureProviderContextSnapshot | null>(null)
   const [azureContextBusy, setAzureContextBusy] = useState(false)
   const [azureContextError, setAzureContextError] = useState('')
+  const [azureMonitorSeed, setAzureMonitorSeed] = useState<AzureMonitorSeed>(null)
   const [workspaceCatalog, setWorkspaceCatalog] = useState<WorkspaceCatalog | null>(null)
   const [services, setServices] = useState<ServiceDescriptor[]>([])
   const [pinnedServiceIds, setPinnedServiceIds] = useState<ServiceId[]>([])
@@ -3142,6 +3264,10 @@ export function App() {
   }, [gcpConnectionDrafts])
 
   useEffect(() => {
+    writeAzureConnectionDrafts(azureConnectionDrafts)
+  }, [azureConnectionDrafts])
+
+  useEffect(() => {
     writeGcpRecentProjectIds(recentGcpProjectIds)
   }, [recentGcpProjectIds])
 
@@ -3202,6 +3328,9 @@ export function App() {
   const activeGcpConnectionDraft = activeProviderId === 'gcp'
     ? gcpConnectionDrafts[selectedPreviewModeId] ?? (selectedPreviewMode ? createDefaultGcpConnectionDraft(selectedPreviewMode.id) : null)
     : null
+  const activeAzureConnectionDraft = activeProviderId === 'azure'
+    ? azureConnectionDrafts[selectedPreviewModeId] ?? (selectedPreviewMode ? createDefaultAzureConnectionDraft() : null)
+    : null
   const gcpCredentialFieldCopy = activeProviderId === 'gcp'
     ? getGcpCredentialFieldCopy(selectedPreviewMode?.id)
     : null
@@ -3210,7 +3339,9 @@ export function App() {
     activeProviderId === 'azure' ? azureProviderContext : null,
     activeProviderId === 'azure' ? selectedPreviewMode : null
   )
-  const azureContextReady = activeProviderId === 'azure' && azureProviderState.ready
+  const azureContextReady = activeProviderId === 'azure'
+    && azureProviderState.ready
+    && isAzureContextReady(selectedPreviewMode, activeAzureConnectionDraft)
   const activeGcpConfiguration = activeProviderId === 'gcp'
     ? gcpCliContext?.configurations.find((entry) => entry.isActive) ?? gcpCliContext?.configurations[0] ?? null
     : null
@@ -3235,23 +3366,31 @@ export function App() {
   const gcpCatalogLocation = activeProviderId === 'gcp'
     ? activeGcpConnectionDraft?.location.trim() || activeGcpConfiguration?.region || activeGcpConfiguration?.zone || 'us-central1'
     : ''
+  const azureLocationOptions = activeProviderId === 'azure'
+    ? normalizeAzureLocations(activeAzureConnectionDraft?.availableLocations ?? [])
+    : []
+  const previewContextReady = activeProviderId === 'gcp'
+    ? gcpContextReady
+    : activeProviderId === 'azure'
+      ? azureContextReady
+      : selectedPreviewMode !== null
   const serviceNavEnabled = isAwsProviderActive
     ? activeProvider.availability === 'available' && connectionState.connected
-    : activeProviderId === 'gcp'
-      ? gcpContextReady
-      : activeProviderId === 'azure'
-        ? azureContextReady
-        : selectedPreviewMode !== null
+    : previewContextReady
   const selectorPrimaryStatLabel = isAwsProviderActive
     ? 'Profiles'
     : activeProviderId === 'gcp'
       ? 'Projects'
-      : 'Connection modes'
+      : activeProviderId === 'azure'
+        ? 'Subscriptions'
+        : 'Connection modes'
   const selectorSecondaryStatLabel = isAwsProviderActive
     ? 'Pinned'
     : activeProviderId === 'gcp'
       ? 'Configs'
-      : 'Provider workspaces'
+      : activeProviderId === 'azure'
+        ? 'Locations'
+        : 'Provider workspaces'
   const providerProfileLabel = activeProvider.profileLabel.toLowerCase()
   const providerLocationLabel = activeProvider.locationLabel.toLowerCase()
   const auditSummary = useMemo<AuditSummary>(() => ({
@@ -3351,7 +3490,11 @@ export function App() {
     ? connectionState.activeSession?.sourceProfile || connectionState.selectedProfile?.name || connectionState.profile || 'No profile selected'
     : activeProviderId === 'gcp'
       ? activeGcpConnectionDraft?.projectId.trim() || selectedPreviewMode?.label || 'No project selected'
-      : azureProviderState.profileLabel
+      : activeProviderId === 'azure'
+        ? (azureContextReady
+          ? activeAzureConnectionDraft?.subscriptionLabel.trim() || azureProviderState.profileLabel
+          : azureProviderState.profileLabel)
+        : selectedPreviewMode?.label || 'No profile selected'
   const assumedRoleLabel = isAwsProviderActive && connectionState.activeSession
     ? `Assumed role: ${getRoleDisplayName(connectionState.activeSession.roleArn) || connectionState.activeSession.label}`
     : ''
@@ -3362,7 +3505,13 @@ export function App() {
           ? `${selectedPreviewMode.label} | ${activeGcpConnectionDraft?.location.trim()} ready`
           : `${selectedPreviewMode.label} | complete project context`
         : 'Select a connection mode'
-      : azureProviderState.profileMeta
+      : activeProviderId === 'azure'
+        ? (azureContextReady && selectedPreviewMode
+          ? `${selectedPreviewMode.label} | ${activeAzureConnectionDraft?.location.trim()} ready`
+          : azureProviderState.profileMeta)
+        : selectedPreviewMode
+          ? `${selectedPreviewMode.status} | terminal env ready`
+          : 'Select a connection mode'
     : connectionState.activeSession
       ? assumedRoleLabel
       : connectionState.selectedProfile
@@ -3376,7 +3525,13 @@ export function App() {
         : selectedPreviewMode
           ? `Mode: ${selectedPreviewMode.label}`
           : activeProvider.connectionLabel
-      : azureProviderState.providerMeta
+      : activeProviderId === 'azure'
+        ? (azureContextReady
+          ? `Subscription: ${activeAzureConnectionDraft?.subscriptionLabel.trim()} | ${activeProvider.locationLabel}: ${activeAzureConnectionDraft?.location.trim()}`
+          : azureProviderState.providerMeta)
+        : selectedPreviewMode
+          ? `Mode: ${selectedPreviewMode.label}`
+          : activeProvider.connectionLabel
   const navSharedServices = NAV_PRIORITY_SERVICE_IDS
     .map((serviceId) => services.find((service) => service.id === serviceId) ?? null)
     .filter((service): service is ServiceDescriptor => service !== null)
@@ -3384,23 +3539,21 @@ export function App() {
   const providerTerminalPreview = activeProviderId === 'aws' ? null : PROVIDER_TERMINAL_PREVIEWS[activeProviderId]
   const providerTerminalTarget = activeProviderId === 'aws'
     ? null
-    : selectedPreviewMode && (
-        (activeProviderId === 'gcp' && gcpContextReady)
-        || (activeProviderId === 'azure' && azureContextReady)
-      )
+    : selectedPreviewMode && previewContextReady
       ? {
           providerId: activeProviderId,
           label: activeProviderId === 'gcp' && activeGcpConnectionDraft
             ? `${activeProvider.label} | ${activeGcpConnectionDraft.projectId.trim() || selectedPreviewMode.label}`
-            : activeProviderId === 'azure'
-              ? `${activeProvider.label} | ${azureProviderState.activeScopeLabel}`
+            : activeProviderId === 'azure' && activeAzureConnectionDraft
+              ? `${activeProvider.label} | ${activeAzureConnectionDraft.subscriptionLabel.trim() || selectedPreviewMode.label}`
               : `${activeProvider.label} | ${selectedPreviewMode.label}`,
           modeId: selectedPreviewMode.id,
           modeLabel: selectedPreviewMode.label,
           env: buildPreviewProviderTerminalEnv(activeProviderId, activeProvider.label, selectedPreviewMode, {
             gcpContext: activeProviderId === 'gcp' ? activeGcpConnectionDraft : null,
+            azureDraftContext: activeProviderId === 'azure' ? activeAzureConnectionDraft : null,
             gcpCliPath: activeProviderId === 'gcp' ? detectedGcloudCliPath : '',
-            azureContext: activeProviderId === 'azure' ? azureProviderContext : null,
+            azureProviderContext: activeProviderId === 'azure' ? azureProviderContext : null,
             azureCliPath: activeProviderId === 'azure' ? detectedAzureCliPath : ''
           })
         }
@@ -3421,8 +3574,10 @@ export function App() {
         ? 'Idle'
         : activeProviderId === 'gcp' && gcpContextReady
           ? `${activeGcpConnectionDraft?.projectId.trim()} | ${activeGcpConnectionDraft?.location.trim()}`
-          : activeProviderId === 'azure'
-            ? azureProviderState.activityLabel
+          : activeProviderId === 'azure' && azureContextReady
+            ? `${activeAzureConnectionDraft?.subscriptionLabel.trim()} | ${activeAzureConnectionDraft?.location.trim()}`
+            : activeProviderId === 'azure'
+              ? azureProviderState.activityLabel
           : selectedPreviewMode
             ? `${selectedPreviewMode.label} selected`
             : `${activeProvider.shortLabel} preview`
@@ -3443,18 +3598,14 @@ export function App() {
   const terminalToggleEnabled = enterpriseSettings.accessMode === 'operator' && (
     isAwsProviderActive
       ? activeShellConnected
-      : activeProviderId === 'gcp'
-        ? gcpContextReady
-        : activeProviderId === 'azure'
-          ? azureContextReady
-          : selectedPreviewMode !== null
+      : previewContextReady
   )
   const connectionScopeKey = activeShellConnection
     ? `${activeProviderId}:${activeShellConnection.sessionId}:${activeShellConnection.region}`
       : activeProviderId === 'gcp' && selectedPreviewMode && activeGcpConnectionDraft
         ? `provider:${activeProviderId}:${selectedPreviewMode.id}:${activeGcpConnectionDraft.projectId.trim()}:${activeGcpConnectionDraft.location.trim()}`
-      : activeProviderId === 'azure' && selectedPreviewMode && azureProviderContext
-        ? `provider:${activeProviderId}:${selectedPreviewMode.id}:${azureProviderContext.activeTenantId}:${azureProviderContext.activeSubscriptionId}:${azureProviderContext.activeLocation}`
+      : activeProviderId === 'azure' && selectedPreviewMode && activeAzureConnectionDraft
+        ? `provider:${activeProviderId}:${selectedPreviewMode.id}:${azureProviderContext?.activeTenantId ?? ''}:${activeAzureConnectionDraft.subscriptionId.trim()}:${activeAzureConnectionDraft.location.trim()}`
       : selectedPreviewMode
         ? `provider:${activeProviderId}:${selectedPreviewMode.id}`
       : `provider:${activeProviderId}:disconnected`
@@ -3463,8 +3614,8 @@ export function App() {
     activeCacheTag,
     activeShellConnection,
     activeShellConnected,
-    gcpContextReady,
-    activeProviderId === 'azure' ? (azureContextReady ? selectedPreviewMode : null) : selectedPreviewMode,
+    previewContextReady,
+    selectedPreviewMode,
     selectedService
   )
   const isProviderPageRefreshing = activeProviderId === 'gcp'
@@ -3525,19 +3676,39 @@ export function App() {
   }, [activeProviderId, gcpCliContext, selectedPreviewModeId])
 
   useEffect(() => {
-    if (activeProviderId !== 'azure' || selectedPreviewMode) {
+    if (activeProviderId !== 'azure') {
       return
     }
 
-    if (azureProviderContext?.activeSubscriptionId) {
-      setSelectedPreviewModeIds((current) => ({ ...current, azure: 'azure-subscription' }))
+    if (!selectedPreviewMode) {
+      if (azureProviderContext?.activeSubscriptionId) {
+        setSelectedPreviewModeIds((current) => ({ ...current, azure: 'azure-subscription' }))
+        return
+      }
+
+      if (azureProviderContext?.activeTenantId) {
+        setSelectedPreviewModeIds((current) => ({ ...current, azure: 'azure-tenant' }))
+      }
       return
     }
 
-    if (azureProviderContext?.activeTenantId) {
-      setSelectedPreviewModeIds((current) => ({ ...current, azure: 'azure-tenant' }))
-    }
-  }, [activeProviderId, azureProviderContext?.activeSubscriptionId, azureProviderContext?.activeTenantId, selectedPreviewMode])
+    setAzureConnectionDrafts((current) => {
+      const nextDraft = azureProviderContext
+        ? buildAzureDraftFromProviderSnapshot(azureProviderContext, selectedPreviewMode.id, current[selectedPreviewMode.id] ?? null)
+        : current[selectedPreviewMode.id] ?? createDefaultAzureConnectionDraft()
+      return {
+        ...current,
+        [selectedPreviewMode.id]: nextDraft
+      }
+    })
+  }, [
+    activeProviderId,
+    azureProviderContext?.activeAccountLabel,
+    azureProviderContext?.activeLocation,
+    azureProviderContext?.activeSubscriptionId,
+    azureProviderContext?.activeTenantId,
+    selectedPreviewMode
+  ])
 
   useEffect(() => {
     if (activeProviderId !== 'aws' || !activeAwsScreenMemoryKey || !isRestorableAwsScreen(screen)) {
@@ -3583,6 +3754,14 @@ export function App() {
       })
     }
     setScreen(serviceId)
+  }
+
+  function openAzureMonitor(query: string): void {
+    setAzureMonitorSeed({
+      query: query.trim(),
+      token: Date.now()
+    })
+    setScreen('azure-monitor')
   }
 
   function navigateWithFocus(focus: NavigationFocus, region?: string): void {
@@ -3670,6 +3849,31 @@ export function App() {
       )
     }
 
+    if (service.providerId === 'azure') {
+      const contextLabel = azureContextReady
+        ? activeAzureConnectionDraft?.subscriptionLabel.trim() || 'Subscription ready'
+        : selectedPreviewMode?.label || 'Azure context pending'
+      const contextDetail = azureContextReady
+        ? `${activeAzureConnectionDraft?.location.trim()} | tenant ${activeAzureConnectionDraft?.tenantId.trim() || 'unknown'}`
+        : 'Select an Azure subscription and location in Connection Selector before opening this service.'
+
+      return (
+        <PlaceholderScreen
+          service={service}
+          eyebrow="Azure Rollout"
+          statusLabel="Context shell wired"
+          contextLabel={contextLabel}
+          contextDetail={contextDetail}
+          emptyTitle={`${service.label} is attached to the Azure provider shell.`}
+          emptyCopy={
+            azureContextReady
+              ? 'This entry now follows the selected tenant, subscription, location, and provider-aware terminal env.'
+              : 'Finish the Azure connection selector so the service page inherits the shared subscription and location context.'
+          }
+        />
+      )
+    }
+
     return <PlaceholderScreen service={service} />
   }
 
@@ -3710,6 +3914,10 @@ export function App() {
       setGcpConnectionDrafts((current) => current[modeId]
         ? current
         : { ...current, [modeId]: createDefaultGcpConnectionDraft(modeId) })
+    } else if (activePreviewProviderId === 'azure') {
+      setAzureConnectionDrafts((current) => current[modeId]
+        ? current
+        : { ...current, [modeId]: createDefaultAzureConnectionDraft() })
     }
     setSelectedPreviewModeIds((current) => ({ ...current, [activePreviewProviderId]: modeId }))
   }
@@ -3937,9 +4145,11 @@ export function App() {
           ? `${activeGcpConnectionDraft?.projectId.trim()} | ${activeGcpConnectionDraft?.location.trim()}`
           : 'Select a project to enable'
         : activeProviderId === 'azure'
-          ? selectedPreviewMode
-            ? `${selectedPreviewMode.label} | shared shell`
-            : 'Select a connection mode'
+          ? azureContextReady
+            ? `${activeAzureConnectionDraft?.subscriptionLabel.trim()} | ${activeAzureConnectionDraft?.location.trim()}`
+            : selectedPreviewMode
+              ? `${selectedPreviewMode.label} | shared shell`
+              : 'Select a connection mode'
           : ''
 
       return (
@@ -3970,9 +4180,11 @@ export function App() {
           ? `${activeGcpConnectionDraft?.projectId.trim()} | lookup staged`
           : 'Select a project to enable'
         : activeProviderId === 'azure'
-          ? selectedPreviewMode
-            ? `${selectedPreviewMode.label} | lookup staged`
-            : 'Select a connection mode'
+          ? azureContextReady
+            ? `${activeAzureConnectionDraft?.subscriptionLabel.trim()} | lookup staged`
+            : selectedPreviewMode
+              ? `${selectedPreviewMode.label} | lookup staged`
+              : 'Select a connection mode'
           : ''
 
       return (
@@ -4357,7 +4569,13 @@ export function App() {
           locationCount: gcpLocationOptions.length
         } : undefined,
         azure: activeProviderId === 'azure'
-          ? { modeLabel: selectedPreviewMode?.label ?? '' }
+          ? {
+              modeLabel: selectedPreviewMode?.label ?? '',
+              selectedSubscriptionId: activeAzureConnectionDraft?.subscriptionId.trim() ?? '',
+              selectedLocation: activeAzureConnectionDraft?.location.trim() ?? '',
+              catalogSubscriptionCount: azureProviderContext?.subscriptions.length ?? 0,
+              catalogError: azureContextError
+            }
           : undefined
       }
       const exported = await exportDiagnosticsBundle(snapshot)
@@ -5253,6 +5471,164 @@ export function App() {
         )
       }
 
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-subscriptions'
+        && targetService?.id === 'azure-subscriptions'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureSubscriptionsConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            location={activeAzureConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-subscriptions'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            onOpenCost={() => setScreen('azure-cost')}
+            onOpenMonitor={() => openAzureMonitor(activeAzureConnectionDraft.subscriptionLabel.trim())}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-rbac'
+        && targetService?.id === 'azure-rbac'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureRbacConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-rbac'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            onOpenCompliance={() => setScreen('compliance-center')}
+            onOpenMonitor={() => openAzureMonitor('Microsoft.Authorization')}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-virtual-machines'
+        && targetService?.id === 'azure-virtual-machines'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureVirtualMachinesConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            location={activeAzureConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-virtual-machines'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            onOpenMonitor={(query) => openAzureMonitor(query)}
+            onOpenDirectAccess={() => setScreen('direct-access')}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-aks'
+        && targetService?.id === 'azure-aks'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureAksConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            location={activeAzureConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-aks'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            onOpenMonitor={(query) => openAzureMonitor(query)}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-storage-accounts'
+        && targetService?.id === 'azure-storage-accounts'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureStorageAccountsConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            location={activeAzureConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-storage-accounts'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            onOpenMonitor={(query) => openAzureMonitor(query)}
+            onOpenDirectAccess={() => setScreen('direct-access')}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-sql'
+        && targetService?.id === 'azure-sql'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureSqlConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            location={activeAzureConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-sql'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            onOpenMonitor={(query) => openAzureMonitor(query)}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-monitor'
+        && targetService?.id === 'azure-monitor'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureMonitorConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            location={activeAzureConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-monitor'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            initialQuery={azureMonitorSeed?.query ?? ''}
+            seedToken={azureMonitorSeed?.token ?? 0}
+            onOpenCompliance={() => setScreen('compliance-center')}
+            onOpenDirectAccess={() => setScreen('direct-access')}
+            onOpenService={(serviceId) => navigateToService(serviceId)}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-cost'
+        && targetService?.id === 'azure-cost'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureCostConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-cost'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            onOpenCompliance={() => setScreen('compliance-center')}
+          />
+        )
+      }
+
       if (activeProviderId !== 'aws' && targetScreen !== 'settings') {
         if (activeProviderId === 'gcp' && targetScreen === 'session-hub') {
           return (
@@ -5382,13 +5758,17 @@ export function App() {
             description={previewDescription}
             contextLabel={activeProviderId === 'gcp' && gcpContextReady
               ? activeGcpConnectionDraft?.projectId.trim()
-              : activeProviderId === 'azure'
-                ? azureProviderState.previewContextLabel
+              : activeProviderId === 'azure' && azureContextReady
+                ? activeAzureConnectionDraft?.subscriptionLabel.trim()
+                : activeProviderId === 'azure' && selectedPreviewMode
+                  ? selectedPreviewMode.label
                 : undefined}
             contextDetail={activeProviderId === 'gcp' && gcpContextReady
               ? `${activeGcpConnectionDraft?.location.trim()} | ${selectedPreviewMode?.label || 'Google Cloud context'}`
-              : activeProviderId === 'azure'
-                ? azureProviderState.previewContextDetail
+              : activeProviderId === 'azure' && azureContextReady
+                ? `${activeAzureConnectionDraft?.location.trim()} | tenant ${activeAzureConnectionDraft?.tenantId.trim() || 'unknown'}`
+                : activeProviderId === 'azure' && selectedPreviewMode
+                  ? 'Shared shell context selected'
                 : undefined}
           />
         )
@@ -5722,11 +6102,41 @@ export function App() {
                 </small>
               </label>
             ) : activeProviderId === 'azure' ? (
-              <div className={`enterprise-sidebar-note provider-sidebar-note provider-sidebar-note-secondary provider-sidebar-note-${activeProviderId}`}>
-                <span>{activeProvider.locationLabel}</span>
-                <strong>{azureProviderState.sidebarContextTitle}</strong>
-                <small>{azureProviderState.sidebarContextDetail}</small>
-              </div>
+              <>
+                <div className={`enterprise-sidebar-note provider-sidebar-note provider-sidebar-note-secondary provider-sidebar-note-${activeProviderId}`}>
+                  <span>{activeProvider.locationLabel}</span>
+                  <strong>{azureContextReady ? activeAzureConnectionDraft?.location.trim() || azureProviderState.sidebarContextTitle : azureProviderState.sidebarContextTitle}</strong>
+                  <small>{azureContextReady ? `Tenant ${activeAzureConnectionDraft?.tenantId.trim() || 'unknown'} | Subscription ${activeAzureConnectionDraft?.subscriptionLabel.trim() || 'pending'}` : azureProviderState.sidebarContextDetail}</small>
+                </div>
+                <label className="field">
+                  <span>{activeProvider.locationLabel}</span>
+                  <select
+                    value={activeAzureConnectionDraft?.location.trim() || ''}
+                    onChange={(event) => handleApplyAzureLocation(event.target.value)}
+                    disabled={!selectedPreviewMode || azureLocationOptions.length === 0}
+                  >
+                    {!activeAzureConnectionDraft?.location.trim() ? (
+                      <option value="" disabled>
+                        {azureContextBusy ? 'Loading Azure locations...' : 'Select location'}
+                      </option>
+                    ) : null}
+                    {azureLocationOptions.map((location) => (
+                      <option key={location} value={location}>
+                        {location}
+                      </option>
+                    ))}
+                  </select>
+                  <small className="field-note">
+                    {selectedPreviewMode
+                      ? azureContextReady
+                        ? `Subscription ${activeAzureConnectionDraft?.subscriptionLabel.trim()} is now bound to ${activeAzureConnectionDraft?.location.trim()} for Azure service pages and terminal env injection.`
+                        : azureLocationOptions.length > 0
+                          ? 'Choose an Azure location to finish the shared subscription context.'
+                          : 'Refresh Azure foundation context to import visible locations.'
+                      : 'Select an Azure connection mode to start binding subscription context.'}
+                  </small>
+                </label>
+              </>
             ) : (
               <div className={`enterprise-sidebar-note provider-sidebar-note provider-sidebar-note-secondary provider-sidebar-note-${activeProviderId}`}>
                 <span>{activeProvider.locationLabel}</span>
