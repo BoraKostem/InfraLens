@@ -172,6 +172,15 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('azure:subscriptions:list', async () =>
     wrap(async () => (await loadAzureSdk()).listAzureSubscriptions())
   )
+  ipcMain.handle('azure:rbac:get-overview', async (_event, subscriptionId: string) =>
+    wrap(async () => (await loadAzureSdk()).getAzureRbacOverview(subscriptionId))
+  )
+  ipcMain.handle('azure:virtual-machines:list', async (_event, subscriptionId: string, location: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureVirtualMachines(subscriptionId, location))
+  )
+  ipcMain.handle('azure:aks:list', async (_event, subscriptionId: string, location: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureAksClusters(subscriptionId, location))
+  )
   ipcMain.handle('app:update:check', async () => wrap(() => checkForAppUpdates()))
   ipcMain.handle('app:update:download', async () => wrap(() => downloadAppUpdate()))
   ipcMain.handle('app:update:install', async () => wrap(() => installAppUpdate()))

@@ -48,7 +48,10 @@ import type {
   GcpCliProject,
   AppReleaseInfo,
   AppSecuritySummary,
+  AzureAksClusterSummary,
+  AzureRbacOverview,
   AzureSubscriptionSummary,
+  AzureVirtualMachineSummary,
   CloudProviderId,
   CloudWatchInvestigationHistoryEntry,
   CloudWatchInvestigationHistoryInput,
@@ -1467,6 +1470,18 @@ export async function getGcpBillingOverview(projectId: string, catalogProjectIds
 
 export async function listAzureSubscriptions(): Promise<AzureSubscriptionSummary[]> {
   return unwrap((await rawAwsBridge().listAzureSubscriptions()) as Wrapped<AzureSubscriptionSummary[]>)
+}
+
+export async function getAzureRbacOverview(subscriptionId: string): Promise<AzureRbacOverview> {
+  return unwrap((await rawAwsBridge().getAzureRbacOverview(subscriptionId)) as Wrapped<AzureRbacOverview>)
+}
+
+export async function listAzureVirtualMachines(subscriptionId: string, location: string): Promise<AzureVirtualMachineSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureVirtualMachines(subscriptionId, location)) as Wrapped<AzureVirtualMachineSummary[]>)
+}
+
+export async function listAzureAksClusters(subscriptionId: string, location: string): Promise<AzureAksClusterSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureAksClusters(subscriptionId, location)) as Wrapped<AzureAksClusterSummary[]>)
 }
 
 export async function checkForAppUpdates(): Promise<AppReleaseInfo> {

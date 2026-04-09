@@ -84,6 +84,12 @@ import {
 } from './api'
 import { AcmConsole } from './AcmConsole'
 import { AutoScalingConsole } from './AutoScalingConsole'
+import {
+  AzureAksConsole,
+  AzureRbacConsole,
+  AzureSubscriptionsConsole,
+  AzureVirtualMachinesConsole
+} from './AzureCoreConsoles'
 import { AwsTerminalPanel } from './AwsTerminalPanel'
 import { CloudFormationConsole } from './CloudFormationConsole'
 import { CompareWorkspace } from './CompareWorkspace'
@@ -5627,6 +5633,77 @@ export function App() {
             projectId={activeGcpConnectionDraft.projectId.trim()}
             location={activeGcpConnectionDraft.location.trim()}
             refreshNonce={pageRefreshNonceByScreen['gcp-billing'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-subscriptions'
+        && targetService?.id === 'azure-subscriptions'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureSubscriptionsConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            location={activeAzureConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-subscriptions'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-rbac'
+        && targetService?.id === 'azure-rbac'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureRbacConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-rbac'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-virtual-machines'
+        && targetService?.id === 'azure-virtual-machines'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureVirtualMachinesConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            location={activeAzureConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-virtual-machines'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-aks'
+        && targetService?.id === 'azure-aks'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureAksConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            location={activeAzureConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-aks'] ?? 0}
             onRunTerminalCommand={handleOpenTerminalCommand}
             canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
           />

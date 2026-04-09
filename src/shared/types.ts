@@ -616,6 +616,68 @@ export type AzureSubscriptionSummary = {
   managementGroupHints: string[]
 }
 
+export type AzureRoleAssignmentSummary = {
+  id: string
+  principalId: string
+  principalType: string
+  roleName: string
+  scope: string
+  scopeKind: 'subscription' | 'resourceGroup' | 'resource'
+  inherited: boolean
+  risky: boolean
+  condition: string
+}
+
+export type AzureRbacOverview = {
+  subscriptionId: string
+  assignmentCount: number
+  principalCount: number
+  roleCount: number
+  riskyAssignmentCount: number
+  inheritedAssignmentCount: number
+  assignments: AzureRoleAssignmentSummary[]
+  notes: string[]
+}
+
+export type AzureVirtualMachineSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  vmSize: string
+  powerState: string
+  provisioningState: string
+  osType: string
+  identityType: string
+  privateIp: string
+  publicIp: string
+  hasPublicIp: boolean
+  subnetName: string
+  networkInterfaceCount: number
+  diagnosticsState: string
+  tagCount: number
+}
+
+export type AzureAksClusterSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  kubernetesVersion: string
+  provisioningState: string
+  powerState: string
+  nodePoolCount: number
+  nodeCount: number
+  privateCluster: boolean
+  identityType: string
+  workloadIdentityEnabled: boolean
+  oidcIssuerEnabled: boolean
+  networkPlugin: string
+  ingressProfile: string
+  agentPoolNames: string[]
+  notes: string[]
+}
+
 export type GcpProjectLabelSummary = {
   key: string
   value: string
