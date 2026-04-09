@@ -63,13 +63,17 @@ export function AzureStorageAccountsConsole({
   location,
   refreshNonce,
   onRunTerminalCommand,
-  canRunTerminalCommand
+  canRunTerminalCommand,
+  onOpenMonitor,
+  onOpenDirectAccess
 }: {
   subscriptionId: string
   location: string
   refreshNonce: number
   onRunTerminalCommand: (command: string) => void
   canRunTerminalCommand: boolean
+  onOpenMonitor: (query: string) => void
+  onOpenDirectAccess: () => void
 }): JSX.Element {
   const [accounts, setAccounts] = useState<AzureStorageAccountSummary[]>([])
   const [accountsLoading, setAccountsLoading] = useState(true)
@@ -407,6 +411,8 @@ export function AzureStorageAccountsConsole({
                         <button className="s3-btn" type="button" onClick={() => void browseAccount(selectedAccount, selectedContainer)} disabled={containersLoading}>Refresh</button>
                         <button className="s3-btn" type="button" onClick={() => void browseContainer(selectedAccount, selectedContainerSummary?.name || '', parentBlobPrefix(prefix))} disabled={!selectedContainerSummary || !prefix}>Go Up</button>
                         <button className="s3-btn" type="button" disabled={!canRunTerminalCommand} onClick={() => onRunTerminalCommand(`az storage account show -g "${selectedAccount.resourceGroup}" -n "${selectedAccount.name}" --subscription "${subscriptionId}" --output jsonc`)}>Inspect account</button>
+                        <button className="s3-btn" type="button" onClick={() => onOpenMonitor(`Microsoft.Storage ${selectedAccount.name}`)}>Open monitor</button>
+                        <button className="s3-btn" type="button" onClick={onOpenDirectAccess}>Direct access</button>
                         <button className="s3-btn" type="button" disabled={!selectedBlob || selectedBlob.isFolder} onClick={() => selectedBlob && selectedContainerSummary && void previewBlob(selectedAccount, selectedContainerSummary.name, selectedBlob)}>Open / Preview</button>
                       </div>
                       <div className="s3-shell-status">
@@ -618,6 +624,16 @@ export function AzureStorageAccountsConsole({
                           </div>
                           <button className="s3-btn s3-next-action-btn" type="button" disabled={!canRunTerminalCommand} onClick={() => onRunTerminalCommand(`az storage account show -g "${selectedAccount.resourceGroup}" -n "${selectedAccount.name}" --subscription "${subscriptionId}" --output jsonc`)}>
                             Open Account
+                          </button>
+                        </div>
+                        <div className="s3-next-action-card editable">
+                          <div className="s3-next-action-copy">
+                            <span className="s3-action-mode editable">Diagnostics</span>
+                            <strong>Open Monitor</strong>
+                            <span>Carry the selected storage account context into the Monitor investigation workspace.</span>
+                          </div>
+                          <button className="s3-btn s3-next-action-btn" type="button" onClick={() => onOpenMonitor(`Microsoft.Storage ${selectedAccount.name}`)}>
+                            Open Monitor
                           </button>
                         </div>
                         <div className="s3-next-action-card editable">

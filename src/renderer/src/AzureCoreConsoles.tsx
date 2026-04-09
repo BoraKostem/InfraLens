@@ -39,13 +39,17 @@ export function AzureSubscriptionsConsole({
   location,
   refreshNonce,
   onRunTerminalCommand,
-  canRunTerminalCommand
+  canRunTerminalCommand,
+  onOpenCost,
+  onOpenMonitor
 }: {
   subscriptionId: string
   location: string
   refreshNonce: number
   onRunTerminalCommand: (command: string) => void
   canRunTerminalCommand: boolean
+  onOpenCost: () => void
+  onOpenMonitor: () => void
 }): JSX.Element {
   const [subscriptions, setSubscriptions] = useState<AzureSubscriptionSummary[]>([])
   const [loading, setLoading] = useState(true)
@@ -174,6 +178,12 @@ export function AzureSubscriptionsConsole({
                   >
                     List locations
                   </button>
+                  <button type="button" className="ghost" onClick={onOpenCost}>
+                    Open cost
+                  </button>
+                  <button type="button" className="ghost" onClick={onOpenMonitor}>
+                    Open monitor
+                  </button>
                 </div>
               </div>
             </div>
@@ -188,12 +198,16 @@ export function AzureRbacConsole({
   subscriptionId,
   refreshNonce,
   onRunTerminalCommand,
-  canRunTerminalCommand
+  canRunTerminalCommand,
+  onOpenCompliance,
+  onOpenMonitor
 }: {
   subscriptionId: string
   refreshNonce: number
   onRunTerminalCommand: (command: string) => void
   canRunTerminalCommand: boolean
+  onOpenCompliance: () => void
+  onOpenMonitor: () => void
 }): JSX.Element {
   const [overview, setOverview] = useState<AzureRbacOverview | null>(null)
   const [loading, setLoading] = useState(true)
@@ -323,6 +337,12 @@ export function AzureRbacConsole({
                   >
                     List roles
                   </button>
+                  <button type="button" className="ghost" onClick={onOpenCompliance}>
+                    Open compliance
+                  </button>
+                  <button type="button" className="ghost" onClick={onOpenMonitor}>
+                    Open monitor
+                  </button>
                 </div>
               </div>
             </div>
@@ -338,13 +358,17 @@ export function AzureVirtualMachinesConsole({
   location,
   refreshNonce,
   onRunTerminalCommand,
-  canRunTerminalCommand
+  canRunTerminalCommand,
+  onOpenMonitor,
+  onOpenDirectAccess
 }: {
   subscriptionId: string
   location: string
   refreshNonce: number
   onRunTerminalCommand: (command: string) => void
   canRunTerminalCommand: boolean
+  onOpenMonitor: (query: string) => void
+  onOpenDirectAccess: () => void
 }): JSX.Element {
   const [machines, setMachines] = useState<AzureVirtualMachineSummary[]>([])
   const [loading, setLoading] = useState(true)
@@ -449,6 +473,17 @@ export function AzureVirtualMachinesConsole({
               ))}
             </div>
           </div>
+          <div className="panel overview-insights-panel">
+            <div className="panel-header"><h3>Cross-links</h3></div>
+            <div className="gcp-overview-actions">
+              <button type="button" className="ghost" onClick={() => onOpenMonitor('Microsoft.Compute virtualMachines')}>
+                Open monitor
+              </button>
+              <button type="button" className="ghost" onClick={onOpenDirectAccess}>
+                Open direct access
+              </button>
+            </div>
+          </div>
         </>
       ) : null}
     </div>
@@ -460,13 +495,15 @@ export function AzureAksConsole({
   location,
   refreshNonce,
   onRunTerminalCommand,
-  canRunTerminalCommand
+  canRunTerminalCommand,
+  onOpenMonitor
 }: {
   subscriptionId: string
   location: string
   refreshNonce: number
   onRunTerminalCommand: (command: string) => void
   canRunTerminalCommand: boolean
+  onOpenMonitor: (query: string) => void
 }): JSX.Element {
   const [clusters, setClusters] = useState<AzureAksClusterSummary[]>([])
   const [loading, setLoading] = useState(true)
@@ -568,6 +605,14 @@ export function AzureAksConsole({
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+          <div className="panel overview-insights-panel">
+            <div className="panel-header"><h3>Cross-links</h3></div>
+            <div className="gcp-overview-actions">
+              <button type="button" className="ghost" onClick={() => onOpenMonitor('Microsoft.ContainerService managedClusters')}>
+                Open monitor
+              </button>
             </div>
           </div>
         </>
