@@ -138,6 +138,14 @@ declare global {
       getAzureRbacOverview: (subscriptionId: string) => Promise<unknown>
       listAzureVirtualMachines: (subscriptionId: string, location: string) => Promise<unknown>
       listAzureAksClusters: (subscriptionId: string, location: string) => Promise<unknown>
+      listAzureStorageAccounts: (subscriptionId: string, location: string) => Promise<unknown>
+      listAzureStorageContainers: (subscriptionId: string, resourceGroup: string, accountName: string, blobEndpoint?: string) => Promise<unknown>
+      listAzureStorageBlobs: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, prefix: string, blobEndpoint?: string) => Promise<unknown>
+      getAzureStorageBlobContent: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) => Promise<unknown>
+      putAzureStorageBlobContent: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, content: string, blobEndpoint?: string) => Promise<unknown>
+      uploadAzureStorageBlob: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, localPath: string, blobEndpoint?: string) => Promise<unknown>
+      downloadAzureStorageBlobToPath: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) => Promise<unknown>
+      deleteAzureStorageBlob: (subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) => Promise<unknown>
       checkForAppUpdates: () => Promise<unknown>
       downloadAppUpdate: () => Promise<unknown>
       installAppUpdate: () => Promise<unknown>

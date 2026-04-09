@@ -678,6 +678,56 @@ export type AzureAksClusterSummary = {
   notes: string[]
 }
 
+export type AzureStorageAccountSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  kind: string
+  skuName: string
+  accessTier: string
+  publicNetworkAccess: string
+  defaultNetworkAction: string
+  minimumTlsVersion: string
+  allowBlobPublicAccess: boolean
+  allowSharedKeyAccess: boolean
+  httpsOnly: boolean
+  versioningEnabled: boolean
+  changeFeedEnabled: boolean
+  blobDeleteRetentionDays: number
+  containerDeleteRetentionDays: number
+  primaryBlobEndpoint: string
+  containerCount: number
+  tagCount: number
+  notes: string[]
+}
+
+export type AzureStorageContainerSummary = {
+  name: string
+  publicAccess: string
+  metadataCount: number
+  leaseStatus: string
+  lastModified: string
+  hasImmutabilityPolicy: boolean
+  hasLegalHold: boolean
+  defaultEncryptionScope: string
+  denyEncryptionScopeOverride: boolean
+}
+
+export type AzureStorageBlobSummary = {
+  key: string
+  size: number
+  lastModified: string
+  contentType: string
+  accessTier: string
+  isFolder: boolean
+}
+
+export type AzureStorageBlobContent = {
+  body: string
+  contentType: string
+}
+
 export type GcpProjectLabelSummary = {
   key: string
   value: string

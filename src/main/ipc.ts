@@ -181,6 +181,30 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('azure:aks:list', async (_event, subscriptionId: string, location: string) =>
     wrap(async () => (await loadAzureSdk()).listAzureAksClusters(subscriptionId, location))
   )
+  ipcMain.handle('azure:storage-accounts:list', async (_event, subscriptionId: string, location: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureStorageAccounts(subscriptionId, location))
+  )
+  ipcMain.handle('azure:storage-containers:list', async (_event, subscriptionId: string, resourceGroup: string, accountName: string, blobEndpoint?: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureStorageContainers(subscriptionId, resourceGroup, accountName, blobEndpoint))
+  )
+  ipcMain.handle('azure:storage-blobs:list', async (_event, subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, prefix: string, blobEndpoint?: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureStorageBlobs(subscriptionId, resourceGroup, accountName, containerName, prefix, blobEndpoint))
+  )
+  ipcMain.handle('azure:storage-blob:get-content', async (_event, subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) =>
+    wrap(async () => (await loadAzureSdk()).getAzureStorageBlobContent(subscriptionId, resourceGroup, accountName, containerName, key, blobEndpoint))
+  )
+  ipcMain.handle('azure:storage-blob:put-content', async (_event, subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, content: string, blobEndpoint?: string) =>
+    wrap(async () => (await loadAzureSdk()).putAzureStorageBlobContent(subscriptionId, resourceGroup, accountName, containerName, key, content, blobEndpoint))
+  )
+  ipcMain.handle('azure:storage-blob:upload', async (_event, subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, localPath: string, blobEndpoint?: string) =>
+    wrap(async () => (await loadAzureSdk()).uploadAzureStorageBlob(subscriptionId, resourceGroup, accountName, containerName, key, localPath, blobEndpoint))
+  )
+  ipcMain.handle('azure:storage-blob:download', async (_event, subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) =>
+    wrap(async () => (await loadAzureSdk()).downloadAzureStorageBlobToPath(subscriptionId, resourceGroup, accountName, containerName, key, blobEndpoint))
+  )
+  ipcMain.handle('azure:storage-blob:delete', async (_event, subscriptionId: string, resourceGroup: string, accountName: string, containerName: string, key: string, blobEndpoint?: string) =>
+    wrap(async () => (await loadAzureSdk()).deleteAzureStorageBlob(subscriptionId, resourceGroup, accountName, containerName, key, blobEndpoint))
+  )
   ipcMain.handle('app:update:check', async () => wrap(() => checkForAppUpdates()))
   ipcMain.handle('app:update:download', async () => wrap(() => downloadAppUpdate()))
   ipcMain.handle('app:update:install', async () => wrap(() => installAppUpdate()))

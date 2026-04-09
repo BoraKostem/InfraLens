@@ -90,6 +90,7 @@ import {
   AzureSubscriptionsConsole,
   AzureVirtualMachinesConsole
 } from './AzureCoreConsoles'
+import { AzureStorageAccountsConsole } from './AzureStorageConsole'
 import { AwsTerminalPanel } from './AwsTerminalPanel'
 import { CloudFormationConsole } from './CloudFormationConsole'
 import { CompareWorkspace } from './CompareWorkspace'
@@ -5704,6 +5705,24 @@ export function App() {
             subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
             location={activeAzureConnectionDraft.location.trim()}
             refreshNonce={pageRefreshNonceByScreen['azure-aks'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-storage-accounts'
+        && targetService?.id === 'azure-storage-accounts'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureStorageAccountsConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            location={activeAzureConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-storage-accounts'] ?? 0}
             onRunTerminalCommand={handleOpenTerminalCommand}
             canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
           />
