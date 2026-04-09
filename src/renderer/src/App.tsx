@@ -81,7 +81,7 @@ import {
   type CacheTag
 } from './api'
 import { AcmConsole } from './AcmConsole'
-import { AzureCompareWorkspace, AzureComplianceCenter, AzureOverviewConsole, AzureSessionHub } from './AzureSharedWorkspaces'
+import { AzureCompareWorkspace, AzureComplianceCenter, AzureDirectAccessWorkspace, AzureOverviewConsole, AzureSessionHub } from './AzureSharedWorkspaces'
 import { AutoScalingConsole } from './AutoScalingConsole'
 import { AwsTerminalPanel } from './AwsTerminalPanel'
 import { CloudFormationConsole } from './CloudFormationConsole'
@@ -4421,6 +4421,8 @@ export function App() {
               cliPath: detectedAzureCliPath,
               activeContextLabel: selectedPreviewMode?.label ?? '',
               activeContextDetail: selectedPreviewMode?.detail ?? '',
+              terraformContextKey: `provider:azure:terraform:${selectedPreviewMode?.id || 'unscoped'}:global`,
+              terminalReady: Boolean(providerTerminalTarget),
               sharedWorkspaceCount,
               providerWorkspaceCount
             }
@@ -5451,6 +5453,20 @@ export function App() {
                 contextKey={azureTerraformContextKey}
                 refreshNonce={pageRefreshNonceByScreen['compliance-center'] ?? 0}
                 canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+                onRunTerminalCommand={handleOpenTerminalCommand}
+                onNavigate={(serviceId) => navigateToService(serviceId)}
+              />
+            )
+          }
+
+          if (targetScreen === 'direct-access') {
+            return (
+              <AzureDirectAccessWorkspace
+                modeLabel={azureModeLabel}
+                contextKey={azureTerraformContextKey}
+                refreshNonce={pageRefreshNonceByScreen['direct-access'] ?? 0}
+                canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+                terminalReady={Boolean(providerTerminalTarget)}
                 onRunTerminalCommand={handleOpenTerminalCommand}
                 onNavigate={(serviceId) => navigateToService(serviceId)}
               />

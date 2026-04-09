@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import type { ServiceId, TerraformProjectListItem } from '@shared/types'
+import type { ServiceId, TerraformProjectListItem, TerraformResourceInventoryItem } from '@shared/types'
 import { openExternalUrl } from './api'
 import './compare.css'
 import './compliance-center.css'
+import './direct-resource.css'
 import { FreshnessIndicator, useFreshnessState } from './freshness'
 import './gcp-session-hub.css'
 import { SvcState } from './SvcState'
@@ -165,6 +166,66 @@ function formatProjectPath(rootPath: string): string {
 
 function azurePortalUrl(): string {
   return 'https://portal.azure.com/#home'
+}
+
+type AzureDirectCategory = 'all' | 'virtual-machine' | 'aks' | 'storage' | 'database' | 'security' | 'network' | 'other'
+
+type AzureTrackedResource = {
+  key: string
+  projectId: string
+  projectName: string
+  workspace: string
+  category: AzureDirectCategory
+  type: string
+  name: string
+  address: string
+  location: string
+  resourceGroup: string
+  resourceId: string
+  values: Record<string, unknown>
+}
+
+function resourceDisplayName(resource: TerraformResourceInventoryItem): string {
+  return stringValue(resource.values.name) || resource.name || resource.address
+}
+
+function directCategoryForType(type: string): AzureDirectCategory {
+  if (type === 'azurerm_linux_virtual_machine' || type === 'azurerm_windows_virtual_machine' || type.includes('_virtual_machine_scale_set')) return 'virtual-machine'
+  if (type === 'azurerm_kubernetes_cluster') return 'aks'
+  if (type.startsWith('azurerm_storage_')) return 'storage'
+  if (type.includes('postgresql') || type.includes('mysql') || type.includes('mssql') || type.includes('sql_')) return 'database'
+  if (type.includes('network_security_group') || type.includes('key_vault') || type.includes('role_assignment') || type.includes('firewall')) return 'security'
+  if (type.includes('virtual_network') || type.includes('subnet') || type.includes('public_ip') || type.includes('application_gateway') || type.includes('load_balancer')) return 'network'
+  return 'other'
+}
+
+function flattenAzureResources(projects: AzureTrackedProject[]): AzureTrackedResource[] {
+  return projects.flatMap((project) => project.inventory
+    .filter((resource) => resource.mode === 'managed' && resource.type.startsWith('azurerm_'))
+    .map((resource) => ({
+      key: `${project.id}:${resource.address}`,
+      projectId: project.id,
+      projectName: project.name,
+      workspace: project.currentWorkspace,
+      category: directCategoryForType(resource.type),
+      type: resource.type,
+      name: resourceDisplayName(resource),
+      address: resource.address,
+      location: stringValue(resource.values.location) || stringValue(resource.values.primary_location) || stringValue(resource.values.region),
+      resourceGroup: stringValue(resource.values.resource_group_name),
+      resourceId: stringValue(resource.values.id),
+      values: resource.values
+    })))
+}
+
+function buildAzureResourceCommand(resource: AzureTrackedResource): string {
+  if (resource.resourceId) {
+    return `az resource show --ids "${resource.resourceId}" --output jsonc`
+  }
+
+  const nameFilter = resource.name ? ` --name "${resource.name}"` : ''
+  const groupFilter = resource.resourceGroup ? ` --resource-group "${resource.resourceGroup}"` : ''
+  return `az resource list${groupFilter}${nameFilter} --output jsonc`
 }
 
 function useAzureTrackedProjects(contextKey: string, refreshNonce = 0) {
@@ -798,6 +859,186 @@ export function AzureComplianceCenter({
             ))}
           </div>
         </section>
+      ) : null}
+    </div>
+  )
+}
+
+export function AzureDirectAccessWorkspace({
+  modeLabel,
+  contextKey,
+  refreshNonce = 0,
+  canRunTerminalCommand,
+  terminalReady,
+  onRunTerminalCommand,
+  onNavigate
+}: {
+  modeLabel: string
+  contextKey: string
+  refreshNonce?: number
+  canRunTerminalCommand: boolean
+  terminalReady: boolean
+  onRunTerminalCommand: (command: string) => void
+  onNavigate: (serviceId: ServiceId) => void
+}) {
+  const { projects, loading, error, freshness, refresh } = useAzureTrackedProjects(contextKey, refreshNonce)
+  const [category, setCategory] = useState<AzureDirectCategory>('all')
+  const [query, setQuery] = useState('')
+  const [selectedResourceKey, setSelectedResourceKey] = useState('')
+  const resources = useMemo(() => flattenAzureResources(projects), [projects])
+  const filteredResources = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase()
+    return resources.filter((resource) => {
+      if (category !== 'all' && resource.category !== category) return false
+      if (!normalizedQuery) return true
+      return [
+        resource.projectName,
+        resource.workspace,
+        resource.name,
+        resource.type,
+        resource.address,
+        resource.location,
+        resource.resourceGroup,
+        resource.resourceId
+      ].join(' ').toLowerCase().includes(normalizedQuery)
+    })
+  }, [category, query, resources])
+
+  useEffect(() => {
+    if (!filteredResources.length) {
+      setSelectedResourceKey('')
+      return
+    }
+    setSelectedResourceKey((current) => current && filteredResources.some((resource) => resource.key === current)
+      ? current
+      : filteredResources[0].key)
+  }, [filteredResources])
+
+  const selectedResource = filteredResources.find((resource) => resource.key === selectedResourceKey) ?? null
+  const command = selectedResource ? buildAzureResourceCommand(selectedResource) : ''
+
+  return (
+    <div className="stack">
+      {error ? <SvcState variant="error" error={error} /> : null}
+      {!canRunTerminalCommand ? (
+        <div className="error-banner">
+          Read mode active. Azure direct lookup commands are disabled on this screen.
+        </div>
+      ) : !terminalReady ? (
+        <div className="error-banner">
+          Terminal context is not ready yet. Select an Azure mode first so the shared shell can inject the provider context for direct lookups.
+        </div>
+      ) : null}
+
+      <section className="tf-shell-hero">
+        <div className="tf-shell-hero-copy">
+          <div className="eyebrow">Direct access</div>
+          <h2>Azure direct resource access</h2>
+          <p>Search tracked azurerm resources directly from Terraform state, then pivot into terminal verification or the shared Terraform workspace.</p>
+          <div className="tf-shell-meta-strip">
+            <div className="tf-shell-meta-pill"><span>Mode</span><strong>{modeLabel || 'Not selected'}</strong></div>
+            <div className="tf-shell-meta-pill"><span>Projects</span><strong>{projects.length}</strong></div>
+            <div className="tf-shell-meta-pill"><span>Resources</span><strong>{resources.length}</strong></div>
+            <div className="tf-shell-meta-pill"><span>Terminal</span><strong>{terminalReady ? 'Ready' : 'Pending'}</strong></div>
+          </div>
+        </div>
+        <div className="tf-shell-hero-stats">
+          <div className="tf-shell-stat-card tf-shell-stat-card-accent"><span>Virtual machines</span><strong>{resources.filter((resource) => resource.category === 'virtual-machine').length}</strong><small>VM resources visible from Terraform state</small></div>
+          <div className="tf-shell-stat-card"><span>AKS</span><strong>{resources.filter((resource) => resource.category === 'aks').length}</strong><small>Managed Kubernetes resources</small></div>
+          <div className="tf-shell-stat-card"><span>Storage</span><strong>{resources.filter((resource) => resource.category === 'storage').length}</strong><small>Storage resources in tracked projects</small></div>
+          <div className="tf-shell-stat-card"><span>Security</span><strong>{resources.filter((resource) => resource.category === 'security').length}</strong><small>NSG, Key Vault, firewall, and IAM style resources</small></div>
+        </div>
+      </section>
+
+      <div className="tf-shell-toolbar">
+        <div className="tf-toolbar">
+          <button type="button" className="accent" onClick={() => void refresh('manual')} disabled={loading}>{loading ? 'Refreshing...' : 'Refresh resources'}</button>
+          <label className="field compliance-toolbar-field">
+            <span>Category</span>
+            <select value={category} onChange={(event) => setCategory(event.target.value as AzureDirectCategory)}>
+              <option value="all">All categories</option>
+              <option value="virtual-machine">Virtual machines</option>
+              <option value="aks">AKS</option>
+              <option value="storage">Storage</option>
+              <option value="database">Database</option>
+              <option value="security">Security</option>
+              <option value="network">Network</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label className="field compliance-toolbar-search">
+            <span>Search</span>
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Resource name, type, group, id" />
+          </label>
+          <button type="button" onClick={() => onNavigate('terraform')}>Open Terraform</button>
+        </div>
+        <div className="tf-shell-status"><FreshnessIndicator freshness={freshness} label="Azure direct access catalog" staleLabel="Refresh resources" /></div>
+      </div>
+
+      {loading && resources.length === 0 ? <SvcState variant="loading" resourceName="Azure resources" /> : null}
+      {!loading && projects.length === 0 ? <ProjectEmptyState modeLabel={modeLabel} /> : null}
+      {!loading && projects.length > 0 && resources.length === 0 ? <SvcState variant="empty" message="No azurerm resources are visible in the tracked Terraform projects for this Azure lane yet." /> : null}
+      {!loading && resources.length > 0 && filteredResources.length === 0 ? <SvcState variant="no-filter-matches" resourceName="Azure resources" /> : null}
+
+      {filteredResources.length > 0 ? (
+        <div className="gcp-session-layout">
+          <section className="panel stack gcp-session-panel">
+            <div className="panel-header"><h3>Resource Queue</h3></div>
+            <div className="selection-list">
+              {filteredResources.slice(0, 40).map((resource) => (
+                <article
+                  key={resource.key}
+                  className={`selection-item gcp-session-card ${resource.key === selectedResourceKey ? 'active' : ''}`}
+                  onClick={() => setSelectedResourceKey(resource.key)}
+                >
+                  <div className="gcp-session-card-header">
+                    <div>
+                      <strong>{resource.name}</strong>
+                      <div className="hero-path"><span>{resource.projectName}</span><span>{resource.workspace}</span></div>
+                    </div>
+                    <span className="signal-badge">{resource.category}</span>
+                  </div>
+                  <div className="gcp-session-config-meta">
+                    <span>{resource.type}</span>
+                    <span>{resource.resourceGroup || 'No resource group'}</span>
+                    <span>{resource.location || 'No location'}</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section className="panel stack gcp-session-panel">
+            <div className="panel-header"><h3>Selected Resource</h3></div>
+            {selectedResource ? (
+              <>
+                <div className="gcp-session-kv-grid">
+                  <div className="gcp-session-kv"><span>Name</span><strong>{selectedResource.name}</strong></div>
+                  <div className="gcp-session-kv"><span>Project</span><strong>{selectedResource.projectName}</strong></div>
+                  <div className="gcp-session-kv"><span>Workspace</span><strong>{selectedResource.workspace}</strong></div>
+                  <div className="gcp-session-kv"><span>Type</span><strong>{selectedResource.type}</strong></div>
+                  <div className="gcp-session-kv"><span>Location</span><strong>{selectedResource.location || '-'}</strong></div>
+                  <div className="gcp-session-kv"><span>Resource group</span><strong>{selectedResource.resourceGroup || '-'}</strong></div>
+                </div>
+                <div className="gcp-session-action-row">
+                  <button type="button" disabled={!canRunTerminalCommand || !terminalReady} onClick={() => onRunTerminalCommand(command)} title={!canRunTerminalCommand || !terminalReady ? 'Switch to Operator mode and prepare the terminal context to enable direct lookup commands' : command}>Inspect in terminal</button>
+                  <button type="button" onClick={() => onNavigate('terraform')}>Open Terraform</button>
+                  <button type="button" className="ghost" onClick={() => void openExternalUrl(azurePortalUrl())}>Open Azure Portal</button>
+                </div>
+                <div className="tf-section">
+                  <div className="tf-section-hint">Terraform address</div>
+                  <code className="tf-table-code tf-table-code--strong">{selectedResource.address}</code>
+                </div>
+                <div className="tf-section">
+                  <div className="tf-section-hint">Resource ID</div>
+                  <code className="tf-table-code">{selectedResource.resourceId || 'Not exposed in current state snapshot'}</code>
+                </div>
+              </>
+            ) : (
+              <SvcState variant="empty" message="Select an Azure resource from the queue to inspect its Terraform and terminal handoff details." />
+            )}
+          </section>
+        </div>
       ) : null}
     </div>
   )
