@@ -32,7 +32,7 @@ function getGcpApiEnableAction(
   summary: string
 ): { command: string; summary: string } | null {
   if (!error.toLowerCase().includes('google cloud api access failed')) return null
-  const match = error.match(/"([^"]+)"/) ?? error.match(/[\u201c\u201d]([^\u201c\u201d]+)[\u201c\u201d]/)
+  const match = error.match(/Run "([^"]+)"/) ?? error.match(/Run [\u201c]([^\u201d]+)[\u201d]/)
   return { command: match?.[1]?.trim() ?? fallbackCommand, summary }
 }
 
@@ -76,8 +76,8 @@ function StateBadge({ state }: { state: string }) {
 
 /* ── Findings Tab ──────────────────────────────────── */
 
-function FindingsTab({ projectId, findings, loading, error }: {
-  projectId: string; findings: GcpSccFindingSummary[]; loading: boolean; error: string
+function FindingsTab({ projectId, location, findings, loading, error }: {
+  projectId: string; location: string; findings: GcpSccFindingSummary[]; loading: boolean; error: string
 }) {
   const [filter, setFilter] = useState('')
   const [selected, setSelected] = useState<GcpSccFindingSummary | null>(null)
@@ -97,7 +97,7 @@ function FindingsTab({ projectId, findings, loading, error }: {
   async function handleSelect(f: GcpSccFindingSummary | null): Promise<void> {
     if (!f || selected?.name === f.name) { setSelected(null); setDetail(null); setDetailError(''); return }
     setSelected(f); setDetailLoading(true); setDetailError(''); setDetail(null)
-    try { setDetail(await getGcpSccFindingDetail(projectId, f.name)) }
+    try { setDetail(await getGcpSccFindingDetail(projectId, f.name, location)) }
     catch (e) { setDetailError(errMsg(e)) }
     finally { setDetailLoading(false) }
   }
@@ -370,9 +370,9 @@ export function GcpSccConsole({
 
   function fetchAll(): Promise<PromiseSettledResult<unknown>[]> {
     return Promise.allSettled([
-      listGcpSccFindings(projectId),
-      listGcpSccSources(projectId),
-      getGcpSccSeverityBreakdown(projectId)
+      listGcpSccFindings(projectId, location),
+      listGcpSccSources(projectId, location),
+      getGcpSccSeverityBreakdown(projectId, location)
     ])
   }
 
@@ -383,7 +383,7 @@ export function GcpSccConsole({
     resetLoading()
     void fetchAll().then((r) => { if (!cancelled) settleResults(r) })
     return () => { cancelled = true }
-  }, [projectId, refreshNonce])
+  }, [projectId, location, refreshNonce])
 
   function handleRefresh(): void {
     setMessage('')
@@ -493,7 +493,7 @@ export function GcpSccConsole({
 
       {/* ── Tab content ──────────────────────────────── */}
       {mainTab === 'findings' && (
-        <FindingsTab projectId={projectId} findings={findings}
+        <FindingsTab projectId={projectId} location={location} findings={findings}
           loading={findingsLoading} error={!enableAction ? findingsError : ''} />
       )}
       {mainTab === 'sources' && (

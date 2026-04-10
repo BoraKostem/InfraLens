@@ -67,7 +67,8 @@ function GcpVpcArchitectureDiagram({
   routers,
   nats,
   serviceConnections,
-  globalAddresses
+  globalAddresses,
+  onSwitchTab
 }: {
   network: GcpNetworkSummary
   subnetworks: GcpSubnetworkSummary[]
@@ -75,6 +76,7 @@ function GcpVpcArchitectureDiagram({
   nats: GcpRouterNatSummary[]
   serviceConnections: GcpServiceNetworkingConnectionSummary[]
   globalAddresses: GcpGlobalAddressSummary[]
+  onSwitchTab: (tab: GcpVpcTab) => void
 }) {
   const subnetworksByRegion = useMemo(() => {
     const grouped = new Map<string, GcpSubnetworkSummary[]>()
@@ -89,73 +91,292 @@ function GcpVpcArchitectureDiagram({
     return [...grouped.entries()].sort(([left], [right]) => left.localeCompare(right))
   }, [subnetworks])
 
+  const natsByRouter = useMemo(() => {
+    const map = new Map<string, GcpRouterNatSummary[]>()
+    for (const nat of nats) {
+      const list = map.get(nat.router) ?? []
+      list.push(nat)
+      map.set(nat.router, list)
+    }
+    return map
+  }, [nats])
+
+  // Layout constants
+  const SUBNET_W = 220
+  const SUBNET_H = 52
+  const REGION_PAD = 12
+  const REGION_COL_W = SUBNET_W + REGION_PAD * 2
+  const REGION_GAP = 24
+
+  const regionCount = Math.max(subnetworksByRegion.length, 1)
+  const maxSubsInRegion = Math.max(1, ...subnetworksByRegion.map(([, s]) => s.length))
+
+  const vpcContentW = regionCount * REGION_COL_W + (regionCount - 1) * REGION_GAP
+  const W = Math.max(vpcContentW + 140, 720)
+  const CX = W / 2
+
+  const trunc = (s: string, n: number) => (s.length > n ? s.slice(0, n - 2) + '..' : s)
+
+  // Sequential Y layout
+  let y = 14
+
+  const EDGE_H = 34
+  const edgeCY = y + EDGE_H / 2
+  y += EDGE_H + 8
+
+  const arrowGap = 28
+  y += arrowGap
+
+  const vpcTop = y
+  y += 10
+
+  // VPC title area
+  y += 24
+
+  // Region labels
+  const regionLabelY = y + 12
+  y += 28
+
+  // Subnet area
+  const subnetStartY = y
+  const subnetAreaH = maxSubsInRegion * SUBNET_H + (maxSubsInRegion - 1) * 10
+  y += subnetAreaH + 18
+
+  // Cloud Routers row
+  const ROUTER_H = 32
+  let routerCY = 0
+  if (routers.length > 0) {
+    routerCY = y + ROUTER_H / 2
+    y += ROUTER_H + 16
+  }
+
+  // Cloud NATs row
+  const NAT_H = 32
+  let natCY = 0
+  if (nats.length > 0) {
+    natCY = y + NAT_H / 2
+    y += NAT_H + 16
+  }
+
+  // VPC container ends
+  y += 12
+  const vpcBottom = y
+
+  // External resources below VPC
+  const hasExternal = serviceConnections.length > 0 || globalAddresses.length > 0
+  if (hasExternal) {
+    y += arrowGap
+  }
+
+  // Service Connections row
+  const SVC_H = 32
+  let svcCY = 0
+  if (serviceConnections.length > 0) {
+    svcCY = y + SVC_H / 2
+    y += SVC_H + 16
+  }
+
+  // Global Addresses row
+  const ADDR_H = 32
+  let addrCY = 0
+  if (globalAddresses.length > 0) {
+    addrCY = y + ADDR_H / 2
+    y += ADDR_H + 16
+  }
+
+  const H = y + 14
+
+  // X positions for region columns
+  const regionTotalW = regionCount * REGION_COL_W + (regionCount - 1) * REGION_GAP
+  const regionStartX = CX - regionTotalW / 2
+  const getRegionX = (i: number) => regionStartX + i * (REGION_COL_W + REGION_GAP)
+  const getRegionCX = (i: number) => getRegionX(i) + REGION_COL_W / 2
+
+  // Router positions
+  const routerSpacing = Math.min(280, (W - 200) / Math.max(routers.length, 1))
+  const routerStartX = CX - ((routers.length - 1) * routerSpacing) / 2
+  const getRouterCX = (i: number) => routerStartX + i * routerSpacing
+
+  // NAT positions
+  const natSpacing = Math.min(280, (W - 200) / Math.max(nats.length, 1))
+  const natStartX = CX - ((nats.length - 1) * natSpacing) / 2
+  const getNatCX = (i: number) => natStartX + i * natSpacing
+
+  // Service connection positions
+  const svcSpacing = Math.min(300, (W - 200) / Math.max(serviceConnections.length, 1))
+  const svcStartX = CX - ((serviceConnections.length - 1) * svcSpacing) / 2
+  const getSvcCX = (i: number) => svcStartX + i * svcSpacing
+
+  // Global address positions
+  const addrSpacing = Math.min(260, (W - 200) / Math.max(globalAddresses.length, 1))
+  const addrStartX = CX - ((globalAddresses.length - 1) * addrSpacing) / 2
+  const getAddrCX = (i: number) => addrStartX + i * addrSpacing
+
   return (
-    <div className="gcp-vpc-architecture">
-      <div className="gcp-vpc-architecture-row">
-        <div className="gcp-vpc-architecture-node gcp-vpc-architecture-node-edge">Google APIs / Internet edge</div>
-      </div>
-      <div className="gcp-vpc-architecture-arrow">↓</div>
-      <div className="gcp-vpc-architecture-row">
-        <div className="gcp-vpc-architecture-node gcp-vpc-architecture-node-core">
-          <strong>{network.name}</strong>
-          <span>{network.autoCreateSubnetworks ? 'Auto subnet mode' : 'Custom subnet mode'}</span>
-          <small>{formatRoutingMode(network)}</small>
-        </div>
-      </div>
-      <div className="gcp-vpc-architecture-arrow">↓</div>
-      <div className="gcp-vpc-architecture-grid">
-        {subnetworksByRegion.length === 0 ? (
-          <div className="gcp-vpc-architecture-empty">No subnetworks were returned for this VPC.</div>
-        ) : (
-          subnetworksByRegion.map(([region, items]) => (
-            <section key={region} className="gcp-vpc-architecture-column">
-              <header>
-                <strong>{region}</strong>
-                <span>{items.length} subnetworks</span>
-              </header>
-              <div className="gcp-vpc-architecture-stack">
-                {items.map((subnetwork) => (
-                  <div key={subnetwork.name} className="gcp-vpc-architecture-node">
-                    <strong>{subnetwork.name}</strong>
-                    <span>{subnetwork.ipCidrRange || 'CIDR unavailable'}</span>
-                    <small>{subnetwork.privateIpGoogleAccess ? 'Private Google Access enabled' : 'Private Google Access off'}</small>
-                  </div>
-                ))}
-              </div>
-            </section>
-          ))
-        )}
-      </div>
-      <div className="gcp-vpc-architecture-arrow">↓</div>
-      <div className="gcp-vpc-architecture-row gcp-vpc-architecture-row-wrap">
-        {routers.map((router) => (
-          <div key={router.name} className="gcp-vpc-architecture-node">
-            <strong>Router: {router.name}</strong>
-            <span>{router.region || 'region unavailable'}</span>
-          </div>
-        ))}
-        {nats.map((nat) => (
-          <div key={`${nat.router}:${nat.name}`} className="gcp-vpc-architecture-node gcp-vpc-architecture-node-accent">
-            <strong>Cloud NAT: {nat.name}</strong>
-            <span>{nat.router}</span>
-            <small>{nat.natIpAllocateOption || 'allocation mode unavailable'}</small>
-          </div>
-        ))}
-        {serviceConnections.map((connection) => (
-          <div key={`${connection.service}:${connection.peering}`} className="gcp-vpc-architecture-node gcp-vpc-architecture-node-service">
-            <strong>{connection.service}</strong>
-            <span>{connection.peering || 'peering unavailable'}</span>
-          </div>
-        ))}
-        {globalAddresses.map((address) => (
-          <div key={address.name} className="gcp-vpc-architecture-node gcp-vpc-architecture-node-address">
-            <strong>{address.name}</strong>
-            <span>{address.address || 'address pending'}</span>
-            <small>{address.purpose || address.addressType || 'global address'}</small>
-          </div>
-        ))}
-      </div>
-    </div>
+    <svg viewBox={`0 0 ${W} ${H}`} className="vpc-arch-svg" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="gcp-arch-arrow" markerWidth="8" markerHeight="6" refX="4" refY="6" orient="auto">
+          <path d="M0,0 L4,6 L8,0" fill="none" stroke="rgba(141,180,160,0.6)" strokeWidth="1.2" />
+        </marker>
+      </defs>
+
+      {/* ── Google APIs / Internet edge ──────── */}
+      <g className="vpc-arch-node">
+        <rect x={CX - 110} y={edgeCY - EDGE_H / 2} width={220} height={EDGE_H}
+          rx={8} fill="rgba(71,85,105,0.5)" stroke="rgba(141,180,160,0.45)" strokeWidth={1.5} />
+        <text x={CX} y={edgeCY + 5} textAnchor="middle" fill="#e2e8f0" fontSize={13} fontWeight={600}>
+          Google APIs / Internet edge
+        </text>
+      </g>
+
+      {/* Arrow: Edge → VPC */}
+      <line x1={CX} y1={edgeCY + EDGE_H / 2}
+            x2={CX} y2={vpcTop}
+            stroke="rgba(141,180,160,0.5)" strokeWidth={1.5} markerEnd="url(#gcp-arch-arrow)" />
+
+      {/* ── VPC Network Container ────────────── */}
+      <rect x={50} y={vpcTop} width={W - 100} height={vpcBottom - vpcTop}
+        rx={6} fill="rgba(52,168,83,0.06)" stroke="rgba(52,168,83,0.45)" strokeWidth={2} />
+      <text x={62} y={vpcTop + 16} fill="#34a853" fontSize={12} fontWeight={700}>
+        {network.name}
+      </text>
+      <text x={62} y={vpcTop + 30} fill="rgba(141,180,160,0.6)" fontSize={10}>
+        {network.autoCreateSubnetworks ? 'Auto subnet mode' : 'Custom subnet mode'} · {formatRoutingMode(network)}
+      </text>
+
+      {/* ── Region Columns + Subnetworks ─────── */}
+      {subnetworksByRegion.map(([region, subs], regionIdx) => {
+        const colX = getRegionX(regionIdx)
+        const colCX = getRegionCX(regionIdx)
+        return (
+          <g key={region}>
+            <text x={colCX} y={regionLabelY} textAnchor="middle" fill="rgba(141,180,160,0.6)" fontSize={11} fontWeight={500}>
+              {region}
+            </text>
+            <rect x={colX + 4} y={regionLabelY + 8} width={REGION_COL_W - 8}
+              height={subs.length * (SUBNET_H + 10) - 2} rx={4}
+              fill="none" stroke="rgba(141,180,160,0.08)" strokeWidth={1} strokeDasharray="4 3" />
+            {subs.map((subnetwork, si) => {
+              const sy = subnetStartY + si * (SUBNET_H + 10)
+              return (
+                <g key={subnetwork.name} className="vpc-arch-clickable" onClick={() => onSwitchTab('topology')}>
+                  <rect x={colX + REGION_PAD} y={sy} width={SUBNET_W} height={SUBNET_H}
+                    rx={6} fill="rgba(52,168,83,0.06)" stroke="rgba(52,168,83,0.4)" strokeWidth={1.5} />
+                  <text x={colX + REGION_PAD + 10} y={sy + 17} fill="#34a853" fontSize={10.5} fontWeight={600}>
+                    {trunc(subnetwork.name, 26)}
+                  </text>
+                  <text x={colX + REGION_PAD + 10} y={sy + 32} fill="rgba(141,180,160,0.65)" fontSize={10}>
+                    {subnetwork.ipCidrRange || 'CIDR unavailable'}
+                  </text>
+                  <text x={colX + REGION_PAD + 10} y={sy + 45} fill="rgba(141,180,160,0.4)" fontSize={9}>
+                    {subnetwork.privateIpGoogleAccess ? 'Private Google Access' : 'No Private Access'}
+                  </text>
+                </g>
+              )
+            })}
+          </g>
+        )
+      })}
+
+      {/* ── Connection lines: Regions → Routers ── */}
+      {routers.map((router) => {
+        const rtIdx = routers.indexOf(router)
+        const rtX = getRouterCX(rtIdx)
+        const regionIdx = subnetworksByRegion.findIndex(([region]) => region === router.region)
+        if (regionIdx < 0) return null
+        const subs = subnetworksByRegion[regionIdx][1]
+        const lastSubY = subnetStartY + (subs.length - 1) * (SUBNET_H + 10) + SUBNET_H
+        const sx = getRegionCX(regionIdx)
+        return (
+          <line key={`conn-${router.name}`}
+            x1={sx} y1={lastSubY} x2={rtX} y2={routerCY - ROUTER_H / 2}
+            stroke="rgba(141,180,160,0.18)" strokeWidth={1.2} strokeDasharray="5 3" />
+        )
+      })}
+
+      {/* ── Cloud Routers ────────────────────── */}
+      {routers.map((router, i) => {
+        const rx = getRouterCX(i)
+        const routerNats = natsByRouter.get(router.name) ?? []
+        return (
+          <g key={router.name} className="vpc-arch-clickable" onClick={() => onSwitchTab('gateways')}>
+            <rect x={rx - 130} y={routerCY - ROUTER_H / 2} width={260} height={ROUTER_H}
+              rx={6} fill="rgba(52,168,83,0.1)" stroke="rgba(52,168,83,0.5)" strokeWidth={1.3} />
+            <text x={rx} y={routerCY - 2} textAnchor="middle" fill="#34a853" fontSize={10.5} fontWeight={600}>
+              Router: {trunc(router.name, 24)}
+            </text>
+            <text x={rx} y={routerCY + 12} textAnchor="middle" fill="rgba(141,180,160,0.5)" fontSize={9}>
+              {router.region || 'region unavailable'} · {routerNats.length} NAT(s)
+            </text>
+          </g>
+        )
+      })}
+
+      {/* ── Cloud NATs ───────────────────────── */}
+      {nats.map((nat, i) => {
+        const nx = getNatCX(i)
+        return (
+          <g key={`${nat.router}:${nat.name}`} className="vpc-arch-clickable" onClick={() => onSwitchTab('gateways')}>
+            <rect x={nx - 130} y={natCY - NAT_H / 2} width={260} height={NAT_H}
+              rx={6} fill="rgba(251,188,5,0.1)" stroke="#fbbc05" strokeWidth={1.3} />
+            <text x={nx} y={natCY - 2} textAnchor="middle" fill="#fbbc05" fontSize={10.5} fontWeight={600}>
+              Cloud NAT: {trunc(nat.name, 22)}
+            </text>
+            <text x={nx} y={natCY + 12} textAnchor="middle" fill="rgba(251,188,5,0.5)" fontSize={9}>
+              {nat.router} · {nat.natIpAllocateOption || 'allocation unavailable'}
+            </text>
+          </g>
+        )
+      })}
+
+      {/* ── Arrow: VPC → External resources ──── */}
+      {hasExternal && (
+        <line x1={CX} y1={vpcBottom}
+              x2={CX} y2={serviceConnections.length > 0 ? svcCY - SVC_H / 2 : addrCY - ADDR_H / 2}
+              stroke="rgba(141,180,160,0.5)" strokeWidth={1.5} markerEnd="url(#gcp-arch-arrow)" />
+      )}
+
+      {/* ── Service Connections ──────────────── */}
+      {serviceConnections.map((connection, i) => {
+        const sx = getSvcCX(i)
+        return (
+          <g key={`${connection.service}:${connection.peering}`} className="vpc-arch-clickable" onClick={() => onSwitchTab('gateways')}>
+            <rect x={sx - 140} y={svcCY - SVC_H / 2} width={280} height={SVC_H}
+              rx={6} fill="rgba(66,133,244,0.08)" stroke="rgba(66,133,244,0.5)" strokeWidth={1.3} />
+            <text x={sx} y={svcCY - 2} textAnchor="middle" fill="#4285f4" fontSize={10.5} fontWeight={600}>
+              {trunc(connection.service, 30)}
+            </text>
+            <text x={sx} y={svcCY + 12} textAnchor="middle" fill="rgba(66,133,244,0.5)" fontSize={9}>
+              {connection.peering || 'peering unavailable'}
+            </text>
+          </g>
+        )
+      })}
+
+      {/* ── Global Addresses ─────────────────── */}
+      {globalAddresses.map((address, i) => {
+        const ax = getAddrCX(i)
+        return (
+          <g key={address.name} className="vpc-arch-clickable" onClick={() => onSwitchTab('addresses')}>
+            <rect x={ax - 120} y={addrCY - ADDR_H / 2} width={240} height={ADDR_H}
+              rx={6} fill="rgba(168,85,247,0.08)" stroke="rgba(168,85,247,0.45)" strokeWidth={1.2} />
+            <text x={ax} y={addrCY - 2} textAnchor="middle" fill="#a855f7" fontSize={10.5} fontWeight={600}>
+              {trunc(address.name, 26)}
+            </text>
+            <text x={ax} y={addrCY + 12} textAnchor="middle" fill="rgba(168,85,247,0.5)" fontSize={9}>
+              {address.address || 'address pending'} · {address.purpose || address.addressType || 'global'}
+            </text>
+          </g>
+        )
+      })}
+
+      {/* ── Empty states ─────────────────────── */}
+      {subnetworksByRegion.length === 0 && (
+        <text x={CX} y={subnetStartY + 30} textAnchor="middle" fill="rgba(141,180,160,0.3)" fontSize={12} fontStyle="italic">
+          No subnetworks in this VPC
+        </text>
+      )}
+    </svg>
   )
 }
 
@@ -646,6 +867,7 @@ export function GcpVpcWorkspace({
                     nats={selectedNats}
                     serviceConnections={selectedServiceConnections}
                     globalAddresses={selectedGlobalAddresses}
+                    onSwitchTab={setTab}
                   />
                 </section>
               ) : null}

@@ -961,6 +961,10 @@ export type AzureNetworkOverview = {
   nsgs: AzureNsgSummary[]
   publicIps: AzurePublicIpSummary[]
   networkInterfaces: AzureNetworkInterfaceSummary[]
+  routeTables: AzureRouteTableSummary[]
+  natGateways: AzureNatGatewaySummary[]
+  loadBalancers: AzureLoadBalancerSummary[]
+  privateEndpoints: AzurePrivateEndpointSummary[]
 }
 
 /* ── Azure VMSS types ────────────────────────────────────── */
@@ -1185,6 +1189,9 @@ export type AzureStorageAccountSummary = {
   blobDeleteRetentionDays: number
   containerDeleteRetentionDays: number
   primaryBlobEndpoint: string
+  primaryFileEndpoint: string
+  primaryQueueEndpoint: string
+  primaryTableEndpoint: string
   containerCount: number
   tagCount: number
   notes: string[]
@@ -2137,6 +2144,200 @@ export type GcpPubSubSubscriptionDetail = {
   expirationTtl: string
 }
 
+/* ── Cloud Run ───────────────────────────────────── */
+
+export type GcpCloudRunServiceSummary = {
+  name: string
+  serviceId: string
+  description: string
+  uri: string
+  creator: string
+  lastModifier: string
+  createTime: string
+  updateTime: string
+  ingressSetting: string
+  launchStage: string
+  latestReadyRevision: string
+  latestCreatedRevision: string
+  trafficStatuses: GcpCloudRunTrafficStatus[]
+  containerImage: string
+  containerPort: number
+  serviceAccountEmail: string
+  vpcConnector: string
+  executionEnvironment: string
+  cpuLimit: string
+  memoryLimit: string
+  maxInstanceRequestConcurrency: number
+  timeout: string
+  conditions: GcpCloudRunCondition[]
+}
+
+export type GcpCloudRunTrafficStatus = {
+  type: string
+  revisionName: string
+  percent: number
+  tag: string
+  uri: string
+}
+
+export type GcpCloudRunCondition = {
+  type: string
+  state: string
+  message: string
+  lastTransitionTime: string
+  severity: string
+}
+
+export type GcpCloudRunRevisionSummary = {
+  name: string
+  revisionId: string
+  generation: string
+  createTime: string
+  updateTime: string
+  launchStage: string
+  containerImage: string
+  cpuLimit: string
+  memoryLimit: string
+  maxInstanceRequestConcurrency: number
+  timeout: string
+  serviceAccountEmail: string
+  scaling: { minInstanceCount: number; maxInstanceCount: number }
+  conditions: GcpCloudRunCondition[]
+  logUri: string
+}
+
+export type GcpCloudRunJobSummary = {
+  name: string
+  jobId: string
+  createTime: string
+  updateTime: string
+  creator: string
+  lastModifier: string
+  launchStage: string
+  containerImage: string
+  taskCount: number
+  maxRetries: number
+  timeout: string
+  cpuLimit: string
+  memoryLimit: string
+  serviceAccountEmail: string
+  executionCount: number
+  latestExecution: string
+  conditions: GcpCloudRunCondition[]
+}
+
+export type GcpCloudRunExecutionSummary = {
+  name: string
+  executionId: string
+  createTime: string
+  startTime: string
+  completionTime: string
+  runningCount: number
+  succeededCount: number
+  failedCount: number
+  cancelledCount: number
+  taskCount: number
+  logUri: string
+  conditions: GcpCloudRunCondition[]
+}
+
+export type GcpCloudRunDomainMappingSummary = {
+  name: string
+  routeName: string
+  createTime: string
+  conditions: GcpCloudRunCondition[]
+  mappedRouteName: string
+  records: { type: string; rrdata: string }[]
+}
+
+/* ── Firebase ────────────────────────────────────── */
+
+export type GcpFirebaseProjectSummary = {
+  projectId: string
+  projectNumber: string
+  displayName: string
+  state: string
+  resources: {
+    hostingSite: string
+    storageBucket: string
+    locationId: string
+    realtimeDatabaseInstance: string
+  }
+}
+
+export type GcpFirebaseWebAppSummary = {
+  name: string
+  appId: string
+  displayName: string
+  projectId: string
+  appUrls: string[]
+  state: string
+  apiKeyId: string
+}
+
+export type GcpFirebaseAndroidAppSummary = {
+  name: string
+  appId: string
+  displayName: string
+  projectId: string
+  packageName: string
+  state: string
+  sha1Hashes: string[]
+  sha256Hashes: string[]
+}
+
+export type GcpFirebaseIosAppSummary = {
+  name: string
+  appId: string
+  displayName: string
+  projectId: string
+  bundleId: string
+  appStoreId: string
+  state: string
+  teamId: string
+}
+
+export type GcpFirebaseHostingSiteSummary = {
+  name: string
+  siteId: string
+  defaultUrl: string
+  appId: string
+  type: string
+  labels: Record<string, string>
+}
+
+export type GcpFirebaseHostingReleaseSummary = {
+  name: string
+  version: string
+  type: string
+  message: string
+  releaseTime: string
+  releaseUser: { email: string; imageUrl: string }
+  status: string
+  fileCount: number
+  versionBytes: string
+}
+
+export type GcpFirebaseHostingDomainSummary = {
+  domainName: string
+  site: string
+  updateTime: string
+  status: string
+  provisioning: string
+  domainRedirect: { domainName: string; type: string } | null
+}
+
+export type GcpFirebaseHostingChannelSummary = {
+  name: string
+  channelId: string
+  url: string
+  expireTime: string
+  retainedReleaseCount: number
+  createTime: string
+  updateTime: string
+  labels: Record<string, string>
+}
+
 export type GcpFirewallRuleSummary = {
   name: string
   network: string
@@ -2185,6 +2386,193 @@ export type GcpServiceNetworkingConnectionSummary = {
   service: string
   peering: string
   reservedPeeringRanges: string[]
+}
+
+/* ── GCP Memorystore (Redis) ──────────────────────────────── */
+
+export type GcpMemorystoreInstanceSummary = {
+  name: string
+  instanceId: string
+  displayName: string
+  state: string
+  tier: string
+  memorySizeGb: number
+  host: string
+  port: number
+  redisVersion: string
+  createTime: string
+  currentLocationId: string
+  connectMode: string
+  authEnabled: boolean
+  transitEncryptionMode: string
+  replicaCount: number
+  readEndpoint: string
+  readEndpointPort: number
+  locationId: string
+  alternativeLocationId: string
+  labels: Record<string, string>
+}
+
+export type GcpMemorystoreInstanceDetail = {
+  name: string
+  instanceId: string
+  displayName: string
+  state: string
+  tier: string
+  memorySizeGb: number
+  host: string
+  port: number
+  redisVersion: string
+  createTime: string
+  currentLocationId: string
+  connectMode: string
+  authEnabled: boolean
+  transitEncryptionMode: string
+  replicaCount: number
+  readEndpoint: string
+  readEndpointPort: number
+  locationId: string
+  alternativeLocationId: string
+  labels: Record<string, string>
+  redisConfigs: Record<string, string>
+  persistenceConfig: {
+    persistenceMode: string
+    rdbSnapshotPeriod: string
+    rdbSnapshotStartTime: string
+  }
+  maintenancePolicy: {
+    weeklyMaintenanceWindow: Array<{
+      day: string
+      startTime: string
+      duration: string
+    }>
+  } | null
+  maintenanceSchedule: {
+    startTime: string
+    endTime: string
+    scheduleDeadlineTime: string
+  } | null
+  nodes: Array<{
+    id: string
+    zone: string
+  }>
+  authorizedNetwork: string
+  reservedIpRange: string
+}
+
+/* ── GCP Load Balancer + Cloud Armor ─────────────────────── */
+
+export type GcpUrlMapSummary = {
+  name: string
+  description: string
+  selfLink: string
+  defaultService: string
+  hostRuleCount: number
+  pathMatcherCount: number
+  creationTimestamp: string
+  region: string
+  fingerprint: string
+}
+
+export type GcpUrlMapDetail = {
+  name: string
+  description: string
+  selfLink: string
+  defaultService: string
+  hostRules: Array<{
+    hosts: string[]
+    pathMatcher: string
+  }>
+  pathMatchers: Array<{
+    name: string
+    defaultService: string
+    pathRules: Array<{
+      paths: string[]
+      service: string
+    }>
+  }>
+  creationTimestamp: string
+  fingerprint: string
+}
+
+export type GcpBackendServiceSummary = {
+  name: string
+  description: string
+  selfLink: string
+  protocol: string
+  port: number
+  portName: string
+  timeoutSec: number
+  healthChecks: string[]
+  backendsCount: number
+  loadBalancingScheme: string
+  sessionAffinity: string
+  region: string
+  creationTimestamp: string
+  securityPolicy: string
+}
+
+export type GcpForwardingRuleSummary = {
+  name: string
+  description: string
+  selfLink: string
+  IPAddress: string
+  IPProtocol: string
+  portRange: string
+  target: string
+  loadBalancingScheme: string
+  network: string
+  region: string
+  creationTimestamp: string
+}
+
+export type GcpHealthCheckSummary = {
+  name: string
+  description: string
+  selfLink: string
+  type: string
+  checkIntervalSec: number
+  timeoutSec: number
+  unhealthyThreshold: number
+  healthyThreshold: number
+  creationTimestamp: string
+}
+
+export type GcpSecurityPolicySummary = {
+  name: string
+  description: string
+  selfLink: string
+  type: string
+  ruleCount: number
+  adaptiveProtection: boolean
+  creationTimestamp: string
+  fingerprint: string
+}
+
+export type GcpSecurityPolicyDetail = {
+  name: string
+  description: string
+  selfLink: string
+  type: string
+  rules: Array<{
+    priority: number
+    action: string
+    description: string
+    match: {
+      versionedExpr: string
+      config: {
+        srcIpRanges: string[]
+      }
+    } | null
+    preview: boolean
+  }>
+  adaptiveProtectionConfig: {
+    enabled: boolean
+    layer7DdosDefenseConfig: { enable: boolean; ruleVisibility: string } | null
+  } | null
+  ddosProtectionConfig: string
+  fingerprint: string
+  creationTimestamp: string
 }
 
 export type Ec2SsmStatus = 'managed-online' | 'managed-offline' | 'not-managed'
@@ -2857,6 +3245,11 @@ export type ServiceId =
   | 'gcp-scc'
   | 'gcp-firestore'
   | 'gcp-pubsub'
+  | 'gcp-cloud-run'
+  | 'gcp-firebase'
+  | 'gcp-cloud-dns'
+  | 'gcp-memorystore'
+  | 'gcp-load-balancer'
   | 'azure-subscriptions'
   | 'azure-rbac'
   | 'azure-virtual-machines'
@@ -2872,6 +3265,13 @@ export type ServiceId =
   | 'azure-key-vault'
   | 'azure-event-hub'
   | 'azure-app-service'
+  | 'azure-mysql'
+  | 'azure-cosmos-db'
+  | 'azure-log-analytics'
+  | 'azure-event-grid'
+  | 'azure-firewall'
+  | 'azure-load-balancers'
+  | 'azure-dns'
 
 export type GovernanceTagKey = 'Owner' | 'Environment' | 'Project' | 'CostCenter'
 
@@ -3712,6 +4112,65 @@ export type Route53RecordChange = {
   aliasHostedZoneId: string
   evaluateTargetHealth: boolean
   setIdentifier: string
+}
+
+/* ── Azure DNS ─────────────────────────────────────────────── */
+
+export type AzureDnsZoneSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  numberOfRecordSets: number
+  maxNumberOfRecordSets: number
+  nameServers: string[]
+  zoneType: string
+  tags: Record<string, string>
+}
+
+export type AzureDnsRecordSummary = {
+  id: string
+  name: string
+  fqdn: string
+  type: string
+  ttl: number
+  values: string[]
+  metadata: Record<string, string>
+}
+
+export type AzureDnsRecordUpsertInput = {
+  name: string
+  type: string
+  ttl: number
+  values: string[]
+}
+
+/* ── GCP Cloud DNS ─────────────────────────────────────────── */
+
+export type GcpDnsManagedZoneSummary = {
+  name: string
+  dnsName: string
+  description: string
+  id: string
+  visibility: string
+  dnssecState: string
+  nameServers: string[]
+  creationTime: string
+}
+
+export type GcpDnsResourceRecordSetSummary = {
+  name: string
+  type: string
+  ttl: number
+  rrdatas: string[]
+  signatureRrdatas: string[]
+}
+
+export type GcpDnsRecordUpsertInput = {
+  name: string
+  type: string
+  ttl: number
+  rrdatas: string[]
 }
 
 /* ── Overview ─────────────────────────────────────────────── */
@@ -6174,4 +6633,538 @@ export type WafCreateWebAclInput = {
   description: string
   scope: WafScope
   defaultAction: 'Allow' | 'Block'
+}
+
+/* ── Azure Managed Disks & Snapshots ──────────────────────── */
+
+export type AzureManagedDiskSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  skuName: string
+  diskSizeGb: number
+  diskState: string
+  osType: string
+  timeCreated: string
+  managedBy: string
+  zones: string[]
+  networkAccessPolicy: string
+  provisioningState: string
+  tagCount: number
+}
+
+export type AzureDiskSnapshotSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  skuName: string
+  diskSizeGb: number
+  timeCreated: string
+  sourceResourceId: string
+  incremental: boolean
+  provisioningState: string
+  tagCount: number
+}
+
+/* ── Azure VNet Peering, Route Tables, NAT GW, Load Balancers, Private Endpoints ── */
+
+export type AzureVNetPeeringSummary = {
+  id: string
+  name: string
+  peeringState: string
+  remoteVNetId: string
+  remoteVNetName: string
+  allowVirtualNetworkAccess: boolean
+  allowForwardedTraffic: boolean
+  allowGatewayTransit: boolean
+  useRemoteGateways: boolean
+  provisioningState: string
+}
+
+export type AzureRouteTableSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  disableBgpRoutePropagation: boolean
+  routes: AzureRouteSummary[]
+  provisioningState: string
+  subnetCount: number
+}
+
+export type AzureRouteSummary = {
+  name: string
+  addressPrefix: string
+  nextHopType: string
+  nextHopIpAddress: string
+  provisioningState: string
+}
+
+export type AzureNatGatewaySummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  skuName: string
+  idleTimeoutInMinutes: number
+  publicIpCount: number
+  subnetCount: number
+  provisioningState: string
+  zones: string[]
+}
+
+export type AzureLoadBalancerSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  skuName: string
+  skuTier: string
+  frontendIpCount: number
+  backendPoolCount: number
+  ruleCount: number
+  probeCount: number
+  provisioningState: string
+}
+
+export type AzureLoadBalancerFrontendIp = {
+  name: string
+  privateIPAddress: string
+  privateIPAllocationMethod: string
+  publicIPAddressId: string
+  subnetId: string
+  provisioningState: string
+  zones: string[]
+}
+
+export type AzureLoadBalancerBackendPool = {
+  name: string
+  backendAddressCount: number
+  provisioningState: string
+}
+
+export type AzureLoadBalancerRule = {
+  name: string
+  protocol: string
+  frontendPort: number
+  backendPort: number
+  frontendIPConfigurationName: string
+  backendAddressPoolName: string
+  probeName: string
+  enableFloatingIP: boolean
+  idleTimeoutInMinutes: number
+  loadDistribution: string
+  provisioningState: string
+}
+
+export type AzureLoadBalancerProbe = {
+  name: string
+  protocol: string
+  port: number
+  intervalInSeconds: number
+  numberOfProbes: number
+  requestPath: string
+  provisioningState: string
+}
+
+export type AzureLoadBalancerInboundNatRule = {
+  name: string
+  protocol: string
+  frontendPort: number
+  backendPort: number
+  frontendIPConfigurationName: string
+  enableFloatingIP: boolean
+  idleTimeoutInMinutes: number
+  provisioningState: string
+}
+
+export type AzureLoadBalancerDetail = {
+  summary: AzureLoadBalancerSummary
+  frontendIpConfigurations: AzureLoadBalancerFrontendIp[]
+  backendPools: AzureLoadBalancerBackendPool[]
+  rules: AzureLoadBalancerRule[]
+  probes: AzureLoadBalancerProbe[]
+  inboundNatRules: AzureLoadBalancerInboundNatRule[]
+}
+
+export type AzurePrivateEndpointSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  privateLinkServiceId: string
+  groupIds: string[]
+  provisioningState: string
+  customDnsConfigs: Array<{ fqdn: string; ipAddresses: string[] }>
+}
+
+/* ── Azure Storage enrichment types ───────────────────────── */
+
+export type AzureStorageFileShareSummary = {
+  name: string
+  quota: number
+  accessTier: string
+  enabledProtocols: string
+  leaseStatus: string
+  lastModified: string
+  usedCapacityBytes: number
+}
+
+export type AzureStorageFileItem = {
+  name: string
+  isDirectory: boolean
+  contentLength: number
+  lastModified: string
+  path: string
+}
+
+export type AzureStorageQueueSummary = {
+  name: string
+  approximateMessageCount: number
+  metadata: Record<string, string>
+}
+
+export type AzureStorageQueueMessage = {
+  messageId: string
+  insertionTime: string
+  expirationTime: string
+  dequeueCount: number
+  messageText: string
+}
+
+export type AzureStorageTableSummary = {
+  name: string
+}
+
+/* ── Azure MySQL types ────────────────────────────────────── */
+
+export type AzureMySqlOperationalTone = 'good' | 'warning' | 'risk' | 'info' | 'neutral'
+
+export type AzureMySqlServerSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  version: string
+  fullyQualifiedDomainName: string
+  publicNetworkAccess: string
+  state: string
+  skuName: string
+  skuTier: string
+  storageSizeGb: number
+  haEnabled: boolean
+  haState: string
+  backupRetentionDays: number
+  geoRedundantBackup: string
+  availabilityZone: string
+  databaseCount: number
+  tagCount: number
+  notes: string[]
+}
+
+export type AzureMySqlDatabaseSummary = {
+  id: string
+  name: string
+  serverName: string
+  resourceGroup: string
+  charset: string
+  collation: string
+}
+
+export type AzureMySqlFirewallRule = {
+  name: string
+  startIpAddress: string
+  endIpAddress: string
+}
+
+export type AzureMySqlPostureBadge = {
+  id: string
+  label: string
+  value: string
+  tone: AzureMySqlOperationalTone
+}
+
+export type AzureMySqlSummaryTile = {
+  id: string
+  label: string
+  value: string
+  tone: AzureMySqlOperationalTone
+}
+
+export type AzureMySqlFinding = {
+  id: string
+  severity: string
+  title: string
+  message: string
+  recommendation: string
+}
+
+export type AzureMySqlEstateOverview = {
+  subscriptionId: string
+  serverCount: number
+  databaseCount: number
+  publicServerCount: number
+  servers: AzureMySqlServerSummary[]
+  databases: AzureMySqlDatabaseSummary[]
+  notes: string[]
+}
+
+export type AzureMySqlServerDetail = {
+  server: AzureMySqlServerSummary
+  databases: AzureMySqlDatabaseSummary[]
+  firewallRules: AzureMySqlFirewallRule[]
+  badges: AzureMySqlPostureBadge[]
+  summaryTiles: AzureMySqlSummaryTile[]
+  findings: AzureMySqlFinding[]
+}
+
+/* ── Azure Cosmos DB types ────────────────────────────────── */
+
+export type AzureCosmosDbAccountSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  kind: string
+  databaseAccountOfferType: string
+  consistencyLevel: string
+  enableAutomaticFailover: boolean
+  enableMultipleWriteLocations: boolean
+  publicNetworkAccess: string
+  isVirtualNetworkFilterEnabled: boolean
+  readLocations: string[]
+  writeLocations: string[]
+  provisioningState: string
+  documentEndpoint: string
+  tagCount: number
+}
+
+export type AzureCosmosDbDatabaseSummary = {
+  id: string
+  name: string
+  accountName: string
+  resourceGroup: string
+}
+
+export type AzureCosmosDbContainerSummary = {
+  id: string
+  name: string
+  databaseName: string
+  partitionKeyPath: string
+  defaultTtl: number
+  indexingMode: string
+  analyticalStorageTtl: number
+}
+
+export type AzureCosmosDbEstateOverview = {
+  subscriptionId: string
+  accountCount: number
+  databaseCount: number
+  containerCount: number
+  accounts: AzureCosmosDbAccountSummary[]
+  notes: string[]
+}
+
+export type AzureCosmosDbAccountDetail = {
+  account: AzureCosmosDbAccountSummary
+  databases: AzureCosmosDbDatabaseSummary[]
+  containers: AzureCosmosDbContainerSummary[]
+}
+
+/* ── Azure App Service / Functions enrichment types ───────── */
+
+export type AzureFunctionAppSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  kind: string
+  state: string
+  defaultHostName: string
+  httpsOnly: boolean
+  enabled: boolean
+  appServicePlanName: string
+  runtimeStack: string
+  publicNetworkAccess: string
+  provisioningState: string
+  lastModifiedTimeUtc: string
+  tagCount: number
+}
+
+export type AzureFunctionSummary = {
+  name: string
+  scriptHref: string
+  configHref: string
+  isDisabled: boolean
+  language: string
+  bindingCount: number
+}
+
+export type AzureWebAppConfigSummary = {
+  appSettings: Array<{ name: string; value: string; slotSetting: boolean }>
+  connectionStrings: Array<{ name: string; type: string; slotSetting: boolean }>
+  linuxFxVersion: string
+  netFrameworkVersion: string
+  phpVersion: string
+  pythonVersion: string
+  nodeVersion: string
+  javaVersion: string
+  http20Enabled: boolean
+  minTlsVersion: string
+  ftpsState: string
+  alwaysOn: boolean
+}
+
+export type AzureWebAppAction = 'start' | 'stop' | 'restart'
+
+export type AzureWebAppActionResult = {
+  action: string
+  siteName: string
+  resourceGroup: string
+  accepted: boolean
+  error?: string
+}
+
+/* ── Azure Log Analytics types ────────────────────────────── */
+
+export type AzureLogAnalyticsWorkspaceSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  skuName: string
+  retentionInDays: number
+  dailyQuotaGb: number
+  workspaceId: string
+  customerId: string
+  provisioningState: string
+  publicNetworkAccessForIngestion: string
+  publicNetworkAccessForQuery: string
+  tagCount: number
+}
+
+export type AzureLogAnalyticsQueryResult = {
+  tables: Array<{
+    name: string
+    columns: Array<{ name: string; type: string }>
+    rows: unknown[][]
+  }>
+  statistics?: { query?: { executionTime?: number } }
+  error?: string
+}
+
+export type AzureLogAnalyticsSavedSearch = {
+  id: string
+  name: string
+  category: string
+  displayName: string
+  query: string
+  functionAlias: string
+  functionParameters: string
+}
+
+export type AzureLogAnalyticsLinkedService = {
+  id: string
+  name: string
+  resourceId: string
+  provisioningState: string
+}
+
+/* ── Azure Event Grid types ───────────────────────────────── */
+
+export type AzureEventGridTopicSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  provisioningState: string
+  endpoint: string
+  inputSchema: string
+  publicNetworkAccess: string
+  tagCount: number
+}
+
+export type AzureEventGridSystemTopicSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  source: string
+  topicType: string
+  provisioningState: string
+  metricResourceId: string
+}
+
+export type AzureEventGridEventSubscriptionSummary = {
+  id: string
+  name: string
+  topicName: string
+  destinationType: string
+  destinationEndpoint: string
+  provisioningState: string
+  eventDeliverySchema: string
+  retryMaxDeliveryAttempts: number
+  eventTimeToLiveInMinutes: number
+  labels: string[]
+}
+
+export type AzureEventGridDomainSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  provisioningState: string
+  endpoint: string
+  inputSchema: string
+  publicNetworkAccess: string
+  tagCount: number
+}
+
+export type AzureEventGridDomainTopicSummary = {
+  id: string
+  name: string
+  provisioningState: string
+}
+
+/* ── Azure Firewall types ────────────────────────────────── */
+
+export type AzureFirewallSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  skuName: string
+  skuTier: string
+  threatIntelMode: string
+  provisioningState: string
+  firewallPolicyId: string
+  ipConfigurationCount: number
+  networkRuleCollectionCount: number
+  applicationRuleCollectionCount: number
+  natRuleCollectionCount: number
+}
+
+export type AzureFirewallIpConfiguration = {
+  name: string
+  privateIPAddress: string
+  publicIPAddressId: string
+  subnetId: string
+  provisioningState: string
+}
+
+export type AzureFirewallRuleCollection = {
+  name: string
+  kind: string
+  priority: number
+  action: string
+  ruleCount: number
+  provisioningState: string
+}
+
+export type AzureFirewallDetail = {
+  summary: AzureFirewallSummary
+  ipConfigurations: AzureFirewallIpConfiguration[]
+  ruleCollections: AzureFirewallRuleCollection[]
 }

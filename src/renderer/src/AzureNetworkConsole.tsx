@@ -9,17 +9,27 @@ import type {
   AzureNsgSummary,
   AzureNsgRuleSummary,
   AzurePublicIpSummary,
-  AzureNetworkInterfaceSummary
+  AzureNetworkInterfaceSummary,
+  AzureVNetPeeringSummary,
+  AzureRouteTableSummary,
+  AzureNatGatewaySummary,
+  AzureLoadBalancerSummary,
+  AzurePrivateEndpointSummary
 } from '@shared/types'
 import {
   getAzureNetworkOverview,
   listAzureMonitorActivity,
   listAzureVNetSubnets,
-  listAzureNsgRules
+  listAzureNsgRules,
+  listAzureVNetPeerings,
+  listAzureRouteTables,
+  listAzureNatGateways,
+  listAzureLoadBalancers,
+  listAzurePrivateEndpoints
 } from './api'
 import { SvcState } from './SvcState'
 
-type NetworkTab = 'architecture' | 'vnets' | 'nsgs' | 'publicIps' | 'nics' | 'activity'
+type NetworkTab = 'architecture' | 'vnets' | 'nsgs' | 'publicIps' | 'nics' | 'routeTables' | 'natGateways' | 'loadBalancers' | 'privateEndpoints' | 'activity'
 
 const TABS: Array<{ id: NetworkTab; label: string }> = [
   { id: 'architecture', label: 'Architecture' },
@@ -27,6 +37,10 @@ const TABS: Array<{ id: NetworkTab; label: string }> = [
   { id: 'nsgs', label: 'NSGs' },
   { id: 'publicIps', label: 'Public IPs' },
   { id: 'nics', label: 'NICs' },
+  { id: 'routeTables', label: 'Route Tables' },
+  { id: 'natGateways', label: 'NAT Gateways' },
+  { id: 'loadBalancers', label: 'Load Balancers' },
+  { id: 'privateEndpoints', label: 'Private Endpoints' },
   { id: 'activity', label: 'Activity Log' },
 ]
 
@@ -495,6 +509,16 @@ export function AzureNetworkConsole({
   const [timelineEvents, setTimelineEvents] = useState<AzureMonitorActivityEvent[]>([])
   const [timelineLoading, setTimelineLoading] = useState(false)
   const [timelineError, setTimelineError] = useState('')
+  const [routeTables, setRouteTables] = useState<AzureRouteTableSummary[]>([])
+  const [routeTablesLoading, setRouteTablesLoading] = useState(false)
+  const [natGateways, setNatGateways] = useState<AzureNatGatewaySummary[]>([])
+  const [natGatewaysLoading, setNatGatewaysLoading] = useState(false)
+  const [loadBalancers, setLoadBalancers] = useState<AzureLoadBalancerSummary[]>([])
+  const [loadBalancersLoading, setLoadBalancersLoading] = useState(false)
+  const [privateEndpoints, setPrivateEndpoints] = useState<AzurePrivateEndpointSummary[]>([])
+  const [privateEndpointsLoading, setPrivateEndpointsLoading] = useState(false)
+  const [peerings, setPeerings] = useState<AzureVNetPeeringSummary[]>([])
+  const [peeringsLoading, setPeeringsLoading] = useState(false)
 
   /* ── Data fetching ─────────────────────────────────────── */
 
@@ -514,6 +538,11 @@ export function AzureNetworkConsole({
           setNsgRules([])
           setTimelineEvents([])
           setTimelineError('')
+          setRouteTables([])
+          setNatGateways([])
+          setLoadBalancers([])
+          setPrivateEndpoints([])
+          setPeerings([])
         }
       } catch (err) {
         if (!cancelled) {
@@ -549,6 +578,27 @@ export function AzureNetworkConsole({
     if (activeTab === 'activity') void loadTimeline()
   }, [activeTab, subscriptionId, location])
 
+  /* ── Lazy-load new resource tabs ──────────────────────── */
+
+  useEffect(() => {
+    if (activeTab === 'routeTables' && routeTables.length === 0 && !routeTablesLoading) {
+      setRouteTablesLoading(true)
+      listAzureRouteTables(subscriptionId, location).then(setRouteTables).catch(() => {}).finally(() => setRouteTablesLoading(false))
+    }
+    if (activeTab === 'natGateways' && natGateways.length === 0 && !natGatewaysLoading) {
+      setNatGatewaysLoading(true)
+      listAzureNatGateways(subscriptionId, location).then(setNatGateways).catch(() => {}).finally(() => setNatGatewaysLoading(false))
+    }
+    if (activeTab === 'loadBalancers' && loadBalancers.length === 0 && !loadBalancersLoading) {
+      setLoadBalancersLoading(true)
+      listAzureLoadBalancers(subscriptionId, location).then(setLoadBalancers).catch(() => {}).finally(() => setLoadBalancersLoading(false))
+    }
+    if (activeTab === 'privateEndpoints' && privateEndpoints.length === 0 && !privateEndpointsLoading) {
+      setPrivateEndpointsLoading(true)
+      listAzurePrivateEndpoints(subscriptionId, location).then(setPrivateEndpoints).catch(() => {}).finally(() => setPrivateEndpointsLoading(false))
+    }
+  }, [activeTab, subscriptionId, location])
+
   /* ── Subnet drill-down ─────────────────────────────────── */
 
   useEffect(() => {
@@ -572,6 +622,18 @@ export function AzureNetworkConsole({
     void loadSubnets()
     return () => { cancelled = true }
   }, [selectedVNetId, overview, subscriptionId])
+
+  /* ── Peerings for selected VNet ───────────────────────── */
+
+  useEffect(() => {
+    if (!selectedVNetId || !overview) { setPeerings([]); return }
+    const vnet = overview.vnets.find((v) => v.id === selectedVNetId)
+    if (vnet && activeTab === 'vnets') {
+      setPeeringsLoading(true)
+      listAzureVNetPeerings(subscriptionId, vnet.resourceGroup, vnet.name)
+        .then(setPeerings).catch(() => setPeerings([])).finally(() => setPeeringsLoading(false))
+    }
+  }, [selectedVNetId, activeTab])
 
   /* ── NSG rules drill-down ──────────────────────────────── */
 
@@ -655,6 +717,10 @@ export function AzureNetworkConsole({
   const nsgCount = overview?.nsgs.length ?? 0
   const publicIpCount = overview?.publicIps.length ?? 0
   const nicCount = overview?.networkInterfaces.length ?? 0
+  const routeTableCount = overview?.routeTables.length ?? 0
+  const lbCount = overview?.loadBalancers.length ?? 0
+  const natGwCount = overview?.natGateways.length ?? 0
+  const peCount = overview?.privateEndpoints.length ?? 0
 
   /* ── Early states ──────────────────────────────────────── */
 
@@ -708,6 +774,26 @@ export function AzureNetworkConsole({
             <span>NICs</span>
             <strong>{nicCount}</strong>
             <small>{nicCount === 1 ? '1 interface' : `${nicCount} interfaces`}</small>
+          </div>
+          <div className={`vpc-shell-status-card`}>
+            <span>Route Tables</span>
+            <strong>{routeTableCount}</strong>
+            <small>{routeTableCount === 1 ? '1 route table' : `${routeTableCount} route tables`}</small>
+          </div>
+          <div className={`vpc-shell-status-card`}>
+            <span>NAT GWs</span>
+            <strong>{natGwCount}</strong>
+            <small>{natGwCount === 1 ? '1 NAT gateway' : `${natGwCount} NAT gateways`}</small>
+          </div>
+          <div className={`vpc-shell-status-card`}>
+            <span>Load Balancers</span>
+            <strong>{lbCount}</strong>
+            <small>{lbCount === 1 ? '1 load balancer' : `${lbCount} load balancers`}</small>
+          </div>
+          <div className={`vpc-shell-status-card`}>
+            <span>Private Endpoints</span>
+            <strong>{peCount}</strong>
+            <small>{peCount === 1 ? '1 endpoint' : `${peCount} endpoints`}</small>
           </div>
         </div>
       </section>
@@ -913,6 +999,32 @@ export function AzureNetworkConsole({
                         </table>
                       </div>
                     )}
+
+                    {/* Peerings for selected VNet */}
+                    <div style={{ marginTop: 16 }}>
+                      <h4 style={{ color: '#eef0f4', fontSize: 13, marginBottom: 8 }}>Peerings</h4>
+                      {peeringsLoading && <div style={{ color: '#9ca7b7', fontSize: 12 }}>Loading peerings...</div>}
+                      {!peeringsLoading && peerings.length === 0 && <div style={{ color: '#9ca7b7', fontSize: 12 }}>No peerings configured.</div>}
+                      {!peeringsLoading && peerings.length > 0 && (
+                        <div className="vpc-table-wrap">
+                          <table className="vpc-table">
+                            <thead><tr><th>Name</th><th>Remote VNet</th><th>State</th><th>VNet Access</th><th>Forwarding</th><th>Gateway Transit</th></tr></thead>
+                            <tbody>
+                              {peerings.map((p) => (
+                                <tr key={p.id}>
+                                  <td>{p.name}</td>
+                                  <td>{p.remoteVNetName}</td>
+                                  <td><span className={`svc-badge ${p.peeringState === 'Connected' ? 'ok' : 'warn'}`}>{p.peeringState}</span></td>
+                                  <td>{p.allowVirtualNetworkAccess ? 'Yes' : 'No'}</td>
+                                  <td>{p.allowForwardedTraffic ? 'Yes' : 'No'}</td>
+                                  <td>{p.allowGatewayTransit ? 'Yes' : 'No'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
                   </section>
                 )}
               </>
@@ -1115,6 +1227,123 @@ export function AzureNetworkConsole({
               </div>
             )}
           </section>
+        )}
+
+        {/* ── Route Tables tab ──────────────────────────── */}
+        {activeTab === 'routeTables' && (
+          <div style={{ padding: '16px' }}>
+            {routeTablesLoading && <SvcState variant="loading" resourceName="route tables" compact />}
+            {!routeTablesLoading && routeTables.length === 0 && <SvcState variant="empty" message="No route tables found." />}
+            {!routeTablesLoading && routeTables.length > 0 && (
+              <div className="vpc-table-wrap">
+                <table className="vpc-table">
+                  <thead><tr><th>Name</th><th>Resource Group</th><th>Location</th><th>Routes</th><th>Subnets</th><th>BGP Propagation</th><th>State</th></tr></thead>
+                  <tbody>
+                    {routeTables.map((rt) => (
+                      <tr key={rt.id}>
+                        <td>{rt.name}</td>
+                        <td>{rt.resourceGroup}</td>
+                        <td>{rt.location}</td>
+                        <td>{rt.routes.length}</td>
+                        <td>{rt.subnetCount}</td>
+                        <td><span className={`svc-badge ${rt.disableBgpRoutePropagation ? 'warn' : 'ok'}`}>{rt.disableBgpRoutePropagation ? 'Disabled' : 'Enabled'}</span></td>
+                        <td><span className={`svc-badge ${badgeClass(networkStatusTone(rt.provisioningState))}`}>{rt.provisioningState}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── NAT Gateways tab ──────────────────────────── */}
+        {activeTab === 'natGateways' && (
+          <div style={{ padding: '16px' }}>
+            {natGatewaysLoading && <SvcState variant="loading" resourceName="NAT gateways" compact />}
+            {!natGatewaysLoading && natGateways.length === 0 && <SvcState variant="empty" message="No NAT gateways found." />}
+            {!natGatewaysLoading && natGateways.length > 0 && (
+              <div className="vpc-table-wrap">
+                <table className="vpc-table">
+                  <thead><tr><th>Name</th><th>Resource Group</th><th>Location</th><th>SKU</th><th>Idle Timeout</th><th>Public IPs</th><th>Subnets</th><th>Zones</th><th>State</th></tr></thead>
+                  <tbody>
+                    {natGateways.map((ng) => (
+                      <tr key={ng.id}>
+                        <td>{ng.name}</td>
+                        <td>{ng.resourceGroup}</td>
+                        <td>{ng.location}</td>
+                        <td>{ng.skuName}</td>
+                        <td>{ng.idleTimeoutInMinutes}m</td>
+                        <td>{ng.publicIpCount}</td>
+                        <td>{ng.subnetCount}</td>
+                        <td>{ng.zones.length > 0 ? ng.zones.join(', ') : '-'}</td>
+                        <td><span className={`svc-badge ${badgeClass(networkStatusTone(ng.provisioningState))}`}>{ng.provisioningState}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Load Balancers tab ─────────────────────────── */}
+        {activeTab === 'loadBalancers' && (
+          <div style={{ padding: '16px' }}>
+            {loadBalancersLoading && <SvcState variant="loading" resourceName="load balancers" compact />}
+            {!loadBalancersLoading && loadBalancers.length === 0 && <SvcState variant="empty" message="No load balancers found." />}
+            {!loadBalancersLoading && loadBalancers.length > 0 && (
+              <div className="vpc-table-wrap">
+                <table className="vpc-table">
+                  <thead><tr><th>Name</th><th>Resource Group</th><th>Location</th><th>SKU</th><th>Tier</th><th>Frontends</th><th>Backends</th><th>Rules</th><th>Probes</th><th>State</th></tr></thead>
+                  <tbody>
+                    {loadBalancers.map((lb) => (
+                      <tr key={lb.id}>
+                        <td>{lb.name}</td>
+                        <td>{lb.resourceGroup}</td>
+                        <td>{lb.location}</td>
+                        <td>{lb.skuName}</td>
+                        <td>{lb.skuTier}</td>
+                        <td>{lb.frontendIpCount}</td>
+                        <td>{lb.backendPoolCount}</td>
+                        <td>{lb.ruleCount}</td>
+                        <td>{lb.probeCount}</td>
+                        <td><span className={`svc-badge ${badgeClass(networkStatusTone(lb.provisioningState))}`}>{lb.provisioningState}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Private Endpoints tab ──────────────────────── */}
+        {activeTab === 'privateEndpoints' && (
+          <div style={{ padding: '16px' }}>
+            {privateEndpointsLoading && <SvcState variant="loading" resourceName="private endpoints" compact />}
+            {!privateEndpointsLoading && privateEndpoints.length === 0 && <SvcState variant="empty" message="No private endpoints found." />}
+            {!privateEndpointsLoading && privateEndpoints.length > 0 && (
+              <div className="vpc-table-wrap">
+                <table className="vpc-table">
+                  <thead><tr><th>Name</th><th>Resource Group</th><th>Location</th><th>Linked Service</th><th>Group IDs</th><th>DNS</th><th>State</th></tr></thead>
+                  <tbody>
+                    {privateEndpoints.map((pe) => (
+                      <tr key={pe.id}>
+                        <td>{pe.name}</td>
+                        <td>{pe.resourceGroup}</td>
+                        <td>{pe.location}</td>
+                        <td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>{pe.privateLinkServiceId ? pe.privateLinkServiceId.split('/').pop() : '-'}</td>
+                        <td>{pe.groupIds.join(', ') || '-'}</td>
+                        <td>{pe.customDnsConfigs.length > 0 ? pe.customDnsConfigs.map(c => c.fqdn).join(', ') : '-'}</td>
+                        <td><span className={`svc-badge ${badgeClass(networkStatusTone(pe.provisioningState))}`}>{pe.provisioningState}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         )}
 
         {activeTab === 'activity' && (

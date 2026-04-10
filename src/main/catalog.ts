@@ -112,7 +112,12 @@ const GCP_WORKSPACES: ServiceDescriptor[] = [
   { id: 'gcp-monitoring', label: 'Monitoring', category: 'Operations', migrated: true, maturity: 'experimental', providerId: 'gcp', providerLabel: 'GCP', workspaceKind: 'provider', supports: ['gcp'], requiresConnection: true },
   { id: 'gcp-scc', label: 'Security Command Center', category: 'Security', migrated: true, maturity: 'experimental', providerId: 'gcp', providerLabel: 'GCP', workspaceKind: 'provider', supports: ['gcp'], requiresConnection: true },
   { id: 'gcp-firestore', label: 'Firestore', category: 'Data', migrated: true, maturity: 'experimental', providerId: 'gcp', providerLabel: 'GCP', workspaceKind: 'provider', supports: ['gcp'], requiresConnection: true },
-  { id: 'gcp-pubsub', label: 'Pub/Sub', category: 'Messaging', migrated: true, maturity: 'experimental', providerId: 'gcp', providerLabel: 'GCP', workspaceKind: 'provider', supports: ['gcp'], requiresConnection: true }
+  { id: 'gcp-pubsub', label: 'Pub/Sub', category: 'Messaging', migrated: true, maturity: 'experimental', providerId: 'gcp', providerLabel: 'GCP', workspaceKind: 'provider', supports: ['gcp'], requiresConnection: true },
+  { id: 'gcp-cloud-run', label: 'Cloud Run', category: 'Compute', migrated: true, maturity: 'experimental', providerId: 'gcp', providerLabel: 'GCP', workspaceKind: 'provider', supports: ['gcp'], requiresConnection: true },
+  { id: 'gcp-firebase', label: 'Firebase', category: 'Platform', migrated: true, maturity: 'experimental', providerId: 'gcp', providerLabel: 'GCP', workspaceKind: 'provider', supports: ['gcp'], requiresConnection: true },
+  { id: 'gcp-cloud-dns', label: 'Cloud DNS', category: 'Networking', migrated: true, maturity: 'experimental', providerId: 'gcp', providerLabel: 'GCP', workspaceKind: 'provider', supports: ['gcp'], requiresConnection: true },
+  { id: 'gcp-memorystore', label: 'Memorystore', category: 'Data', migrated: true, maturity: 'experimental', providerId: 'gcp', providerLabel: 'GCP', workspaceKind: 'provider', supports: ['gcp'], requiresConnection: true },
+  { id: 'gcp-load-balancer', label: 'Load Balancer', category: 'Networking', migrated: true, maturity: 'experimental', providerId: 'gcp', providerLabel: 'GCP', workspaceKind: 'provider', supports: ['gcp'], requiresConnection: true }
 ]
 
 const AZURE_WORKSPACES: ServiceDescriptor[] = [
@@ -130,7 +135,14 @@ const AZURE_WORKSPACES: ServiceDescriptor[] = [
   { id: 'azure-app-insights', label: 'Application Insights', category: 'Operations', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true },
   { id: 'azure-key-vault', label: 'Key Vault', category: 'Security', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true },
   { id: 'azure-event-hub', label: 'Event Hubs', category: 'Messaging', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true },
-  { id: 'azure-app-service', label: 'App Service', category: 'Compute', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true }
+  { id: 'azure-app-service', label: 'App Service', category: 'Compute', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true },
+  { id: 'azure-mysql', label: 'MySQL', category: 'Database', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true },
+  { id: 'azure-cosmos-db', label: 'Cosmos DB', category: 'Database', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true },
+  { id: 'azure-log-analytics', label: 'Log Analytics', category: 'Operations', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true },
+  { id: 'azure-event-grid', label: 'Event Grid', category: 'Messaging', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true },
+  { id: 'azure-dns', label: 'DNS', category: 'Networking', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true },
+  { id: 'azure-firewall', label: 'Firewall', category: 'Networking', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true },
+  { id: 'azure-load-balancers', label: 'Load Balancers', category: 'Networking', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true }
 ]
 
 function sortServices(items: ServiceDescriptor[]): ServiceDescriptor[] {

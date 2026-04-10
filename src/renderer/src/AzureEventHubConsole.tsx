@@ -112,7 +112,7 @@ export function AzureEventHubConsole({
   const kafkaCount = useMemo(() => namespaces.filter((ns) => ns.kafkaEnabled).length, [namespaces])
   const totalThroughput = useMemo(() => namespaces.reduce((sum, ns) => sum + ns.skuCapacity, 0), [namespaces])
 
-  if (loading && !namespaces.length) return <SvcState type="loading" message="Loading Event Hub namespaces..." />
+  if (loading && !namespaces.length) return <SvcState variant="loading" message="Loading Event Hub namespaces..." />
 
   return (
     <div className="svc-console asg-console azure-event-hub-theme">
@@ -264,7 +264,7 @@ export function AzureEventHubConsole({
                 <button className="svc-tab right" type="button" onClick={doRefresh}>Refresh</button>
               </div>
 
-              {detailLoading && <SvcState type="loading" message="Loading event hubs..." />}
+              {detailLoading && <SvcState variant="loading" message="Loading event hubs..." />}
               {detailError && <div className="svc-error">{detailError}</div>}
 
               {/* Hubs tab */}
@@ -344,7 +344,7 @@ export function AzureEventHubConsole({
                     </section>
                   </div>
 
-                  {cgLoading && <SvcState type="loading" message="Loading consumer groups..." />}
+                  {cgLoading && <SvcState variant="loading" message="Loading consumer groups..." />}
                   {!cgLoading && (
                     <div className="svc-table-area asg-table-area">
                       <table className="svc-table">

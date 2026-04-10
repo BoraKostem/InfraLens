@@ -43,7 +43,7 @@ function getGcpApiEnableAction(
   summary: string
 ): { command: string; summary: string } | null {
   if (!error.toLowerCase().includes('google cloud api access failed')) return null
-  const match = error.match(/"([^"]+)"/) ?? error.match(/[\u201C\u201D]([^\u201C\u201D]+)[\u201C\u201D]/)
+  const match = error.match(/Run "([^"]+)"/) ?? error.match(/Run [\u201C]([^\u201D]+)[\u201D]/)
   return { command: match?.[1]?.trim() ?? fallbackCommand, summary }
 }
 

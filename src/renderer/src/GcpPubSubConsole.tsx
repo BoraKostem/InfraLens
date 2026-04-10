@@ -22,9 +22,9 @@ const MAIN_TABS: Array<{ id: PubSubTab; label: string }> = [
 ]
 
 function extractQuotedCommand(value: string): string | null {
-  const straight = value.match(/"([^"]+)"/)
+  const straight = value.match(/Run "([^"]+)"/)
   if (straight?.[1]?.trim()) return straight[1].trim()
-  const curly = value.match(/\u201c([^\u201d]+)\u201d/)
+  const curly = value.match(/Run \u201c([^\u201d]+)\u201d/)
   return curly?.[1]?.trim() ?? null
 }
 

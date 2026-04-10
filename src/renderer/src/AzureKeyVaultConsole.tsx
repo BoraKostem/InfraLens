@@ -100,7 +100,7 @@ export function AzureKeyVaultConsole({
   const softDeleteCount = useMemo(() => vaults.filter((v) => v.enableSoftDelete).length, [vaults])
   const rbacCount = useMemo(() => vaults.filter((v) => v.enableRbacAuthorization).length, [vaults])
 
-  if (loading && !vaults.length) return <SvcState type="loading" message="Loading Key Vaults..." />
+  if (loading && !vaults.length) return <SvcState variant="loading" message="Loading Key Vaults..." />
 
   return (
     <div className="svc-console asg-console azure-key-vault-theme">
@@ -252,7 +252,7 @@ export function AzureKeyVaultConsole({
                 <button className="svc-tab right" type="button" onClick={doRefresh}>Refresh</button>
               </div>
 
-              {detailLoading && <SvcState type="loading" message="Loading vault contents..." />}
+              {detailLoading && <SvcState variant="loading" message="Loading vault contents..." />}
               {detailError && <div className="svc-error">{detailError}</div>}
 
               {/* Vault properties panel */}

@@ -69,7 +69,58 @@ import type {
   AzureAppServicePlanSummary,
   AzureWebAppSummary,
   AzureWebAppSlotSummary,
-  AzureWebAppDeploymentSummary
+  AzureWebAppDeploymentSummary,
+  AzureManagedDiskSummary,
+  AzureDiskSnapshotSummary,
+  AzureVNetPeeringSummary,
+  AzureRouteTableSummary,
+  AzureRouteSummary,
+  AzureNatGatewaySummary,
+  AzureLoadBalancerSummary,
+  AzurePrivateEndpointSummary,
+  AzureStorageFileShareSummary,
+  AzureStorageQueueSummary,
+  AzureStorageTableSummary,
+  AzureMySqlServerSummary,
+  AzureMySqlDatabaseSummary,
+  AzureMySqlEstateOverview,
+  AzureMySqlFirewallRule,
+  AzureMySqlPostureBadge,
+  AzureMySqlSummaryTile,
+  AzureMySqlFinding,
+  AzureMySqlServerDetail,
+  AzureCosmosDbAccountSummary,
+  AzureCosmosDbDatabaseSummary,
+  AzureCosmosDbContainerSummary,
+  AzureCosmosDbEstateOverview,
+  AzureCosmosDbAccountDetail,
+  AzureFunctionAppSummary,
+  AzureFunctionSummary,
+  AzureWebAppConfigSummary,
+  AzureWebAppAction,
+  AzureWebAppActionResult,
+  AzureLogAnalyticsWorkspaceSummary,
+  AzureLogAnalyticsQueryResult,
+  AzureLogAnalyticsSavedSearch,
+  AzureLogAnalyticsLinkedService,
+  AzureEventGridTopicSummary,
+  AzureEventGridSystemTopicSummary,
+  AzureEventGridEventSubscriptionSummary,
+  AzureEventGridDomainSummary,
+  AzureEventGridDomainTopicSummary,
+  AzureDnsZoneSummary,
+  AzureDnsRecordSummary,
+  AzureDnsRecordUpsertInput,
+  AzureFirewallSummary,
+  AzureFirewallIpConfiguration,
+  AzureFirewallRuleCollection,
+  AzureFirewallDetail,
+  AzureLoadBalancerFrontendIp,
+  AzureLoadBalancerBackendPool,
+  AzureLoadBalancerRule,
+  AzureLoadBalancerProbe,
+  AzureLoadBalancerInboundNatRule,
+  AzureLoadBalancerDetail
 } from '@shared/types'
 
 import { getEnvironmentHealthReport } from './environment'
@@ -1118,6 +1169,9 @@ export async function listAzureStorageAccounts(subscriptionId: string, location:
       }
       primaryEndpoints?: {
         blob?: string
+        file?: string
+        queue?: string
+        table?: string
       }
     }
   }>(`/subscriptions/${subscriptionId.trim()}/providers/Microsoft.Storage/storageAccounts`, '2024-01-01')
@@ -1138,6 +1192,9 @@ export async function listAzureStorageAccounts(subscriptionId: string, location:
       allowSharedKeyAccess: account.properties?.allowSharedKeyAccess !== false,
       httpsOnly: account.properties?.supportsHttpsTrafficOnly !== false,
       primaryBlobEndpoint: account.properties?.primaryEndpoints?.blob?.trim() || '',
+      primaryFileEndpoint: account.properties?.primaryEndpoints?.file?.trim() || '',
+      primaryQueueEndpoint: account.properties?.primaryEndpoints?.queue?.trim() || '',
+      primaryTableEndpoint: account.properties?.primaryEndpoints?.table?.trim() || '',
       tagCount: Object.keys(account.tags ?? {}).length
     })),
     location
@@ -2407,11 +2464,15 @@ export async function listAzureNetworkOverview(subscriptionId: string, location:
   const basePath = `/subscriptions/${encodeURIComponent(subscriptionId)}/providers/Microsoft.Network`
   const apiVersion = '2023-11-01'
 
-  const [rawVnets, rawNsgs, rawPublicIps, rawNics] = await Promise.all([
+  const [rawVnets, rawNsgs, rawPublicIps, rawNics, routeTables, natGateways, loadBalancers, privateEndpoints] = await Promise.all([
     fetchAzureArmCollection<Record<string, unknown>>(`${basePath}/virtualNetworks`, apiVersion),
     fetchAzureArmCollection<Record<string, unknown>>(`${basePath}/networkSecurityGroups`, apiVersion),
     fetchAzureArmCollection<Record<string, unknown>>(`${basePath}/publicIPAddresses`, apiVersion),
-    fetchAzureArmCollection<Record<string, unknown>>(`${basePath}/networkInterfaces`, apiVersion)
+    fetchAzureArmCollection<Record<string, unknown>>(`${basePath}/networkInterfaces`, apiVersion),
+    listAzureRouteTables(subscriptionId, location),
+    listAzureNatGateways(subscriptionId, location),
+    listAzureLoadBalancers(subscriptionId, location),
+    listAzurePrivateEndpoints(subscriptionId, location)
   ])
 
   const locationFilter = location.trim().toLowerCase()
@@ -2422,7 +2483,11 @@ export async function listAzureNetworkOverview(subscriptionId: string, location:
     vnets: filterByLocation(rawVnets).map(mapVNet),
     nsgs: filterByLocation(rawNsgs).map(mapNsg),
     publicIps: filterByLocation(rawPublicIps).map(mapPublicIp),
-    networkInterfaces: filterByLocation(rawNics).map(mapNetworkInterface)
+    networkInterfaces: filterByLocation(rawNics).map(mapNetworkInterface),
+    routeTables,
+    natGateways,
+    loadBalancers,
+    privateEndpoints
   }
 }
 
@@ -2851,4 +2916,1246 @@ export async function listAzureWebAppDeployments(subscriptionId: string, resourc
       active: Boolean(props.active)
     }
   })
+}
+
+/* ------------------------------------------------------------------ */
+/*  Shorthand used by the functions below                             */
+/* ------------------------------------------------------------------ */
+const enc = encodeURIComponent
+
+/* ------------------------------------------------------------------ */
+/*  1. Managed Disks & Snapshots                                       */
+/* ------------------------------------------------------------------ */
+
+export async function listAzureManagedDisks(subscriptionId: string, location: string): Promise<AzureManagedDiskSummary[]> {
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/providers/Microsoft.Compute/disks`,
+    '2024-03-02'
+  )
+  const all: AzureManagedDiskSummary[] = raw.map((d) => ({
+    id: String(d.id ?? ''),
+    name: String(d.name ?? ''),
+    resourceGroup: extractResourceGroup(String(d.id ?? '')),
+    location: String(d.location ?? ''),
+    skuName: String((d.sku as Record<string, unknown>)?.name ?? ''),
+    diskSizeGb: Number((d.properties as Record<string, unknown>)?.diskSizeGB ?? 0),
+    diskState: String((d.properties as Record<string, unknown>)?.diskState ?? ''),
+    osType: String((d.properties as Record<string, unknown>)?.osType ?? ''),
+    timeCreated: String((d.properties as Record<string, unknown>)?.timeCreated ?? ''),
+    managedBy: String(d.managedBy ?? ''),
+    zones: Array.isArray(d.zones) ? (d.zones as string[]) : [],
+    networkAccessPolicy: String((d.properties as Record<string, unknown>)?.networkAccessPolicy ?? ''),
+    provisioningState: String((d.properties as Record<string, unknown>)?.provisioningState ?? ''),
+    tagCount: Object.keys((d.tags as Record<string, string>) ?? {}).length
+  }))
+  const loc = location.trim().toLowerCase().replace(/\s/g, '')
+  return loc ? all.filter((d) => d.location.toLowerCase().replace(/\s/g, '') === loc) : all
+}
+
+export async function listAzureDiskSnapshots(subscriptionId: string, location: string): Promise<AzureDiskSnapshotSummary[]> {
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/providers/Microsoft.Compute/snapshots`,
+    '2024-03-02'
+  )
+  const all: AzureDiskSnapshotSummary[] = raw.map((s) => {
+    const props = (s.properties ?? {}) as Record<string, unknown>
+    return {
+      id: String(s.id ?? ''),
+      name: String(s.name ?? ''),
+      resourceGroup: extractResourceGroup(String(s.id ?? '')),
+      location: String(s.location ?? ''),
+      skuName: String((s.sku as Record<string, unknown>)?.name ?? ''),
+      diskSizeGb: Number(props.diskSizeGB ?? 0),
+      timeCreated: String(props.timeCreated ?? ''),
+      sourceResourceId: String((props.creationData as Record<string, unknown>)?.sourceResourceId ?? ''),
+      incremental: Boolean(props.incremental),
+      provisioningState: String(props.provisioningState ?? ''),
+      tagCount: Object.keys((s.tags as Record<string, string>) ?? {}).length
+    }
+  })
+  const loc = location.trim().toLowerCase().replace(/\s/g, '')
+  return loc ? all.filter((s) => s.location.toLowerCase().replace(/\s/g, '') === loc) : all
+}
+
+/* ------------------------------------------------------------------ */
+/*  2. Network Enrichment                                              */
+/* ------------------------------------------------------------------ */
+
+export async function listAzureVNetPeerings(subscriptionId: string, resourceGroup: string, vnetName: string): Promise<AzureVNetPeeringSummary[]> {
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/resourceGroups/${enc(resourceGroup)}/providers/Microsoft.Network/virtualNetworks/${enc(vnetName)}/virtualNetworkPeerings`,
+    '2023-11-01'
+  )
+  return raw.map((p) => {
+    const props = (p.properties ?? {}) as Record<string, unknown>
+    const remoteVNet = (props.remoteVirtualNetwork as Record<string, unknown>) ?? {}
+    return {
+      id: String(p.id ?? ''),
+      name: String(p.name ?? ''),
+      peeringState: String(props.peeringState ?? ''),
+      remoteVNetId: String(remoteVNet.id ?? ''),
+      remoteVNetName: extractResourceName(String(remoteVNet.id ?? '')),
+      allowVirtualNetworkAccess: Boolean(props.allowVirtualNetworkAccess),
+      allowForwardedTraffic: Boolean(props.allowForwardedTraffic),
+      allowGatewayTransit: Boolean(props.allowGatewayTransit),
+      useRemoteGateways: Boolean(props.useRemoteGateways),
+      provisioningState: String(props.provisioningState ?? '')
+    }
+  })
+}
+
+export async function listAzureRouteTables(subscriptionId: string, location: string): Promise<AzureRouteTableSummary[]> {
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/providers/Microsoft.Network/routeTables`,
+    '2023-11-01'
+  )
+  const all: AzureRouteTableSummary[] = raw.map((rt) => {
+    const props = (rt.properties ?? {}) as Record<string, unknown>
+    const routes = Array.isArray(props.routes) ? (props.routes as Record<string, unknown>[]) : []
+    const subnets = Array.isArray(props.subnets) ? props.subnets : []
+    return {
+      id: String(rt.id ?? ''),
+      name: String(rt.name ?? ''),
+      resourceGroup: extractResourceGroup(String(rt.id ?? '')),
+      location: String(rt.location ?? ''),
+      disableBgpRoutePropagation: Boolean(props.disableBgpRoutePropagation),
+      routes: routes.map((r) => {
+        const rp = (r.properties ?? {}) as Record<string, unknown>
+        return {
+          name: String(r.name ?? ''),
+          addressPrefix: String(rp.addressPrefix ?? ''),
+          nextHopType: String(rp.nextHopType ?? ''),
+          nextHopIpAddress: String(rp.nextHopIpAddress ?? ''),
+          provisioningState: String(rp.provisioningState ?? '')
+        } satisfies AzureRouteSummary
+      }),
+      provisioningState: String(props.provisioningState ?? ''),
+      subnetCount: subnets.length
+    }
+  })
+  const loc = location.trim().toLowerCase().replace(/\s/g, '')
+  return loc ? all.filter((rt) => rt.location.toLowerCase().replace(/\s/g, '') === loc) : all
+}
+
+export async function listAzureNatGateways(subscriptionId: string, location: string): Promise<AzureNatGatewaySummary[]> {
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/providers/Microsoft.Network/natGateways`,
+    '2023-11-01'
+  )
+  const all: AzureNatGatewaySummary[] = raw.map((ng) => {
+    const props = (ng.properties ?? {}) as Record<string, unknown>
+    return {
+      id: String(ng.id ?? ''),
+      name: String(ng.name ?? ''),
+      resourceGroup: extractResourceGroup(String(ng.id ?? '')),
+      location: String(ng.location ?? ''),
+      skuName: String((ng.sku as Record<string, unknown>)?.name ?? ''),
+      idleTimeoutInMinutes: Number(props.idleTimeoutInMinutes ?? 0),
+      publicIpCount: Array.isArray(props.publicIpAddresses) ? props.publicIpAddresses.length : 0,
+      subnetCount: Array.isArray(props.subnets) ? props.subnets.length : 0,
+      provisioningState: String(props.provisioningState ?? ''),
+      zones: Array.isArray(ng.zones) ? (ng.zones as string[]) : []
+    }
+  })
+  const loc = location.trim().toLowerCase().replace(/\s/g, '')
+  return loc ? all.filter((ng) => ng.location.toLowerCase().replace(/\s/g, '') === loc) : all
+}
+
+export async function listAzureLoadBalancers(subscriptionId: string, location: string): Promise<AzureLoadBalancerSummary[]> {
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/providers/Microsoft.Network/loadBalancers`,
+    '2023-11-01'
+  )
+  const all: AzureLoadBalancerSummary[] = raw.map((lb) => {
+    const props = (lb.properties ?? {}) as Record<string, unknown>
+    const sku = (lb.sku ?? {}) as Record<string, unknown>
+    return {
+      id: String(lb.id ?? ''),
+      name: String(lb.name ?? ''),
+      resourceGroup: extractResourceGroup(String(lb.id ?? '')),
+      location: String(lb.location ?? ''),
+      skuName: String(sku.name ?? ''),
+      skuTier: String(sku.tier ?? ''),
+      frontendIpCount: Array.isArray(props.frontendIPConfigurations) ? props.frontendIPConfigurations.length : 0,
+      backendPoolCount: Array.isArray(props.backendAddressPools) ? props.backendAddressPools.length : 0,
+      ruleCount: Array.isArray(props.loadBalancingRules) ? props.loadBalancingRules.length : 0,
+      probeCount: Array.isArray(props.probes) ? props.probes.length : 0,
+      provisioningState: String(props.provisioningState ?? '')
+    }
+  })
+  const loc = location.trim().toLowerCase().replace(/\s/g, '')
+  return loc ? all.filter((lb) => lb.location.toLowerCase().replace(/\s/g, '') === loc) : all
+}
+
+export async function listAzurePrivateEndpoints(subscriptionId: string, location: string): Promise<AzurePrivateEndpointSummary[]> {
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/providers/Microsoft.Network/privateEndpoints`,
+    '2023-11-01'
+  )
+  const all: AzurePrivateEndpointSummary[] = raw.map((pe) => {
+    const props = (pe.properties ?? {}) as Record<string, unknown>
+    const plsConns = Array.isArray(props.privateLinkServiceConnections) ? (props.privateLinkServiceConnections as Record<string, unknown>[]) : []
+    const firstConn = plsConns[0] ?? {}
+    const connProps = (firstConn.properties ?? {}) as Record<string, unknown>
+    const customDns = Array.isArray(props.customDnsConfigs) ? (props.customDnsConfigs as Record<string, unknown>[]) : []
+    return {
+      id: String(pe.id ?? ''),
+      name: String(pe.name ?? ''),
+      resourceGroup: extractResourceGroup(String(pe.id ?? '')),
+      location: String(pe.location ?? ''),
+      privateLinkServiceId: String(connProps.privateLinkServiceId ?? ''),
+      groupIds: Array.isArray(connProps.groupIds) ? (connProps.groupIds as string[]) : [],
+      provisioningState: String(props.provisioningState ?? ''),
+      customDnsConfigs: customDns.map((c) => ({
+        fqdn: String(c.fqdn ?? ''),
+        ipAddresses: Array.isArray(c.ipAddresses) ? (c.ipAddresses as string[]) : []
+      }))
+    }
+  })
+  const loc = location.trim().toLowerCase().replace(/\s/g, '')
+  return loc ? all.filter((pe) => pe.location.toLowerCase().replace(/\s/g, '') === loc) : all
+}
+
+/* ------------------------------------------------------------------ */
+/*  3. Storage Enrichment                                              */
+/* ------------------------------------------------------------------ */
+
+export async function listAzureStorageFileShares(subscriptionId: string, resourceGroup: string, accountName: string): Promise<AzureStorageFileShareSummary[]> {
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/resourceGroups/${enc(resourceGroup)}/providers/Microsoft.Storage/storageAccounts/${enc(accountName)}/fileServices/default/shares`,
+    '2024-01-01'
+  )
+  return raw.map((s) => {
+    const props = (s.properties ?? {}) as Record<string, unknown>
+    return {
+      name: String(s.name ?? ''),
+      quota: Number(props.shareQuota ?? 0),
+      accessTier: String(props.accessTier ?? ''),
+      enabledProtocols: String(props.enabledProtocols ?? 'SMB'),
+      leaseStatus: String(props.leaseStatus ?? ''),
+      lastModified: String(props.lastModifiedTime ?? ''),
+      usedCapacityBytes: Number(props.shareUsageBytes ?? 0)
+    }
+  })
+}
+
+export async function listAzureStorageQueues(subscriptionId: string, resourceGroup: string, accountName: string): Promise<AzureStorageQueueSummary[]> {
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/resourceGroups/${enc(resourceGroup)}/providers/Microsoft.Storage/storageAccounts/${enc(accountName)}/queueServices/default/queues`,
+    '2024-01-01'
+  )
+  return raw.map((q) => {
+    const props = (q.properties ?? {}) as Record<string, unknown>
+    return {
+      name: String(q.name ?? ''),
+      approximateMessageCount: Number(props.approximateMessageCount ?? 0),
+      metadata: (props.metadata ?? {}) as Record<string, string>
+    }
+  })
+}
+
+export async function listAzureStorageTables(subscriptionId: string, resourceGroup: string, accountName: string): Promise<AzureStorageTableSummary[]> {
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/resourceGroups/${enc(resourceGroup)}/providers/Microsoft.Storage/storageAccounts/${enc(accountName)}/tableServices/default/tables`,
+    '2024-01-01'
+  )
+  return raw.map((t) => ({
+    name: String(t.name ?? '')
+  }))
+}
+
+/* ------------------------------------------------------------------ */
+/*  4. MySQL                                                           */
+/* ------------------------------------------------------------------ */
+
+export async function listAzureMySqlEstate(subscriptionId: string, location: string): Promise<AzureMySqlEstateOverview> {
+  const rawServers = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/providers/Microsoft.DBforMySQL/flexibleServers`,
+    '2023-12-30'
+  )
+  const loc = location.trim().toLowerCase().replace(/\s/g, '')
+
+  const servers: AzureMySqlServerSummary[] = rawServers
+    .filter((s) => !loc || String(s.location ?? '').toLowerCase().replace(/\s/g, '') === loc)
+    .map((s) => {
+      const props = (s.properties ?? {}) as Record<string, unknown>
+      const sku = (s.sku ?? {}) as Record<string, unknown>
+      const storage = (props.storage ?? {}) as Record<string, unknown>
+      const ha = (props.highAvailability ?? {}) as Record<string, unknown>
+      const backup = (props.backup ?? {}) as Record<string, unknown>
+      const notes: string[] = []
+      if (String(props.publicNetworkAccess ?? '').toLowerCase() === 'enabled') notes.push('Public network access enabled')
+      return {
+        id: String(s.id ?? ''),
+        name: String(s.name ?? ''),
+        resourceGroup: extractResourceGroup(String(s.id ?? '')),
+        location: String(s.location ?? ''),
+        version: String(props.version ?? ''),
+        fullyQualifiedDomainName: String(props.fullyQualifiedDomainName ?? ''),
+        publicNetworkAccess: String(props.publicNetworkAccess ?? ''),
+        state: String(props.state ?? ''),
+        skuName: String(sku.name ?? ''),
+        skuTier: String(sku.tier ?? ''),
+        storageSizeGb: Number(storage.storageSizeGB ?? 0),
+        haEnabled: String(ha.mode ?? '').toLowerCase() !== 'disabled',
+        haState: String(ha.state ?? ''),
+        backupRetentionDays: Number(backup.backupRetentionDays ?? 7),
+        geoRedundantBackup: String(backup.geoRedundantBackup ?? ''),
+        availabilityZone: String(props.availabilityZone ?? ''),
+        databaseCount: 0,
+        tagCount: Object.keys((s.tags as Record<string, string>) ?? {}).length,
+        notes
+      }
+    })
+
+  const databases: AzureMySqlDatabaseSummary[] = []
+  for (const server of servers.slice(0, 20)) {
+    try {
+      const rawDbs = await fetchAzureArmCollection<Record<string, unknown>>(
+        `/subscriptions/${enc(subscriptionId)}/resourceGroups/${enc(server.resourceGroup)}/providers/Microsoft.DBforMySQL/flexibleServers/${enc(server.name)}/databases`,
+        '2023-12-30'
+      )
+      for (const db of rawDbs) {
+        const props = (db.properties ?? {}) as Record<string, unknown>
+        databases.push({
+          id: String(db.id ?? ''),
+          name: String(db.name ?? ''),
+          serverName: server.name,
+          resourceGroup: server.resourceGroup,
+          charset: String(props.charset ?? ''),
+          collation: String(props.collation ?? '')
+        })
+      }
+      server.databaseCount = rawDbs.length
+    } catch (err) {
+      logWarn('azureSdk.listAzureMySqlEstate', `Failed to list MySQL databases for ${server.name}.`, { serverName: server.name }, err)
+    }
+  }
+
+  const publicServerCount = servers.filter((s) => s.publicNetworkAccess.toLowerCase() === 'enabled').length
+  const notes: string[] = []
+  if (publicServerCount > 0) notes.push(`${publicServerCount} server(s) with public network access enabled`)
+
+  return {
+    subscriptionId,
+    serverCount: servers.length,
+    databaseCount: databases.length,
+    publicServerCount,
+    servers,
+    databases,
+    notes
+  }
+}
+
+export async function describeAzureMySqlServer(subscriptionId: string, resourceGroup: string, serverName: string): Promise<AzureMySqlServerDetail> {
+  const raw = await fetchAzureArmJson<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/resourceGroups/${enc(resourceGroup)}/providers/Microsoft.DBforMySQL/flexibleServers/${enc(serverName)}`,
+    '2023-12-30'
+  )
+  const props = (raw.properties ?? {}) as Record<string, unknown>
+  const sku = (raw.sku ?? {}) as Record<string, unknown>
+  const storage = (props.storage ?? {}) as Record<string, unknown>
+  const ha = (props.highAvailability ?? {}) as Record<string, unknown>
+  const backup = (props.backup ?? {}) as Record<string, unknown>
+  const notes: string[] = []
+  if (String(props.publicNetworkAccess ?? '').toLowerCase() === 'enabled') notes.push('Public network access enabled')
+
+  const server: AzureMySqlServerSummary = {
+    id: String(raw.id ?? ''),
+    name: String(raw.name ?? ''),
+    resourceGroup,
+    location: String(raw.location ?? ''),
+    version: String(props.version ?? ''),
+    fullyQualifiedDomainName: String(props.fullyQualifiedDomainName ?? ''),
+    publicNetworkAccess: String(props.publicNetworkAccess ?? ''),
+    state: String(props.state ?? ''),
+    skuName: String(sku.name ?? ''),
+    skuTier: String(sku.tier ?? ''),
+    storageSizeGb: Number(storage.storageSizeGB ?? 0),
+    haEnabled: String(ha.mode ?? '').toLowerCase() !== 'disabled',
+    haState: String(ha.state ?? ''),
+    backupRetentionDays: Number(backup.backupRetentionDays ?? 7),
+    geoRedundantBackup: String(backup.geoRedundantBackup ?? ''),
+    availabilityZone: String(props.availabilityZone ?? ''),
+    databaseCount: 0,
+    tagCount: Object.keys((raw.tags as Record<string, string>) ?? {}).length,
+    notes
+  }
+
+  // Fetch databases
+  let databases: AzureMySqlDatabaseSummary[] = []
+  try {
+    const rawDbs = await fetchAzureArmCollection<Record<string, unknown>>(
+      `/subscriptions/${enc(subscriptionId)}/resourceGroups/${enc(resourceGroup)}/providers/Microsoft.DBforMySQL/flexibleServers/${enc(serverName)}/databases`,
+      '2023-12-30'
+    )
+    databases = rawDbs.map((db) => {
+      const dp = (db.properties ?? {}) as Record<string, unknown>
+      return {
+        id: String(db.id ?? ''),
+        name: String(db.name ?? ''),
+        serverName,
+        resourceGroup,
+        charset: String(dp.charset ?? ''),
+        collation: String(dp.collation ?? '')
+      }
+    })
+    server.databaseCount = databases.length
+  } catch (err) { logWarn('azureSdk.describeAzureMySqlServer', 'Failed to list MySQL databases.', { serverName }, err) }
+
+  // Fetch firewall rules
+  let firewallRules: AzureMySqlFirewallRule[] = []
+  try {
+    const rawFw = await fetchAzureArmCollection<Record<string, unknown>>(
+      `/subscriptions/${enc(subscriptionId)}/resourceGroups/${enc(resourceGroup)}/providers/Microsoft.DBforMySQL/flexibleServers/${enc(serverName)}/firewallRules`,
+      '2023-12-30'
+    )
+    firewallRules = rawFw.map((fw) => {
+      const fp = (fw.properties ?? {}) as Record<string, unknown>
+      return {
+        name: String(fw.name ?? ''),
+        startIpAddress: String(fp.startIpAddress ?? ''),
+        endIpAddress: String(fp.endIpAddress ?? '')
+      }
+    })
+  } catch (err) { logWarn('azureSdk.describeAzureMySqlServer', 'Failed to list MySQL firewall rules.', { serverName }, err) }
+
+  // Build posture badges & findings
+  const badges: AzureMySqlPostureBadge[] = []
+  const findings: AzureMySqlFinding[] = []
+
+  const publicAccess = String(props.publicNetworkAccess ?? '').toLowerCase()
+  badges.push({ id: 'network', label: 'Network', value: publicAccess === 'enabled' ? 'Public' : 'Private', tone: publicAccess === 'enabled' ? 'warning' : 'good' })
+  badges.push({ id: 'ha', label: 'HA', value: server.haEnabled ? 'Enabled' : 'Disabled', tone: server.haEnabled ? 'good' : 'info' })
+  badges.push({ id: 'backup', label: 'Backup', value: `${server.backupRetentionDays}d`, tone: server.backupRetentionDays >= 7 ? 'good' : 'warning' })
+  badges.push({ id: 'ssl', label: 'SSL', value: String(props.sslEnforcement ?? props.requireSecureTransport ?? 'ON'), tone: 'good' })
+
+  if (publicAccess === 'enabled') {
+    findings.push({ id: 'public-access', severity: 'warning', title: 'Public Network Access', message: 'Server allows connections from the public internet.', recommendation: 'Restrict to private endpoints or specific IP ranges.' })
+  }
+  const anyIp = firewallRules.some((r) => r.startIpAddress === '0.0.0.0' && r.endIpAddress === '255.255.255.255')
+  if (anyIp) {
+    findings.push({ id: 'any-ip', severity: 'risk', title: 'Open Firewall Rule', message: 'A firewall rule allows all IPv4 addresses.', recommendation: 'Remove overly permissive firewall rules.' })
+  }
+  if (!server.haEnabled) {
+    findings.push({ id: 'no-ha', severity: 'info', title: 'No High Availability', message: 'High availability is not enabled.', recommendation: 'Enable zone-redundant HA for production workloads.' })
+  }
+
+  const summaryTiles: AzureMySqlSummaryTile[] = [
+    { id: 'databases', label: 'Databases', value: String(databases.length), tone: 'info' },
+    { id: 'firewall', label: 'Firewall Rules', value: String(firewallRules.length), tone: firewallRules.length === 0 ? 'warning' : 'info' },
+    { id: 'version', label: 'Version', value: server.version, tone: 'neutral' },
+    { id: 'sku', label: 'SKU', value: `${server.skuTier} / ${server.skuName}`, tone: 'neutral' }
+  ]
+
+  return { server, databases, firewallRules, badges, summaryTiles, findings }
+}
+
+/* ------------------------------------------------------------------ */
+/*  5. Cosmos DB                                                       */
+/* ------------------------------------------------------------------ */
+
+export async function listAzureCosmosDbEstate(subscriptionId: string, location: string): Promise<AzureCosmosDbEstateOverview> {
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/providers/Microsoft.DocumentDB/databaseAccounts`,
+    '2024-05-15'
+  )
+  const loc = location.trim().toLowerCase().replace(/\s/g, '')
+
+  const accounts: AzureCosmosDbAccountSummary[] = raw
+    .filter((a) => !loc || String(a.location ?? '').toLowerCase().replace(/\s/g, '') === loc)
+    .map((a) => {
+      const props = (a.properties ?? {}) as Record<string, unknown>
+      const consistency = (props.consistencyPolicy as Record<string, unknown>) ?? {}
+      const readLocs = Array.isArray(props.readLocations) ? (props.readLocations as Record<string, unknown>[]).map((l) => String(l.locationName ?? '')) : []
+      const writeLocs = Array.isArray(props.writeLocations) ? (props.writeLocations as Record<string, unknown>[]).map((l) => String(l.locationName ?? '')) : []
+      return {
+        id: String(a.id ?? ''),
+        name: String(a.name ?? ''),
+        resourceGroup: extractResourceGroup(String(a.id ?? '')),
+        location: String(a.location ?? ''),
+        kind: String(a.kind ?? 'GlobalDocumentDB'),
+        databaseAccountOfferType: String(props.databaseAccountOfferType ?? ''),
+        consistencyLevel: String(consistency.defaultConsistencyLevel ?? ''),
+        enableAutomaticFailover: Boolean(props.enableAutomaticFailover),
+        enableMultipleWriteLocations: Boolean(props.enableMultipleWriteLocations),
+        publicNetworkAccess: String(props.publicNetworkAccess ?? ''),
+        isVirtualNetworkFilterEnabled: Boolean(props.isVirtualNetworkFilterEnabled),
+        readLocations: readLocs,
+        writeLocations: writeLocs,
+        provisioningState: String(props.provisioningState ?? ''),
+        documentEndpoint: String(props.documentEndpoint ?? ''),
+        tagCount: Object.keys((a.tags as Record<string, string>) ?? {}).length
+      }
+    })
+
+  const notes: string[] = []
+  const publicCount = accounts.filter((a) => a.publicNetworkAccess.toLowerCase() !== 'disabled').length
+  if (publicCount > 0) notes.push(`${publicCount} account(s) with public network access`)
+
+  return {
+    subscriptionId,
+    accountCount: accounts.length,
+    databaseCount: 0,
+    containerCount: 0,
+    accounts,
+    notes
+  }
+}
+
+export async function describeAzureCosmosDbAccount(subscriptionId: string, resourceGroup: string, accountName: string): Promise<AzureCosmosDbAccountDetail> {
+  const raw = await fetchAzureArmJson<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/resourceGroups/${enc(resourceGroup)}/providers/Microsoft.DocumentDB/databaseAccounts/${enc(accountName)}`,
+    '2024-05-15'
+  )
+  const props = (raw.properties ?? {}) as Record<string, unknown>
+  const consistency = (props.consistencyPolicy as Record<string, unknown>) ?? {}
+  const readLocs = Array.isArray(props.readLocations) ? (props.readLocations as Record<string, unknown>[]).map((l) => String(l.locationName ?? '')) : []
+  const writeLocs = Array.isArray(props.writeLocations) ? (props.writeLocations as Record<string, unknown>[]).map((l) => String(l.locationName ?? '')) : []
+
+  const account: AzureCosmosDbAccountSummary = {
+    id: String(raw.id ?? ''),
+    name: String(raw.name ?? ''),
+    resourceGroup,
+    location: String(raw.location ?? ''),
+    kind: String(raw.kind ?? 'GlobalDocumentDB'),
+    databaseAccountOfferType: String(props.databaseAccountOfferType ?? ''),
+    consistencyLevel: String(consistency.defaultConsistencyLevel ?? ''),
+    enableAutomaticFailover: Boolean(props.enableAutomaticFailover),
+    enableMultipleWriteLocations: Boolean(props.enableMultipleWriteLocations),
+    publicNetworkAccess: String(props.publicNetworkAccess ?? ''),
+    isVirtualNetworkFilterEnabled: Boolean(props.isVirtualNetworkFilterEnabled),
+    readLocations: readLocs,
+    writeLocations: writeLocs,
+    provisioningState: String(props.provisioningState ?? ''),
+    documentEndpoint: String(props.documentEndpoint ?? ''),
+    tagCount: Object.keys((raw.tags as Record<string, string>) ?? {}).length
+  }
+
+  // Fetch databases - try SQL API first, then MongoDB
+  let databases: AzureCosmosDbDatabaseSummary[] = []
+  let containers: AzureCosmosDbContainerSummary[] = []
+  const isMongo = account.kind.toLowerCase().includes('mongo')
+  const dbType = isMongo ? 'mongodbDatabases' : 'sqlDatabases'
+  const containerType = isMongo ? 'mongodbCollections' : 'containers'
+
+  try {
+    const rawDbs = await fetchAzureArmCollection<Record<string, unknown>>(
+      `/subscriptions/${enc(subscriptionId)}/resourceGroups/${enc(resourceGroup)}/providers/Microsoft.DocumentDB/databaseAccounts/${enc(accountName)}/${dbType}`,
+      '2024-05-15'
+    )
+    databases = rawDbs.map((db) => ({
+      id: String(db.id ?? ''),
+      name: String(db.name ?? ''),
+      accountName,
+      resourceGroup
+    }))
+
+    for (const db of databases.slice(0, 10)) {
+      try {
+        const rawContainers = await fetchAzureArmCollection<Record<string, unknown>>(
+          `/subscriptions/${enc(subscriptionId)}/resourceGroups/${enc(resourceGroup)}/providers/Microsoft.DocumentDB/databaseAccounts/${enc(accountName)}/${dbType}/${enc(db.name)}/${containerType}`,
+          '2024-05-15'
+        )
+        for (const c of rawContainers) {
+          const cp = (c.properties ?? {}) as Record<string, unknown>
+          const resource = (cp.resource ?? cp) as Record<string, unknown>
+          const pk = (resource.partitionKey ?? {}) as Record<string, unknown>
+          const paths = Array.isArray(pk.paths) ? pk.paths : []
+          const indexing = (resource.indexingPolicy ?? {}) as Record<string, unknown>
+          containers.push({
+            id: String(c.id ?? ''),
+            name: String(c.name ?? resource.id ?? ''),
+            databaseName: db.name,
+            partitionKeyPath: paths.length > 0 ? String(paths[0]) : '',
+            defaultTtl: Number(resource.defaultTtl ?? -1),
+            indexingMode: String(indexing.indexingMode ?? 'consistent'),
+            analyticalStorageTtl: Number(resource.analyticalStorageTtl ?? -1)
+          })
+        }
+      } catch (err) { logWarn('azureSdk.describeAzureCosmosDbAccount', `Failed to list Cosmos containers for ${db.name}.`, { accountName, databaseName: db.name }, err) }
+    }
+  } catch (err) { logWarn('azureSdk.describeAzureCosmosDbAccount', `Failed to list Cosmos databases for ${accountName}.`, { accountName }, err) }
+
+  return { account, databases, containers }
+}
+
+/* ------------------------------------------------------------------ */
+/*  6. App Service / Functions enrichment                              */
+/* ------------------------------------------------------------------ */
+
+export async function listAzureFunctionApps(subscriptionId: string, location: string): Promise<AzureFunctionAppSummary[]> {
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/providers/Microsoft.Web/sites`,
+    '2023-12-01'
+  )
+  const loc = location.trim().toLowerCase().replace(/\s/g, '')
+  return raw
+    .filter((s) => {
+      const kind = String(s.kind ?? '').toLowerCase()
+      if (!kind.includes('functionapp')) return false
+      if (loc && String(s.location ?? '').toLowerCase().replace(/\s/g, '') !== loc) return false
+      return true
+    })
+    .map((s) => {
+      const props = (s.properties ?? {}) as Record<string, unknown>
+      const siteConfig = (props.siteConfig ?? {}) as Record<string, unknown>
+      return {
+        id: String(s.id ?? ''),
+        name: String(s.name ?? ''),
+        resourceGroup: extractResourceGroup(String(s.id ?? '')),
+        location: String(s.location ?? ''),
+        kind: String(s.kind ?? ''),
+        state: String(props.state ?? ''),
+        defaultHostName: String(props.defaultHostName ?? ''),
+        httpsOnly: Boolean(props.httpsOnly),
+        enabled: Boolean(props.enabled),
+        appServicePlanName: extractResourceName(String(props.serverFarmId ?? '')),
+        runtimeStack: String(siteConfig.linuxFxVersion ?? siteConfig.windowsFxVersion ?? ''),
+        publicNetworkAccess: String(props.publicNetworkAccess ?? ''),
+        provisioningState: String(props.provisioningState ?? ''),
+        lastModifiedTimeUtc: String(props.lastModifiedTimeUtc ?? ''),
+        tagCount: Object.keys((s.tags as Record<string, string>) ?? {}).length
+      }
+    })
+}
+
+export async function listAzureFunctions(subscriptionId: string, resourceGroup: string, siteName: string): Promise<AzureFunctionSummary[]> {
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/resourceGroups/${enc(resourceGroup)}/providers/Microsoft.Web/sites/${enc(siteName)}/functions`,
+    '2023-12-01'
+  )
+  return raw.map((f) => {
+    const props = (f.properties ?? {}) as Record<string, unknown>
+    const config = (props.config ?? {}) as Record<string, unknown>
+    const bindings = Array.isArray(props.config_bindings) ? props.config_bindings : (Array.isArray(config.bindings) ? config.bindings as unknown[] : [])
+    return {
+      name: String(f.name ?? props.name ?? ''),
+      scriptHref: String(props.script_href ?? ''),
+      configHref: String(props.config_href ?? ''),
+      isDisabled: Boolean(props.isDisabled),
+      language: String(props.language ?? ''),
+      bindingCount: Array.isArray(bindings) ? bindings.length : 0
+    }
+  })
+}
+
+export async function getAzureWebAppConfiguration(subscriptionId: string, resourceGroup: string, siteName: string): Promise<AzureWebAppConfigSummary> {
+  const [configRaw, settingsRaw, connStrRaw] = await Promise.all([
+    fetchAzureArmJson<Record<string, unknown>>(
+      `/subscriptions/${enc(subscriptionId)}/resourceGroups/${enc(resourceGroup)}/providers/Microsoft.Web/sites/${enc(siteName)}/config/web`,
+      '2023-12-01'
+    ),
+    fetchAzureArmJson<Record<string, unknown>>(
+      `/subscriptions/${enc(subscriptionId)}/resourceGroups/${enc(resourceGroup)}/providers/Microsoft.Web/sites/${enc(siteName)}/config/appsettings/list`,
+      '2023-12-01',
+      { method: 'POST' }
+    ),
+    fetchAzureArmJson<Record<string, unknown>>(
+      `/subscriptions/${enc(subscriptionId)}/resourceGroups/${enc(resourceGroup)}/providers/Microsoft.Web/sites/${enc(siteName)}/config/connectionstrings/list`,
+      '2023-12-01',
+      { method: 'POST' }
+    )
+  ])
+  const cp = (configRaw.properties ?? {}) as Record<string, unknown>
+  const settingsProps = (settingsRaw.properties ?? {}) as Record<string, string>
+  const connProps = (connStrRaw.properties ?? {}) as Record<string, Record<string, unknown>>
+
+  return {
+    appSettings: Object.entries(settingsProps).map(([name, value]) => ({ name, value: String(value ?? ''), slotSetting: false })),
+    connectionStrings: Object.entries(connProps).map(([name, entry]) => ({ name, type: String(entry.type ?? ''), slotSetting: false })),
+    linuxFxVersion: String(cp.linuxFxVersion ?? ''),
+    netFrameworkVersion: String(cp.netFrameworkVersion ?? ''),
+    phpVersion: String(cp.phpVersion ?? ''),
+    pythonVersion: String(cp.pythonVersion ?? ''),
+    nodeVersion: String(cp.nodeVersion ?? ''),
+    javaVersion: String(cp.javaVersion ?? ''),
+    http20Enabled: Boolean(cp.http20Enabled),
+    minTlsVersion: String(cp.minTlsVersion ?? ''),
+    ftpsState: String(cp.ftpsState ?? ''),
+    alwaysOn: Boolean(cp.alwaysOn)
+  }
+}
+
+export async function runAzureWebAppAction(subscriptionId: string, resourceGroup: string, siteName: string, action: AzureWebAppAction): Promise<AzureWebAppActionResult> {
+  try {
+    await fetchAzureArmJson<unknown>(
+      `/subscriptions/${enc(subscriptionId)}/resourceGroups/${enc(resourceGroup)}/providers/Microsoft.Web/sites/${enc(siteName)}/${action}`,
+      '2023-12-01',
+      { method: 'POST' }
+    )
+    return { action, siteName, resourceGroup, accepted: true }
+  } catch (err) {
+    return { action, siteName, resourceGroup, accepted: false, error: String(err) }
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  7. Log Analytics                                                   */
+/* ------------------------------------------------------------------ */
+
+async function getAzureLogAnalyticsToken(): Promise<string> {
+  const token = await getAzureCredential().getToken('https://api.loganalytics.io/.default')
+  if (!token?.token) {
+    throw new Error('Azure credential chain did not return a Log Analytics access token.')
+  }
+  return token.token
+}
+
+export async function listAzureLogAnalyticsWorkspaces(subscriptionId: string, location: string): Promise<AzureLogAnalyticsWorkspaceSummary[]> {
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/providers/Microsoft.OperationalInsights/workspaces`,
+    '2023-09-01'
+  )
+  const loc = location.trim().toLowerCase().replace(/\s/g, '')
+  return raw
+    .filter((w) => !loc || String(w.location ?? '').toLowerCase().replace(/\s/g, '') === loc)
+    .map((w) => {
+      const props = (w.properties ?? {}) as Record<string, unknown>
+      const sku = (props.sku ?? {}) as Record<string, unknown>
+      const capping = (props.workspaceCapping ?? {}) as Record<string, unknown>
+      const features = (props.features ?? {}) as Record<string, unknown>
+      return {
+        id: String(w.id ?? ''),
+        name: String(w.name ?? ''),
+        resourceGroup: extractResourceGroup(String(w.id ?? '')),
+        location: String(w.location ?? ''),
+        skuName: String(sku.name ?? ''),
+        retentionInDays: Number(props.retentionInDays ?? 30),
+        dailyQuotaGb: Number(capping.dailyQuotaGb ?? -1),
+        workspaceId: String(props.workspaceId ?? ''),
+        customerId: String(props.customerId ?? ''),
+        provisioningState: String(props.provisioningState ?? ''),
+        publicNetworkAccessForIngestion: String(props.publicNetworkAccessForIngestion ?? features.enableDataExport ?? ''),
+        publicNetworkAccessForQuery: String(props.publicNetworkAccessForQuery ?? ''),
+        tagCount: Object.keys((w.tags as Record<string, string>) ?? {}).length
+      }
+    })
+}
+
+export async function queryAzureLogAnalytics(workspaceId: string, query: string, timespan = 'PT12H'): Promise<AzureLogAnalyticsQueryResult> {
+  const token = await getAzureLogAnalyticsToken()
+  const response = await fetch(`https://api.loganalytics.io/v1/workspaces/${encodeURIComponent(workspaceId)}/query`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, timespan })
+  })
+  if (!response.ok) {
+    const body = await response.text()
+    return { tables: [], error: `Query failed (${response.status}): ${body}` }
+  }
+  const json = await response.json() as Record<string, unknown>
+  const tables = Array.isArray(json.tables) ? (json.tables as Record<string, unknown>[]).map((t) => ({
+    name: String(t.name ?? ''),
+    columns: Array.isArray(t.columns) ? (t.columns as Record<string, unknown>[]).map((c) => ({ name: String(c.name ?? ''), type: String(c.type ?? '') })) : [],
+    rows: Array.isArray(t.rows) ? (t.rows as unknown[][]) : []
+  })) : []
+  return { tables, statistics: json.statistics as AzureLogAnalyticsQueryResult['statistics'] }
+}
+
+export async function listAzureLogAnalyticsSavedSearches(subscriptionId: string, resourceGroup: string, workspaceName: string): Promise<AzureLogAnalyticsSavedSearch[]> {
+  const raw = await fetchAzureArmJson<{ value?: Record<string, unknown>[] }>(
+    `/subscriptions/${enc(subscriptionId)}/resourceGroups/${enc(resourceGroup)}/providers/Microsoft.OperationalInsights/workspaces/${enc(workspaceName)}/savedSearches`,
+    '2020-08-01'
+  )
+  return (raw.value ?? []).map((s) => {
+    const props = (s.properties ?? {}) as Record<string, unknown>
+    return {
+      id: String(s.id ?? ''),
+      name: String(s.name ?? ''),
+      category: String(props.category ?? ''),
+      displayName: String(props.displayName ?? ''),
+      query: String(props.query ?? ''),
+      functionAlias: String(props.functionAlias ?? ''),
+      functionParameters: String(props.functionParameters ?? '')
+    }
+  })
+}
+
+export async function listAzureLogAnalyticsLinkedServices(subscriptionId: string, resourceGroup: string, workspaceName: string): Promise<AzureLogAnalyticsLinkedService[]> {
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/resourceGroups/${enc(resourceGroup)}/providers/Microsoft.OperationalInsights/workspaces/${enc(workspaceName)}/linkedServices`,
+    '2020-08-01'
+  )
+  return raw.map((ls) => {
+    const props = (ls.properties ?? {}) as Record<string, unknown>
+    return {
+      id: String(ls.id ?? ''),
+      name: String(ls.name ?? ''),
+      resourceId: String(props.resourceId ?? ''),
+      provisioningState: String(props.provisioningState ?? '')
+    }
+  })
+}
+
+/* ------------------------------------------------------------------ */
+/*  8. Event Grid                                                      */
+/* ------------------------------------------------------------------ */
+
+export async function listAzureEventGridTopics(subscriptionId: string, location: string): Promise<AzureEventGridTopicSummary[]> {
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/providers/Microsoft.EventGrid/topics`,
+    '2024-06-01-preview'
+  )
+  const loc = location.trim().toLowerCase().replace(/\s/g, '')
+  return raw
+    .filter((t) => !loc || String(t.location ?? '').toLowerCase().replace(/\s/g, '') === loc)
+    .map((t) => {
+      const props = (t.properties ?? {}) as Record<string, unknown>
+      return {
+        id: String(t.id ?? ''),
+        name: String(t.name ?? ''),
+        resourceGroup: extractResourceGroup(String(t.id ?? '')),
+        location: String(t.location ?? ''),
+        provisioningState: String(props.provisioningState ?? ''),
+        endpoint: String(props.endpoint ?? ''),
+        inputSchema: String(props.inputSchema ?? ''),
+        publicNetworkAccess: String(props.publicNetworkAccess ?? ''),
+        tagCount: Object.keys((t.tags as Record<string, string>) ?? {}).length
+      }
+    })
+}
+
+export async function listAzureEventGridSystemTopics(subscriptionId: string, location: string): Promise<AzureEventGridSystemTopicSummary[]> {
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/providers/Microsoft.EventGrid/systemTopics`,
+    '2024-06-01-preview'
+  )
+  const loc = location.trim().toLowerCase().replace(/\s/g, '')
+  return raw
+    .filter((t) => !loc || String(t.location ?? '').toLowerCase().replace(/\s/g, '') === loc)
+    .map((t) => {
+      const props = (t.properties ?? {}) as Record<string, unknown>
+      return {
+        id: String(t.id ?? ''),
+        name: String(t.name ?? ''),
+        resourceGroup: extractResourceGroup(String(t.id ?? '')),
+        location: String(t.location ?? ''),
+        source: String(props.source ?? ''),
+        topicType: String(props.topicType ?? ''),
+        provisioningState: String(props.provisioningState ?? ''),
+        metricResourceId: String(props.metricResourceId ?? '')
+      }
+    })
+}
+
+export async function listAzureEventGridEventSubscriptions(subscriptionId: string): Promise<AzureEventGridEventSubscriptionSummary[]> {
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/providers/Microsoft.EventGrid/eventSubscriptions`,
+    '2024-06-01-preview'
+  )
+  return raw.map((s) => {
+    const props = (s.properties ?? {}) as Record<string, unknown>
+    const dest = (props.destination ?? {}) as Record<string, unknown>
+    const destProps = (dest.properties ?? {}) as Record<string, unknown>
+    const retry = (props.retryPolicy ?? {}) as Record<string, unknown>
+    return {
+      id: String(s.id ?? ''),
+      name: String(s.name ?? ''),
+      topicName: extractResourceName(String(props.topic ?? '')),
+      destinationType: String(dest.endpointType ?? ''),
+      destinationEndpoint: String(destProps.endpointUrl ?? destProps.resourceId ?? ''),
+      provisioningState: String(props.provisioningState ?? ''),
+      eventDeliverySchema: String(props.eventDeliverySchema ?? ''),
+      retryMaxDeliveryAttempts: Number(retry.maxDeliveryAttempts ?? 30),
+      eventTimeToLiveInMinutes: Number(retry.eventTimeToLiveInMinutes ?? 1440),
+      labels: Array.isArray(props.labels) ? (props.labels as string[]) : []
+    }
+  })
+}
+
+export async function listAzureEventGridDomains(subscriptionId: string, location: string): Promise<AzureEventGridDomainSummary[]> {
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/providers/Microsoft.EventGrid/domains`,
+    '2024-06-01-preview'
+  )
+  const loc = location.trim().toLowerCase().replace(/\s/g, '')
+  return raw
+    .filter((d) => !loc || String(d.location ?? '').toLowerCase().replace(/\s/g, '') === loc)
+    .map((d) => {
+      const props = (d.properties ?? {}) as Record<string, unknown>
+      return {
+        id: String(d.id ?? ''),
+        name: String(d.name ?? ''),
+        resourceGroup: extractResourceGroup(String(d.id ?? '')),
+        location: String(d.location ?? ''),
+        provisioningState: String(props.provisioningState ?? ''),
+        endpoint: String(props.endpoint ?? ''),
+        inputSchema: String(props.inputSchema ?? ''),
+        publicNetworkAccess: String(props.publicNetworkAccess ?? ''),
+        tagCount: Object.keys((d.tags as Record<string, string>) ?? {}).length
+      }
+    })
+}
+
+export async function listAzureEventGridDomainTopics(subscriptionId: string, resourceGroup: string, domainName: string): Promise<AzureEventGridDomainTopicSummary[]> {
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/resourceGroups/${enc(resourceGroup)}/providers/Microsoft.EventGrid/domains/${enc(domainName)}/topics`,
+    '2024-06-01-preview'
+  )
+  return raw.map((t) => {
+    const props = (t.properties ?? {}) as Record<string, unknown>
+    return {
+      id: String(t.id ?? ''),
+      name: String(t.name ?? ''),
+      provisioningState: String(props.provisioningState ?? '')
+    }
+  })
+}
+
+/* ── Azure DNS ─────────────────────────────────────────────── */
+
+const DNS_API_VERSION = '2018-05-01'
+
+function flattenDnsRecordValues(type: string, props: Record<string, unknown>): string[] {
+  switch (type) {
+    case 'A':
+      return ((props.ARecords ?? []) as Array<Record<string, unknown>>).map((r) => String(r.ipv4Address ?? ''))
+    case 'AAAA':
+      return ((props.AAAARecords ?? []) as Array<Record<string, unknown>>).map((r) => String(r.ipv6Address ?? ''))
+    case 'CNAME': {
+      const cname = (props.CNAMERecord ?? null) as Record<string, unknown> | null
+      return cname ? [String(cname.cname ?? '')] : []
+    }
+    case 'MX':
+      return ((props.MXRecords ?? []) as Array<Record<string, unknown>>).map((r) => `${r.preference ?? 0} ${r.exchange ?? ''}`)
+    case 'NS':
+      return ((props.NSRecords ?? []) as Array<Record<string, unknown>>).map((r) => String(r.nsdname ?? ''))
+    case 'TXT':
+      return ((props.TXTRecords ?? []) as Array<Record<string, unknown>>).flatMap((r) => ((r.value ?? []) as string[]))
+    case 'SRV':
+      return ((props.SRVRecords ?? []) as Array<Record<string, unknown>>).map((r) => `${r.priority ?? 0} ${r.weight ?? 0} ${r.port ?? 0} ${r.target ?? ''}`)
+    case 'CAA':
+      return ((props.caaRecords ?? []) as Array<Record<string, unknown>>).map((r) => `${r.flags ?? 0} ${r.tag ?? ''} "${r.value ?? ''}"`)
+    case 'PTR':
+      return ((props.PTRRecords ?? []) as Array<Record<string, unknown>>).map((r) => String(r.ptrdname ?? ''))
+    case 'SOA': {
+      const soa = (props.SOARecord ?? null) as Record<string, unknown> | null
+      return soa ? [`${soa.host ?? ''} ${soa.email ?? ''} ${soa.serialNumber ?? 0} ${soa.refreshTime ?? 0} ${soa.retryTime ?? 0} ${soa.expireTime ?? 0} ${soa.minimumTTL ?? 0}`] : []
+    }
+    default:
+      return []
+  }
+}
+
+function buildDnsRecordProperties(type: string, values: string[]): Record<string, unknown> {
+  switch (type) {
+    case 'A':
+      return { ARecords: values.map((v) => ({ ipv4Address: v.trim() })) }
+    case 'AAAA':
+      return { AAAARecords: values.map((v) => ({ ipv6Address: v.trim() })) }
+    case 'CNAME':
+      return { CNAMERecord: { cname: values[0]?.trim() ?? '' } }
+    case 'MX':
+      return {
+        MXRecords: values.map((v) => {
+          const parts = v.trim().split(/\s+/, 2)
+          return { preference: Number(parts[0]) || 0, exchange: parts[1] ?? '' }
+        })
+      }
+    case 'NS':
+      return { NSRecords: values.map((v) => ({ nsdname: v.trim() })) }
+    case 'TXT':
+      return { TXTRecords: values.map((v) => ({ value: [v.trim()] })) }
+    case 'SRV':
+      return {
+        SRVRecords: values.map((v) => {
+          const parts = v.trim().split(/\s+/, 4)
+          return { priority: Number(parts[0]) || 0, weight: Number(parts[1]) || 0, port: Number(parts[2]) || 0, target: parts[3] ?? '' }
+        })
+      }
+    case 'CAA':
+      return {
+        caaRecords: values.map((v) => {
+          const match = v.trim().match(/^(\d+)\s+(\S+)\s+"?(.*?)"?$/)
+          return { flags: Number(match?.[1]) || 0, tag: match?.[2] ?? '', value: match?.[3] ?? '' }
+        })
+      }
+    case 'PTR':
+      return { PTRRecords: values.map((v) => ({ ptrdname: v.trim() })) }
+    default:
+      return {}
+  }
+}
+
+function extractDnsRecordType(armType: string): string {
+  const parts = armType.split('/')
+  return parts[parts.length - 1] ?? armType
+}
+
+export async function listAzureDnsZones(subscriptionId: string, _location: string): Promise<AzureDnsZoneSummary[]> {
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/providers/Microsoft.Network/dnsZones`,
+    DNS_API_VERSION
+  )
+  return raw.map((z) => {
+    const props = (z.properties ?? {}) as Record<string, unknown>
+    const tags = (z.tags ?? {}) as Record<string, string>
+    return {
+      id: String(z.id ?? ''),
+      name: String(z.name ?? ''),
+      resourceGroup: extractResourceGroup(String(z.id ?? '')),
+      location: String(z.location ?? 'global'),
+      numberOfRecordSets: Number(props.numberOfRecordSets ?? 0),
+      maxNumberOfRecordSets: Number(props.maxNumberOfRecordSets ?? 0),
+      nameServers: ((props.nameServers ?? []) as string[]),
+      zoneType: String(props.zoneType ?? 'Public'),
+      tags
+    }
+  }).sort((a, b) => a.name.localeCompare(b.name))
+}
+
+export async function listAzureDnsRecordSets(subscriptionId: string, resourceGroup: string, zoneName: string): Promise<AzureDnsRecordSummary[]> {
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/resourceGroups/${enc(resourceGroup)}/providers/Microsoft.Network/dnsZones/${enc(zoneName)}/recordSets`,
+    DNS_API_VERSION
+  )
+  return raw.map((r) => {
+    const props = (r.properties ?? {}) as Record<string, unknown>
+    const type = extractDnsRecordType(String(r.type ?? ''))
+    const metadata = (props.metadata ?? {}) as Record<string, string>
+    return {
+      id: String(r.id ?? ''),
+      name: String(r.name ?? ''),
+      fqdn: String(props.fqdn ?? ''),
+      type,
+      ttl: Number(props.TTL ?? 0),
+      values: flattenDnsRecordValues(type, props),
+      metadata
+    }
+  })
+}
+
+export async function upsertAzureDnsRecord(subscriptionId: string, resourceGroup: string, zoneName: string, input: AzureDnsRecordUpsertInput): Promise<void> {
+  const name = input.name.trim() || '@'
+  const type = input.type.trim().toUpperCase()
+  const path = `/subscriptions/${enc(subscriptionId)}/resourceGroups/${enc(resourceGroup)}/providers/Microsoft.Network/dnsZones/${enc(zoneName)}/${type}/${enc(name)}`
+  await fetchAzureArmJson(path, DNS_API_VERSION, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      properties: {
+        TTL: input.ttl,
+        ...buildDnsRecordProperties(type, input.values.filter(Boolean))
+      }
+    })
+  })
+}
+
+export async function deleteAzureDnsRecord(subscriptionId: string, resourceGroup: string, zoneName: string, recordType: string, recordName: string): Promise<void> {
+  const path = `/subscriptions/${enc(subscriptionId)}/resourceGroups/${enc(resourceGroup)}/providers/Microsoft.Network/dnsZones/${enc(zoneName)}/${enc(recordType)}/${enc(recordName)}`
+  await fetchAzureArmJson(path, DNS_API_VERSION, { method: 'DELETE' })
+}
+
+export async function createAzureDnsZone(subscriptionId: string, resourceGroup: string, zoneName: string, zoneType: 'Public' | 'Private'): Promise<AzureDnsZoneSummary> {
+  const path = `/subscriptions/${enc(subscriptionId)}/resourceGroups/${enc(resourceGroup)}/providers/Microsoft.Network/dnsZones/${enc(zoneName)}`
+  const result = await fetchAzureArmJson<Record<string, unknown>>(path, DNS_API_VERSION, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      location: 'global',
+      properties: { zoneType }
+    })
+  })
+  const props = (result.properties ?? {}) as Record<string, unknown>
+  return {
+    id: String(result.id ?? ''),
+    name: String(result.name ?? zoneName),
+    resourceGroup,
+    location: 'global',
+    numberOfRecordSets: Number(props.numberOfRecordSets ?? 0),
+    maxNumberOfRecordSets: Number(props.maxNumberOfRecordSets ?? 0),
+    nameServers: ((props.nameServers ?? []) as string[]),
+    zoneType: String(props.zoneType ?? zoneType),
+    tags: (result.tags ?? {}) as Record<string, string>
+  }
+}
+
+/* ── Azure Firewall ──────────────────────────────────────── */
+
+export async function listAzureFirewalls(subscriptionId: string, location: string): Promise<AzureFirewallSummary[]> {
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/providers/Microsoft.Network/azureFirewalls`,
+    '2023-11-01'
+  )
+  const all: AzureFirewallSummary[] = raw.map((fw) => {
+    const props = (fw.properties ?? {}) as Record<string, unknown>
+    const sku = (props.sku ?? {}) as Record<string, unknown>
+    const policyId = String(((props.firewallPolicy ?? {}) as Record<string, unknown>).id ?? '')
+    return {
+      id: String(fw.id ?? ''),
+      name: String(fw.name ?? ''),
+      resourceGroup: extractResourceGroup(String(fw.id ?? '')),
+      location: String(fw.location ?? ''),
+      skuName: String(sku.name ?? ''),
+      skuTier: String(sku.tier ?? ''),
+      threatIntelMode: String(props.threatIntelMode ?? ''),
+      provisioningState: String(props.provisioningState ?? ''),
+      firewallPolicyId: policyId,
+      ipConfigurationCount: Array.isArray(props.ipConfigurations) ? props.ipConfigurations.length : 0,
+      networkRuleCollectionCount: Array.isArray(props.networkRuleCollections) ? props.networkRuleCollections.length : 0,
+      applicationRuleCollectionCount: Array.isArray(props.applicationRuleCollections) ? props.applicationRuleCollections.length : 0,
+      natRuleCollectionCount: Array.isArray(props.natRuleCollections) ? props.natRuleCollections.length : 0
+    }
+  })
+  const loc = location.trim().toLowerCase().replace(/\s/g, '')
+  return loc ? all.filter((fw) => fw.location.toLowerCase().replace(/\s/g, '') === loc) : all
+}
+
+export async function describeAzureFirewall(subscriptionId: string, resourceGroup: string, firewallName: string): Promise<AzureFirewallDetail> {
+  const raw = await fetchAzureArmJson<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/resourceGroups/${enc(resourceGroup)}/providers/Microsoft.Network/azureFirewalls/${enc(firewallName)}`,
+    '2023-11-01'
+  )
+  const props = (raw.properties ?? {}) as Record<string, unknown>
+  const sku = (props.sku ?? {}) as Record<string, unknown>
+  const policyId = String(((props.firewallPolicy ?? {}) as Record<string, unknown>).id ?? '')
+
+  const summary: AzureFirewallSummary = {
+    id: String(raw.id ?? ''),
+    name: String(raw.name ?? ''),
+    resourceGroup: extractResourceGroup(String(raw.id ?? '')),
+    location: String(raw.location ?? ''),
+    skuName: String(sku.name ?? ''),
+    skuTier: String(sku.tier ?? ''),
+    threatIntelMode: String(props.threatIntelMode ?? ''),
+    provisioningState: String(props.provisioningState ?? ''),
+    firewallPolicyId: policyId,
+    ipConfigurationCount: Array.isArray(props.ipConfigurations) ? props.ipConfigurations.length : 0,
+    networkRuleCollectionCount: Array.isArray(props.networkRuleCollections) ? props.networkRuleCollections.length : 0,
+    applicationRuleCollectionCount: Array.isArray(props.applicationRuleCollections) ? props.applicationRuleCollections.length : 0,
+    natRuleCollectionCount: Array.isArray(props.natRuleCollections) ? props.natRuleCollections.length : 0
+  }
+
+  const ipConfigurations: AzureFirewallIpConfiguration[] = (Array.isArray(props.ipConfigurations) ? props.ipConfigurations : []).map((cfg: Record<string, unknown>) => {
+    const cfgProps = (cfg.properties ?? {}) as Record<string, unknown>
+    return {
+      name: String(cfg.name ?? ''),
+      privateIPAddress: String(cfgProps.privateIPAddress ?? ''),
+      publicIPAddressId: String(((cfgProps.publicIPAddress ?? {}) as Record<string, unknown>).id ?? ''),
+      subnetId: String(((cfgProps.subnet ?? {}) as Record<string, unknown>).id ?? ''),
+      provisioningState: String(cfgProps.provisioningState ?? '')
+    }
+  })
+
+  const ruleCollections: AzureFirewallRuleCollection[] = []
+  for (const kind of ['networkRuleCollections', 'applicationRuleCollections', 'natRuleCollections'] as const) {
+    const label = kind === 'networkRuleCollections' ? 'Network' : kind === 'applicationRuleCollections' ? 'Application' : 'NAT'
+    const arr = Array.isArray(props[kind]) ? (props[kind] as Record<string, unknown>[]) : []
+    for (const rc of arr) {
+      const rcProps = (rc.properties ?? {}) as Record<string, unknown>
+      const actionObj = (rcProps.action ?? {}) as Record<string, unknown>
+      ruleCollections.push({
+        name: String(rc.name ?? ''),
+        kind: label,
+        priority: Number(rcProps.priority ?? 0),
+        action: String(actionObj.type ?? ''),
+        ruleCount: Array.isArray(rcProps.rules) ? rcProps.rules.length : 0,
+        provisioningState: String(rcProps.provisioningState ?? '')
+      })
+    }
+  }
+  ruleCollections.sort((a, b) => a.priority - b.priority)
+
+  return { summary, ipConfigurations, ruleCollections }
+}
+
+/* ── Azure Load Balancer (detail) ────────────────────────── */
+
+function extractNameFromId(armId: string): string {
+  if (!armId) return ''
+  const parts = armId.split('/')
+  return parts[parts.length - 1] ?? ''
+}
+
+export async function describeAzureLoadBalancer(subscriptionId: string, resourceGroup: string, lbName: string): Promise<AzureLoadBalancerDetail> {
+  const raw = await fetchAzureArmJson<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/resourceGroups/${enc(resourceGroup)}/providers/Microsoft.Network/loadBalancers/${enc(lbName)}`,
+    '2023-11-01'
+  )
+  const props = (raw.properties ?? {}) as Record<string, unknown>
+  const sku = (raw.sku ?? {}) as Record<string, unknown>
+
+  const summary: AzureLoadBalancerSummary = {
+    id: String(raw.id ?? ''),
+    name: String(raw.name ?? ''),
+    resourceGroup: extractResourceGroup(String(raw.id ?? '')),
+    location: String(raw.location ?? ''),
+    skuName: String(sku.name ?? ''),
+    skuTier: String(sku.tier ?? ''),
+    frontendIpCount: Array.isArray(props.frontendIPConfigurations) ? props.frontendIPConfigurations.length : 0,
+    backendPoolCount: Array.isArray(props.backendAddressPools) ? props.backendAddressPools.length : 0,
+    ruleCount: Array.isArray(props.loadBalancingRules) ? props.loadBalancingRules.length : 0,
+    probeCount: Array.isArray(props.probes) ? props.probes.length : 0,
+    provisioningState: String(props.provisioningState ?? '')
+  }
+
+  const frontendIpConfigurations: AzureLoadBalancerFrontendIp[] = (Array.isArray(props.frontendIPConfigurations) ? props.frontendIPConfigurations : []).map((fe: Record<string, unknown>) => {
+    const feProps = (fe.properties ?? {}) as Record<string, unknown>
+    return {
+      name: String(fe.name ?? ''),
+      privateIPAddress: String(feProps.privateIPAddress ?? ''),
+      privateIPAllocationMethod: String(feProps.privateIPAllocationMethod ?? ''),
+      publicIPAddressId: String(((feProps.publicIPAddress ?? {}) as Record<string, unknown>).id ?? ''),
+      subnetId: String(((feProps.subnet ?? {}) as Record<string, unknown>).id ?? ''),
+      provisioningState: String(feProps.provisioningState ?? ''),
+      zones: Array.isArray(fe.zones) ? (fe.zones as string[]) : []
+    }
+  })
+
+  const backendPools: AzureLoadBalancerBackendPool[] = (Array.isArray(props.backendAddressPools) ? props.backendAddressPools : []).map((bp: Record<string, unknown>) => {
+    const bpProps = (bp.properties ?? {}) as Record<string, unknown>
+    const addresses = Array.isArray(bpProps.loadBalancerBackendAddresses) ? bpProps.loadBalancerBackendAddresses : (Array.isArray(bpProps.backendIPConfigurations) ? bpProps.backendIPConfigurations : [])
+    return {
+      name: String(bp.name ?? ''),
+      backendAddressCount: addresses.length,
+      provisioningState: String(bpProps.provisioningState ?? '')
+    }
+  })
+
+  const rules: AzureLoadBalancerRule[] = (Array.isArray(props.loadBalancingRules) ? props.loadBalancingRules : []).map((r: Record<string, unknown>) => {
+    const rProps = (r.properties ?? {}) as Record<string, unknown>
+    return {
+      name: String(r.name ?? ''),
+      protocol: String(rProps.protocol ?? ''),
+      frontendPort: Number(rProps.frontendPort ?? 0),
+      backendPort: Number(rProps.backendPort ?? 0),
+      frontendIPConfigurationName: extractNameFromId(String(((rProps.frontendIPConfiguration ?? {}) as Record<string, unknown>).id ?? '')),
+      backendAddressPoolName: extractNameFromId(String(((rProps.backendAddressPool ?? {}) as Record<string, unknown>).id ?? '')),
+      probeName: extractNameFromId(String(((rProps.probe ?? {}) as Record<string, unknown>).id ?? '')),
+      enableFloatingIP: Boolean(rProps.enableFloatingIP ?? false),
+      idleTimeoutInMinutes: Number(rProps.idleTimeoutInMinutes ?? 0),
+      loadDistribution: String(rProps.loadDistribution ?? ''),
+      provisioningState: String(rProps.provisioningState ?? '')
+    }
+  })
+
+  const probes: AzureLoadBalancerProbe[] = (Array.isArray(props.probes) ? props.probes : []).map((p: Record<string, unknown>) => {
+    const pProps = (p.properties ?? {}) as Record<string, unknown>
+    return {
+      name: String(p.name ?? ''),
+      protocol: String(pProps.protocol ?? ''),
+      port: Number(pProps.port ?? 0),
+      intervalInSeconds: Number(pProps.intervalInSeconds ?? 0),
+      numberOfProbes: Number(pProps.numberOfProbes ?? 0),
+      requestPath: String(pProps.requestPath ?? ''),
+      provisioningState: String(pProps.provisioningState ?? '')
+    }
+  })
+
+  const inboundNatRules: AzureLoadBalancerInboundNatRule[] = (Array.isArray(props.inboundNatRules) ? props.inboundNatRules : []).map((nr: Record<string, unknown>) => {
+    const nrProps = (nr.properties ?? {}) as Record<string, unknown>
+    return {
+      name: String(nr.name ?? ''),
+      protocol: String(nrProps.protocol ?? ''),
+      frontendPort: Number(nrProps.frontendPort ?? 0),
+      backendPort: Number(nrProps.backendPort ?? 0),
+      frontendIPConfigurationName: extractNameFromId(String(((nrProps.frontendIPConfiguration ?? {}) as Record<string, unknown>).id ?? '')),
+      enableFloatingIP: Boolean(nrProps.enableFloatingIP ?? false),
+      idleTimeoutInMinutes: Number(nrProps.idleTimeoutInMinutes ?? 0),
+      provisioningState: String(nrProps.provisioningState ?? '')
+    }
+  })
+
+  return { summary, frontendIpConfigurations, backendPools, rules, probes, inboundNatRules }
 }

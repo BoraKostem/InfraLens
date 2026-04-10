@@ -981,7 +981,7 @@ export function AzureAppInsightsConsole({
     [components]
   )
 
-  if (loading && !components.length) return <SvcState type="loading" message="Loading Application Insights components..." />
+  if (loading && !components.length) return <SvcState variant="loading" message="Loading Application Insights components..." />
 
   return (
     <div className="cw-console azure-app-insights-console">

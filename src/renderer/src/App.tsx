@@ -24,6 +24,7 @@ import type {
   GcpCliContext,
   GcpBillingOverview,
   GcpIamOverview,
+  GcpLogEntrySummary,
   GcpLogQueryResult,
   GcpProjectOverview,
   GcpStorageObjectContent,
@@ -101,6 +102,7 @@ import {
   AzureVirtualMachinesConsole
 } from './AzureCoreConsoles'
 import { AzureCostConsole, AzureMonitorConsole, AzurePostgreSqlConsole, AzureSqlConsole } from './AzureOpsConsoles'
+import { AzureDnsConsole } from './AzureDnsConsole'
 import { AzureNetworkConsole } from './AzureNetworkConsole'
 import { AzureStorageAccountsConsole } from './AzureStorageConsole'
 import { AzureVmssConsole } from './AzureVmssConsole'
@@ -108,6 +110,12 @@ import { AzureAppInsightsConsole } from './AzureOpsConsoles'
 import { AzureKeyVaultConsole } from './AzureKeyVaultConsole'
 import { AzureEventHubConsole } from './AzureEventHubConsole'
 import { AzureAppServiceConsole } from './AzureAppServiceConsole'
+import { AzureMySqlConsole } from './AzureMySqlConsole'
+import { AzureCosmosDbConsole } from './AzureCosmosDbConsole'
+import { AzureLogAnalyticsConsole } from './AzureLogAnalyticsConsole'
+import { AzureEventGridConsole } from './AzureEventGridConsole'
+import { AzureFirewallConsole } from './AzureFirewallConsole'
+import { AzureLoadBalancersConsole } from './AzureLoadBalancersConsole'
 import { AwsTerminalPanel } from './AwsTerminalPanel'
 import { AzureFoundationPanel } from './AzureFoundationPanel'
 import { CloudFormationConsole } from './CloudFormationConsole'
@@ -124,12 +132,17 @@ import { GcpIamConsole } from './GcpIamConsole'
 import { GcpCloudSqlConsolePage, GcpComputeEngineConsolePage } from './GcpRuntimeConsoles'
 import { GcpGkeConsolePage } from './GcpGkeConsole'
 import { GcpSessionHub } from './GcpSessionHub'
+import { GcpDnsConsole } from './GcpDnsConsole'
 import { GcpVpcWorkspace } from './GcpVpcWorkspace'
 import { GcpPubSubConsole } from './GcpPubSubConsole'
 import { GcpBigQueryConsole } from './GcpBigQueryConsole'
 import { GcpMonitoringConsole } from './GcpMonitoringConsole'
 import { GcpSccConsole } from './GcpSccConsole'
 import { GcpFirestoreConsole } from './GcpFirestoreConsole'
+import { GcpCloudRunConsole } from './GcpCloudRunConsole'
+import { GcpFirebaseConsole } from './GcpFirebaseConsole'
+import { GcpMemorystoreConsole } from './GcpMemorystoreConsole'
+import { GcpLoadBalancerConsole } from './GcpLoadBalancerConsole'
 import { useAwsPageConnection } from './AwsPage'
 import { EcsConsole } from './EcsConsole'
 import { Ec2Console } from './Ec2Console'
@@ -308,6 +321,11 @@ const SERVICE_DESCRIPTIONS: Record<ServiceId, string> = {
   'gcp-scc': 'Project-aware Security Command Center workspace with findings browser, source inventory, and severity breakdown.',
   'gcp-firestore': 'Project-aware Firestore workspace with database picker, collection browser, and document viewer.',
   'gcp-pubsub': 'Project-aware Pub/Sub workspace with topic inventory, subscription details, and messaging posture.',
+  'gcp-cloud-run': 'Project-aware Cloud Run workspace with service inventory, revision history, job management, and domain mappings.',
+  'gcp-firebase': 'Project-aware Firebase workspace with app inventory, hosting management, release tracking, and resource overview.',
+  'gcp-cloud-dns': 'Project-aware Cloud DNS workspace with managed zone inventory, resource record set management, and DNSSEC posture.',
+  'gcp-memorystore': 'Project-aware Memorystore workspace with Redis instance inventory, configuration details, and connection metadata.',
+  'gcp-load-balancer': 'Project-aware Load Balancer workspace with URL map inventory, backend services, forwarding rules, and Cloud Armor policy integration.',
   'azure-subscriptions': 'Tenant-aware subscription inventory with management-group hints, location coverage, and cost-facing context.',
   'azure-rbac': 'Scope-aware RBAC posture with inherited assignments, risky roles, and principal filters.',
   'azure-virtual-machines': 'Subscription-aware VM inventory with power state, identity posture, diagnostics links, and operator actions.',
@@ -322,7 +340,14 @@ const SERVICE_DESCRIPTIONS: Record<ServiceId, string> = {
   'azure-app-insights': 'Application Insights component inventory with instrumentation context, retention posture, and network access visibility.',
   'azure-key-vault': 'Key Vault posture with secret and key inventory, soft-delete and purge protection signals, and RBAC authorization context.',
   'azure-event-hub': 'Event Hub namespace inventory with hub topology, consumer group visibility, throughput configuration, and Kafka enablement.',
-  'azure-app-service': 'App Service posture with plan inventory, web app configuration, deployment slot visibility, and deployment history.'
+  'azure-app-service': 'App Service posture with plan inventory, web app configuration, deployment slot visibility, and deployment history.',
+  'azure-mysql': 'MySQL Flexible Server posture with HA visibility, firewall rules, database inventory, and connection metadata.',
+  'azure-cosmos-db': 'Cosmos DB account inventory with consistency posture, multi-region visibility, database and container browser, and partition key context.',
+  'azure-log-analytics': 'Log Analytics workspace inventory with KQL query editor, saved searches, linked services, and retention posture.',
+  'azure-event-grid': 'Event Grid posture with custom topics, system topics, domains, and event subscription visibility across delivery schemas.',
+  'azure-firewall': 'Azure Firewall inventory with rule collection visibility, threat intelligence posture, and network topology context.',
+  'azure-load-balancers': 'Azure Load Balancer inventory with frontend/backend pool visibility, health probes, and load-balancing rule posture.',
+  'azure-dns': 'Azure DNS zone inventory with record set management, zone creation, and name server visibility.'
 }
 
 const SERVICE_MATURITY_LABELS: Record<ServiceMaturity, string> = {
@@ -367,7 +392,13 @@ const IMPLEMENTED_SCREENS = new Set<ServiceId>([
   'gcp-monitoring',
   'gcp-scc',
   'gcp-firestore',
-  'gcp-pubsub'
+  'gcp-pubsub',
+  'gcp-cloud-run',
+  'gcp-firebase',
+  'gcp-cloud-dns',
+  'gcp-memorystore',
+  'gcp-load-balancer',
+  'azure-dns'
 ])
 
 const DEFAULT_PROVIDER_ID: CloudProviderId = 'aws'
@@ -1593,6 +1624,7 @@ function GcpLoggingConsole({
   const [savedQueries, setSavedQueries] = useState<string[]>([])
   const [result, setResult] = useState<GcpLogQueryResult | null>(null)
   const [selectedEntryId, setSelectedEntryId] = useState('')
+  const [summaryModalEntry, setSummaryModalEntry] = useState<GcpLogEntrySummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
@@ -1791,7 +1823,7 @@ function GcpLoggingConsole({
                   <div><h3>Query Results</h3><p className="cw-section-subtitle">{result.entries.length} rows returned for the active project and location lens.</p></div>
                   <div className="cw-query-headline"><span className="cw-toolbar-pill">{result.query ? 'Custom filter' : 'Default filter'}</span></div>
                 </div>
-                <div className="cw-table-scroll">
+                <div className="cw-table-scroll" style={{ maxHeight: 480, overflowY: 'auto' }}>
                   <table className="cw-table">
                     <thead>
                       <tr>
@@ -1800,11 +1832,12 @@ function GcpLoggingConsole({
                         <th>Resource</th>
                         <th>Log</th>
                         <th>Summary</th>
+                        <th style={{ width: 40 }}></th>
                       </tr>
                     </thead>
                     <tbody>
                       {result.entries.length === 0 ? (
-                        <tr><td className="cw-empty" colSpan={5}>No log entries matched the current filter.</td></tr>
+                        <tr><td className="cw-empty" colSpan={6}>No log entries matched the current filter.</td></tr>
                       ) : result.entries.map((entry) => (
                         <tr key={`${entry.insertId}:${entry.timestamp}`} className="cw-clickable" onClick={() => setSelectedEntryId(entry.insertId)}>
                           <td>{entry.timestamp ? new Date(entry.timestamp).toLocaleString() : '-'}</td>
@@ -1812,6 +1845,11 @@ function GcpLoggingConsole({
                           <td>{entry.resourceType}</td>
                           <td>{entry.logName}</td>
                           <td><span className="cw-query-cell">{entry.summary}</span></td>
+                          <td>
+                            <button type="button" className="cw-expand-btn" title="Open full summary" onClick={(e) => { e.stopPropagation(); setSummaryModalEntry(entry) }} style={{ padding: '2px 8px', fontSize: '0.75rem' }}>
+                              Open
+                            </button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1876,6 +1914,37 @@ function GcpLoggingConsole({
           </div>
         </div>
       </div>
+
+      {summaryModalEntry && (
+        <div className="cw-modal-overlay" onClick={() => setSummaryModalEntry(null)}>
+          <div className="cw-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 720, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h3 style={{ margin: 0 }}>Log Entry Summary</h3>
+              <button type="button" className="cw-expand-btn" onClick={() => setSummaryModalEntry(null)} style={{ padding: '4px 12px' }}>Close</button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', marginBottom: 12, fontSize: '0.82rem' }}>
+              <div><span style={{ color: 'var(--muted)' }}>Timestamp:</span> {summaryModalEntry.timestamp ? new Date(summaryModalEntry.timestamp).toLocaleString() : '-'}</div>
+              <div><span style={{ color: 'var(--muted)' }}>Severity:</span> <span className="cw-toolbar-pill">{summaryModalEntry.severity}</span></div>
+              <div><span style={{ color: 'var(--muted)' }}>Resource:</span> {summaryModalEntry.resourceType}</div>
+              <div><span style={{ color: 'var(--muted)' }}>Log:</span> {summaryModalEntry.logName}</div>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', background: 'rgba(0,0,0,0.25)', borderRadius: 8, padding: 12 }}>
+              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: '0.82rem', lineHeight: 1.6, color: '#c4cbd8' }}>{summaryModalEntry.summary}</pre>
+              {summaryModalEntry.details.length > 0 && (
+                <div style={{ marginTop: 16, borderTop: '1px solid rgba(145,176,207,0.12)', paddingTop: 12 }}>
+                  <strong style={{ fontSize: '0.78rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Details</strong>
+                  {summaryModalEntry.details.map((d) => (
+                    <div key={d.label} style={{ marginTop: 8 }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{d.label}</div>
+                      <div style={{ fontSize: '0.82rem', color: '#c4cbd8', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{d.value}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -3088,6 +3157,11 @@ function screenCacheTag(screen: Screen): CacheTag | null {
     case 'gcp-scc':
     case 'gcp-firestore':
     case 'gcp-pubsub':
+    case 'gcp-cloud-run':
+    case 'gcp-firebase':
+    case 'gcp-cloud-dns':
+    case 'gcp-memorystore':
+    case 'gcp-load-balancer':
     case 'azure-subscriptions':
     case 'azure-rbac':
     case 'azure-virtual-machines':
@@ -3103,6 +3177,13 @@ function screenCacheTag(screen: Screen): CacheTag | null {
     case 'azure-key-vault':
     case 'azure-event-hub':
     case 'azure-app-service':
+    case 'azure-mysql':
+    case 'azure-cosmos-db':
+    case 'azure-log-analytics':
+    case 'azure-event-grid':
+    case 'azure-firewall':
+    case 'azure-load-balancers':
+    case 'azure-dns':
       return 'shell'
     case 'session-hub':
       return null
@@ -3227,17 +3308,23 @@ export function App() {
   const startupAzureContextAppliedRef = useRef(false)
 
   useEffect(() => {
+    let stale = false
     void Promise.all([listProviders(), getWorkspaceCatalog(activeProviderId)])
       .then(([loadedProviders, loadedCatalog]) => {
+        if (stale) return
         setProviders(loadedProviders)
         setWorkspaceCatalog(loadedCatalog)
         setServices(loadedCatalog.allServices)
       })
       .catch((error) => {
+        if (stale) return
         setWorkspaceCatalog(null)
         setCatalogError(error instanceof Error ? error.message : String(error))
       })
-      .finally(() => setServicesHydrated(true))
+      .finally(() => {
+        if (!stale) setServicesHydrated(true)
+      })
+    return () => { stale = true }
   }, [activeProviderId])
 
   useEffect(() => {
@@ -3869,16 +3956,16 @@ export function App() {
         ? `${connectionState.selectedProfile.source} profile`
         : 'Click to select a profile'
   const providerMetaLabel = isAwsProviderActive && connectionState.providerConnection
-    ? `${activeProvider.locationLabel}: ${connectionState.providerConnection.locationLabel}`
+    ? connectionState.providerConnection.locationLabel
     : activeProviderId === 'gcp'
       ? gcpContextReady
-        ? `Project: ${activeGcpConnectionDraft?.projectId.trim()} | ${activeProvider.locationLabel}: ${activeGcpConnectionDraft?.location.trim()}`
+        ? `${activeGcpConnectionDraft?.projectId.trim()} | ${activeGcpConnectionDraft?.location.trim()}`
         : selectedPreviewMode
           ? `Mode: ${selectedPreviewMode.label}`
           : activeProvider.connectionLabel
       : activeProviderId === 'azure'
         ? (azureContextReady
-          ? `Subscription: ${activeAzureConnectionDraft?.subscriptionLabel.trim()} | ${activeProvider.locationLabel}: ${activeAzureConnectionDraft?.location.trim()}`
+          ? `${activeAzureConnectionDraft?.subscriptionLabel.trim()} | ${activeAzureConnectionDraft?.location.trim()}`
           : azureProviderState.providerMeta)
         : selectedPreviewMode
           ? `Mode: ${selectedPreviewMode.label}`
@@ -4244,6 +4331,9 @@ export function App() {
       connectionState.setProfile('')
       connectionState.setError('')
       setAzureContextError('')
+      setServices([])
+      setWorkspaceCatalog(null)
+      setCatalogError('')
     }
 
     setActiveProviderId(providerId)
@@ -5807,6 +5897,58 @@ export function App() {
 
     if (
       activeProviderId === 'gcp'
+      && targetScreen === 'gcp-cloud-dns'
+      && targetService?.id === 'gcp-cloud-dns'
+      && gcpContextReady
+      && activeGcpConnectionDraft
+    ) {
+      return (
+        <GcpDnsConsole
+          projectId={activeGcpConnectionDraft.projectId.trim()}
+          location={activeGcpConnectionDraft.location.trim()}
+          refreshNonce={pageRefreshNonceByScreen['gcp-cloud-dns'] ?? 0}
+        />
+      )
+    }
+
+    if (
+      activeProviderId === 'gcp'
+      && targetScreen === 'gcp-memorystore'
+      && targetService?.id === 'gcp-memorystore'
+      && gcpContextReady
+      && activeGcpConnectionDraft
+    ) {
+      return (
+        <GcpMemorystoreConsole
+          projectId={activeGcpConnectionDraft.projectId.trim()}
+          location={activeGcpConnectionDraft.location.trim()}
+          refreshNonce={pageRefreshNonceByScreen['gcp-memorystore'] ?? 0}
+          onRunTerminalCommand={handleOpenTerminalCommand}
+          canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+        />
+      )
+    }
+
+    if (
+      activeProviderId === 'gcp'
+      && targetScreen === 'gcp-load-balancer'
+      && targetService?.id === 'gcp-load-balancer'
+      && gcpContextReady
+      && activeGcpConnectionDraft
+    ) {
+      return (
+        <GcpLoadBalancerConsole
+          projectId={activeGcpConnectionDraft.projectId.trim()}
+          location={activeGcpConnectionDraft.location.trim()}
+          refreshNonce={pageRefreshNonceByScreen['gcp-load-balancer'] ?? 0}
+          onRunTerminalCommand={handleOpenTerminalCommand}
+          canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+        />
+      )
+    }
+
+    if (
+      activeProviderId === 'gcp'
       && targetScreen === 'gcp-cloud-storage'
       && targetService?.id === 'gcp-cloud-storage'
       && gcpContextReady
@@ -5907,6 +6049,42 @@ export function App() {
             projectId={activeGcpConnectionDraft.projectId.trim()}
             location={activeGcpConnectionDraft.location.trim()}
             refreshNonce={pageRefreshNonceByScreen['gcp-pubsub'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'gcp'
+        && targetScreen === 'gcp-cloud-run'
+        && targetService?.id === 'gcp-cloud-run'
+        && gcpContextReady
+        && activeGcpConnectionDraft
+      ) {
+        return (
+          <GcpCloudRunConsole
+            projectId={activeGcpConnectionDraft.projectId.trim()}
+            location={activeGcpConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['gcp-cloud-run'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'gcp'
+        && targetScreen === 'gcp-firebase'
+        && targetService?.id === 'gcp-firebase'
+        && gcpContextReady
+        && activeGcpConnectionDraft
+      ) {
+        return (
+          <GcpFirebaseConsole
+            projectId={activeGcpConnectionDraft.projectId.trim()}
+            location={activeGcpConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['gcp-firebase'] ?? 0}
             onRunTerminalCommand={handleOpenTerminalCommand}
             canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
           />
@@ -6180,7 +6358,23 @@ export function App() {
             onRunTerminalCommand={handleOpenTerminalCommand}
             canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
             onOpenMonitor={(query) => openAzureMonitor(query)}
-            onNavigate={(serviceId) => navigateToService(serviceId)}
+            onNavigate={(serviceId) => navigateToService(serviceId as ServiceId)}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-dns'
+        && targetService?.id === 'azure-dns'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureDnsConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            location={activeAzureConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-dns'] ?? 0}
           />
         )
       }
@@ -6273,6 +6467,120 @@ export function App() {
             subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
             location={activeAzureConnectionDraft.location.trim()}
             refreshNonce={pageRefreshNonceByScreen['azure-app-service'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            onOpenMonitor={(query) => openAzureMonitor(query)}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-mysql'
+        && targetService?.id === 'azure-mysql'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureMySqlConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            location={activeAzureConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-mysql'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            onOpenMonitor={(query) => openAzureMonitor(query)}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-cosmos-db'
+        && targetService?.id === 'azure-cosmos-db'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureCosmosDbConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            location={activeAzureConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-cosmos-db'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            onOpenMonitor={(query) => openAzureMonitor(query)}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-log-analytics'
+        && targetService?.id === 'azure-log-analytics'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureLogAnalyticsConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            location={activeAzureConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-log-analytics'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            onOpenMonitor={(query) => openAzureMonitor(query)}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-event-grid'
+        && targetService?.id === 'azure-event-grid'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureEventGridConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            location={activeAzureConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-event-grid'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            onOpenMonitor={(query) => openAzureMonitor(query)}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-firewall'
+        && targetService?.id === 'azure-firewall'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureFirewallConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            location={activeAzureConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-firewall'] ?? 0}
+            onRunTerminalCommand={handleOpenTerminalCommand}
+            canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
+            onOpenMonitor={(query) => openAzureMonitor(query)}
+          />
+        )
+      }
+
+      if (
+        activeProviderId === 'azure'
+        && targetScreen === 'azure-load-balancers'
+        && targetService?.id === 'azure-load-balancers'
+        && azureContextReady
+        && activeAzureConnectionDraft
+      ) {
+        return (
+          <AzureLoadBalancersConsole
+            subscriptionId={activeAzureConnectionDraft.subscriptionId.trim()}
+            location={activeAzureConnectionDraft.location.trim()}
+            refreshNonce={pageRefreshNonceByScreen['azure-load-balancers'] ?? 0}
             onRunTerminalCommand={handleOpenTerminalCommand}
             canRunTerminalCommand={enterpriseSettings.accessMode === 'operator'}
             onOpenMonitor={(query) => openAzureMonitor(query)}
@@ -6863,10 +7171,10 @@ export function App() {
                 <small className="field-note">
                   {selectedPreviewMode
                     ? gcpContextReady
-                      ? `Project ${activeGcpConnectionDraft?.projectId.trim()} will be injected into the terminal with ${gcpCredentialFieldCopy?.label.toLowerCase()}.`
+                      ? `${activeGcpConnectionDraft?.projectId.trim()} injects via ${gcpCredentialFieldCopy?.label.toLowerCase()}.`
                       : gcpLocationOptions.length > 0
-                        ? 'Choose a Google Cloud location to finish the shared shell context.'
-                        : 'Refresh the catalog to import selectable Google Cloud locations.'
+                        ? 'Choose a Google Cloud location to finish shell context.'
+                        : 'Refresh to load Google Cloud locations.'
                     : 'Select a Google Cloud connection mode to start binding project context.'}
                 </small>
               </label>
@@ -6897,10 +7205,10 @@ export function App() {
                   <small className="field-note">
                     {selectedPreviewMode
                       ? azureContextReady
-                        ? `Subscription ${activeAzureConnectionDraft?.subscriptionLabel.trim()} is now bound to ${activeAzureConnectionDraft?.location.trim()} for Azure service pages and terminal env injection.`
+                        ? `${activeAzureConnectionDraft?.subscriptionLabel.trim()} bound to ${activeAzureConnectionDraft?.location.trim()} for pages + shell.`
                         : azureLocationOptions.length > 0
-                          ? 'Choose an Azure location to finish the shared subscription context.'
-                          : 'Refresh Azure foundation context to import visible locations.'
+                          ? 'Choose an Azure location to finish shell context.'
+                          : 'Refresh Azure context to load locations.'
                       : 'Select an Azure connection mode to start binding subscription context.'}
                   </small>
                 </label>
@@ -6925,8 +7233,8 @@ export function App() {
               <strong>{enterpriseSettings.accessMode === 'operator' ? 'Operator' : 'Read-only'}</strong>
               <small>
                 {enterpriseSettings.accessMode === 'operator'
-                  ? 'Writes and terminal access enabled.'
-                  : 'Writes and terminal blocked.'}
+                  ? 'Writes + terminal enabled.'
+                  : 'Writes + terminal blocked.'}
               </small>
             </div>
             <button
@@ -6938,18 +7246,18 @@ export function App() {
               {isProviderPageRefreshing
                 ? activeProviderId === 'gcp'
                   ? 'Syncing GCP catalog...'
-                  : 'Refreshing current view...'
+                  : 'Refreshing...'
                 : selectedService
                   ? `Refresh ${selectedService.label}`
-                  : 'Refresh current page'}
+                  : 'Refresh view'}
             </button>
             {providerRefreshReady && (
               <span className="sidebar-refresh-hint">
                 {activeProviderId === 'gcp'
                   ? 'Refresh reloads the active Google Cloud context and keeps the selected project in place.'
                   : prefersSoftRefresh
-                    ? 'Refresh keeps your current selection and filters.'
-                    : 'Refresh may rebuild the current view.'}
+                    ? 'Keeps your current selection and filters.'
+                    : 'May rebuild the current view.'}
               </span>
             )}
           </div>

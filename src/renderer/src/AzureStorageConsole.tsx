@@ -4,7 +4,10 @@ import type {
   AzureMonitorActivityEvent,
   AzureStorageAccountSummary,
   AzureStorageBlobSummary,
-  AzureStorageContainerSummary
+  AzureStorageContainerSummary,
+  AzureStorageFileShareSummary,
+  AzureStorageQueueSummary,
+  AzureStorageTableSummary
 } from '@shared/types'
 import {
   createAzureStorageContainer,
@@ -19,7 +22,10 @@ import {
   openAzureStorageBlob,
   openAzureStorageBlobInVSCode,
   putAzureStorageBlobContent,
-  uploadAzureStorageBlob
+  uploadAzureStorageBlob,
+  listAzureStorageFileShares,
+  listAzureStorageQueues,
+  listAzureStorageTables
 } from './api'
 import { ConfirmButton } from './ConfirmButton'
 import { SvcState } from './SvcState'
@@ -162,11 +168,17 @@ export function AzureStorageAccountsConsole({
   const [accountSearch, setAccountSearch] = useState('')
   const [containerSearch, setContainerSearch] = useState('')
   const [blobSearch, setBlobSearch] = useState('')
-  const [detailTab, setDetailTab] = useState<'objects' | 'posture' | 'timeline'>('objects')
+  const [detailTab, setDetailTab] = useState<'objects' | 'posture' | 'timeline' | 'fileShares' | 'queues' | 'tables'>('objects')
   const [visibleBlobCols, setVisibleBlobCols] = useState<Set<BlobColKey>>(new Set(['name', 'type', 'key', 'size', 'modified', 'accessTier']))
   const [timelineEvents, setTimelineEvents] = useState<AzureMonitorActivityEvent[]>([])
   const [timelineLoading, setTimelineLoading] = useState(false)
   const [timelineError, setTimelineError] = useState('')
+  const [fileShares, setFileShares] = useState<AzureStorageFileShareSummary[]>([])
+  const [fileSharesLoading, setFileSharesLoading] = useState(false)
+  const [queues, setQueues] = useState<AzureStorageQueueSummary[]>([])
+  const [queuesLoading, setQueuesLoading] = useState(false)
+  const [tables, setTables] = useState<AzureStorageTableSummary[]>([])
+  const [tablesLoading, setTablesLoading] = useState(false)
   const [showNewFolder, setShowNewFolder] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
   const [largeObjectThresholdMb, setLargeObjectThresholdMb] = useState('100')
@@ -278,6 +290,26 @@ export function AzureStorageAccountsConsole({
     if (detailTab === 'timeline' && selectedAccount) void loadStorageTimeline()
   }, [detailTab, selectedAccountId])
 
+  useEffect(() => {
+    if (!selectedAccount) return
+
+    if (detailTab === 'fileShares' && fileShares.length === 0) {
+      setFileSharesLoading(true)
+      listAzureStorageFileShares(subscriptionId, selectedAccount.resourceGroup, selectedAccount.name)
+        .then(setFileShares).catch(() => setFileShares([])).finally(() => setFileSharesLoading(false))
+    }
+    if (detailTab === 'queues' && queues.length === 0) {
+      setQueuesLoading(true)
+      listAzureStorageQueues(subscriptionId, selectedAccount.resourceGroup, selectedAccount.name)
+        .then(setQueues).catch(() => setQueues([])).finally(() => setQueuesLoading(false))
+    }
+    if (detailTab === 'tables' && tables.length === 0) {
+      setTablesLoading(true)
+      listAzureStorageTables(subscriptionId, selectedAccount.resourceGroup, selectedAccount.name)
+        .then(setTables).catch(() => setTables([])).finally(() => setTablesLoading(false))
+    }
+  }, [detailTab, selectedAccountId])
+
   function closePreview(): void {
     setShowPreview(false)
     setShowPreviewFullscreen(false)
@@ -318,6 +350,9 @@ export function AzureStorageAccountsConsole({
     setDetailTab('objects')
     setTimelineEvents([])
     setTimelineError('')
+    setFileShares([])
+    setQueues([])
+    setTables([])
     setContainersLoading(true)
     try {
       const nextContainers = await listAzureStorageContainers(subscriptionId, account.resourceGroup, account.name, account.primaryBlobEndpoint)
@@ -563,6 +598,9 @@ export function AzureStorageAccountsConsole({
 
                   <div className="s3-detail-tabs">
                     <button className={detailTab === 'objects' ? 'active' : ''} type="button" onClick={() => setDetailTab('objects')}>Containers & Blobs</button>
+                    <button className={detailTab === 'fileShares' ? 'active' : ''} type="button" onClick={() => setDetailTab('fileShares')}>File Shares</button>
+                    <button className={detailTab === 'queues' ? 'active' : ''} type="button" onClick={() => setDetailTab('queues')}>Queues</button>
+                    <button className={detailTab === 'tables' ? 'active' : ''} type="button" onClick={() => setDetailTab('tables')}>Tables</button>
                     <button className={detailTab === 'posture' ? 'active' : ''} type="button" onClick={() => setDetailTab('posture')}>Account Posture</button>
                     <button className={detailTab === 'timeline' ? 'active' : ''} type="button" onClick={() => setDetailTab('timeline')}>Activity Timeline</button>
                   </div>
@@ -1086,6 +1124,93 @@ export function AzureStorageAccountsConsole({
                                     <div className="s3-timeline-primary">{event.timestamp ? new Date(event.timestamp).toLocaleString() : '-'}</div>
                                     <div className="s3-timeline-secondary">{event.summary || event.resourceGroup || 'Azure Monitor activity event'}</div>
                                   </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {detailTab === 'fileShares' && (
+                    <div style={{ padding: '12px 0' }}>
+                      {fileSharesLoading && <div style={{ color: '#9ca7b7', fontSize: 12 }}>Loading file shares...</div>}
+                      {!fileSharesLoading && fileShares.length === 0 && <div style={{ color: '#9ca7b7', fontSize: 12 }}>No file shares found in this storage account.</div>}
+                      {!fileSharesLoading && fileShares.length > 0 && (
+                        <div style={{ overflowX: 'auto' }}>
+                          <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+                            <thead>
+                              <tr>
+                                <th style={{ textAlign: 'left', padding: '6px 10px', color: '#9ca7b7', borderBottom: '2px solid #3b4350', fontWeight: 600, textTransform: 'uppercase', fontSize: 10 }}>Name</th>
+                                <th style={{ textAlign: 'left', padding: '6px 10px', color: '#9ca7b7', borderBottom: '2px solid #3b4350', fontWeight: 600, textTransform: 'uppercase', fontSize: 10 }}>Quota</th>
+                                <th style={{ textAlign: 'left', padding: '6px 10px', color: '#9ca7b7', borderBottom: '2px solid #3b4350', fontWeight: 600, textTransform: 'uppercase', fontSize: 10 }}>Access Tier</th>
+                                <th style={{ textAlign: 'left', padding: '6px 10px', color: '#9ca7b7', borderBottom: '2px solid #3b4350', fontWeight: 600, textTransform: 'uppercase', fontSize: 10 }}>Protocol</th>
+                                <th style={{ textAlign: 'left', padding: '6px 10px', color: '#9ca7b7', borderBottom: '2px solid #3b4350', fontWeight: 600, textTransform: 'uppercase', fontSize: 10 }}>Lease</th>
+                                <th style={{ textAlign: 'left', padding: '6px 10px', color: '#9ca7b7', borderBottom: '2px solid #3b4350', fontWeight: 600, textTransform: 'uppercase', fontSize: 10 }}>Used</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {fileShares.map((share) => (
+                                <tr key={share.name}>
+                                  <td style={{ padding: '5px 10px', borderBottom: '1px solid #262c35', color: '#d0d8e2' }}>{share.name}</td>
+                                  <td style={{ padding: '5px 10px', borderBottom: '1px solid #262c35', color: '#d0d8e2' }}>{share.quota} GiB</td>
+                                  <td style={{ padding: '5px 10px', borderBottom: '1px solid #262c35', color: '#d0d8e2' }}>{share.accessTier || '-'}</td>
+                                  <td style={{ padding: '5px 10px', borderBottom: '1px solid #262c35', color: '#d0d8e2' }}>{share.enabledProtocols}</td>
+                                  <td style={{ padding: '5px 10px', borderBottom: '1px solid #262c35', color: '#d0d8e2' }}>{share.leaseStatus || '-'}</td>
+                                  <td style={{ padding: '5px 10px', borderBottom: '1px solid #262c35', color: '#d0d8e2' }}>{share.usedCapacityBytes > 0 ? formatSize(share.usedCapacityBytes) : '-'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {detailTab === 'queues' && (
+                    <div style={{ padding: '12px 0' }}>
+                      {queuesLoading && <div style={{ color: '#9ca7b7', fontSize: 12 }}>Loading queues...</div>}
+                      {!queuesLoading && queues.length === 0 && <div style={{ color: '#9ca7b7', fontSize: 12 }}>No queues found in this storage account.</div>}
+                      {!queuesLoading && queues.length > 0 && (
+                        <div style={{ overflowX: 'auto' }}>
+                          <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+                            <thead>
+                              <tr>
+                                <th style={{ textAlign: 'left', padding: '6px 10px', color: '#9ca7b7', borderBottom: '2px solid #3b4350', fontWeight: 600, textTransform: 'uppercase', fontSize: 10 }}>Name</th>
+                                <th style={{ textAlign: 'right', padding: '6px 10px', color: '#9ca7b7', borderBottom: '2px solid #3b4350', fontWeight: 600, textTransform: 'uppercase', fontSize: 10 }}>Approx. Messages</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {queues.map((q) => (
+                                <tr key={q.name}>
+                                  <td style={{ padding: '5px 10px', borderBottom: '1px solid #262c35', color: '#d0d8e2' }}>{q.name}</td>
+                                  <td style={{ padding: '5px 10px', borderBottom: '1px solid #262c35', color: '#d0d8e2', textAlign: 'right' }}>{q.approximateMessageCount}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {detailTab === 'tables' && (
+                    <div style={{ padding: '12px 0' }}>
+                      {tablesLoading && <div style={{ color: '#9ca7b7', fontSize: 12 }}>Loading tables...</div>}
+                      {!tablesLoading && tables.length === 0 && <div style={{ color: '#9ca7b7', fontSize: 12 }}>No tables found in this storage account.</div>}
+                      {!tablesLoading && tables.length > 0 && (
+                        <div style={{ overflowX: 'auto' }}>
+                          <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+                            <thead>
+                              <tr>
+                                <th style={{ textAlign: 'left', padding: '6px 10px', color: '#9ca7b7', borderBottom: '2px solid #3b4350', fontWeight: 600, textTransform: 'uppercase', fontSize: 10 }}>Table Name</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {tables.map((t) => (
+                                <tr key={t.name}>
+                                  <td style={{ padding: '5px 10px', borderBottom: '1px solid #262c35', color: '#d0d8e2' }}>{t.name}</td>
                                 </tr>
                               ))}
                             </tbody>

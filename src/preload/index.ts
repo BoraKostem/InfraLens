@@ -167,6 +167,41 @@ const awsLensApi = {
   listGcpGlobalAddresses: (projectId: string) => ipcRenderer.invoke('gcp:vpc:list-global-addresses', projectId),
   listGcpServiceNetworkingConnections: (projectId: string, networkNames: string[]) =>
     ipcRenderer.invoke('gcp:vpc:list-service-networking-connections', projectId, networkNames),
+
+  /* ── Cloud DNS ── */
+  listGcpDnsManagedZones: (projectId: string) =>
+    ipcRenderer.invoke('gcp:cloud-dns:list-zones', projectId),
+  listGcpDnsResourceRecordSets: (projectId: string, managedZone: string) =>
+    ipcRenderer.invoke('gcp:cloud-dns:list-records', projectId, managedZone),
+  createGcpDnsResourceRecordSet: (projectId: string, managedZone: string, input: unknown) =>
+    ipcRenderer.invoke('gcp:cloud-dns:create-record', projectId, managedZone, input),
+  updateGcpDnsResourceRecordSet: (projectId: string, managedZone: string, input: unknown) =>
+    ipcRenderer.invoke('gcp:cloud-dns:update-record', projectId, managedZone, input),
+  deleteGcpDnsResourceRecordSet: (projectId: string, managedZone: string, name: string, type: string) =>
+    ipcRenderer.invoke('gcp:cloud-dns:delete-record', projectId, managedZone, name, type),
+
+  // Memorystore (Redis)
+  listGcpMemorystoreInstances: (projectId: string, location: string) =>
+    ipcRenderer.invoke('gcp:memorystore:list-instances', projectId, location),
+  getGcpMemorystoreInstanceDetail: (projectId: string, instanceName: string) =>
+    ipcRenderer.invoke('gcp:memorystore:get-instance-detail', projectId, instanceName),
+
+  // Load Balancer + Cloud Armor
+  listGcpUrlMaps: (projectId: string) =>
+    ipcRenderer.invoke('gcp:load-balancer:list-url-maps', projectId),
+  getGcpUrlMapDetail: (projectId: string, urlMapName: string, region?: string) =>
+    ipcRenderer.invoke('gcp:load-balancer:get-url-map-detail', projectId, urlMapName, region),
+  listGcpBackendServices: (projectId: string) =>
+    ipcRenderer.invoke('gcp:load-balancer:list-backend-services', projectId),
+  listGcpForwardingRules: (projectId: string) =>
+    ipcRenderer.invoke('gcp:load-balancer:list-forwarding-rules', projectId),
+  listGcpHealthChecks: (projectId: string) =>
+    ipcRenderer.invoke('gcp:load-balancer:list-health-checks', projectId),
+  listGcpSecurityPolicies: (projectId: string) =>
+    ipcRenderer.invoke('gcp:cloud-armor:list-security-policies', projectId),
+  getGcpSecurityPolicyDetail: (projectId: string, policyName: string) =>
+    ipcRenderer.invoke('gcp:cloud-armor:get-security-policy-detail', projectId, policyName),
+
   listGcpGkeClusters: (projectId: string, location: string) => ipcRenderer.invoke('gcp:gke:list', projectId, location),
   getGcpGkeClusterDetail: (projectId: string, location: string, clusterName: string) => ipcRenderer.invoke('gcp:gke:get-detail', projectId, location, clusterName),
   listGcpGkeNodePools: (projectId: string, location: string, clusterName: string) => ipcRenderer.invoke('gcp:gke:list-node-pools', projectId, location, clusterName),
@@ -208,16 +243,33 @@ const awsLensApi = {
   queryGcpMonitoringTimeSeries: (projectId: string, metricType: string, intervalMinutes: number) => ipcRenderer.invoke('gcp:monitoring:query-time-series', projectId, metricType, intervalMinutes),
 
   // Security Command Center
-  listGcpSccFindings: (projectId: string, filter?: string) => ipcRenderer.invoke('gcp:scc:list-findings', projectId, filter),
-  listGcpSccSources: (projectId: string) => ipcRenderer.invoke('gcp:scc:list-sources', projectId),
-  getGcpSccFindingDetail: (projectId: string, findingName: string) => ipcRenderer.invoke('gcp:scc:get-finding-detail', projectId, findingName),
-  getGcpSccSeverityBreakdown: (projectId: string) => ipcRenderer.invoke('gcp:scc:get-severity-breakdown', projectId),
+  listGcpSccFindings: (projectId: string, location?: string, filter?: string) => ipcRenderer.invoke('gcp:scc:list-findings', projectId, location, filter),
+  listGcpSccSources: (projectId: string, location?: string) => ipcRenderer.invoke('gcp:scc:list-sources', projectId, location),
+  getGcpSccFindingDetail: (projectId: string, findingName: string, location?: string) => ipcRenderer.invoke('gcp:scc:get-finding-detail', projectId, findingName, location),
+  getGcpSccSeverityBreakdown: (projectId: string, location?: string) => ipcRenderer.invoke('gcp:scc:get-severity-breakdown', projectId, location),
 
   // Firestore
   listGcpFirestoreDatabases: (projectId: string) => ipcRenderer.invoke('gcp:firestore:list-databases', projectId),
   listGcpFirestoreCollections: (projectId: string, databaseId: string, parentDocumentPath?: string) => ipcRenderer.invoke('gcp:firestore:list-collections', projectId, databaseId, parentDocumentPath),
   listGcpFirestoreDocuments: (projectId: string, databaseId: string, collectionId: string, pageSize?: number) => ipcRenderer.invoke('gcp:firestore:list-documents', projectId, databaseId, collectionId, pageSize),
   getGcpFirestoreDocumentDetail: (projectId: string, databaseId: string, documentPath: string) => ipcRenderer.invoke('gcp:firestore:get-document-detail', projectId, databaseId, documentPath),
+
+  // ── Cloud Run ──
+  listGcpCloudRunServices: (projectId: string, location: string) => ipcRenderer.invoke('gcp:cloud-run:list-services', projectId, location),
+  listGcpCloudRunRevisions: (projectId: string, location: string, serviceId: string) => ipcRenderer.invoke('gcp:cloud-run:list-revisions', projectId, location, serviceId),
+  listGcpCloudRunJobs: (projectId: string, location: string) => ipcRenderer.invoke('gcp:cloud-run:list-jobs', projectId, location),
+  listGcpCloudRunExecutions: (projectId: string, location: string, jobId: string) => ipcRenderer.invoke('gcp:cloud-run:list-executions', projectId, location, jobId),
+  listGcpCloudRunDomainMappings: (projectId: string, location: string) => ipcRenderer.invoke('gcp:cloud-run:list-domain-mappings', projectId, location),
+
+  // ── Firebase ──
+  getGcpFirebaseProject: (projectId: string) => ipcRenderer.invoke('gcp:firebase:get-project', projectId),
+  listGcpFirebaseWebApps: (projectId: string) => ipcRenderer.invoke('gcp:firebase:list-web-apps', projectId),
+  listGcpFirebaseAndroidApps: (projectId: string) => ipcRenderer.invoke('gcp:firebase:list-android-apps', projectId),
+  listGcpFirebaseIosApps: (projectId: string) => ipcRenderer.invoke('gcp:firebase:list-ios-apps', projectId),
+  listGcpFirebaseHostingSites: (projectId: string) => ipcRenderer.invoke('gcp:firebase:list-hosting-sites', projectId),
+  listGcpFirebaseHostingReleases: (projectId: string, siteId: string) => ipcRenderer.invoke('gcp:firebase:list-hosting-releases', projectId, siteId),
+  listGcpFirebaseHostingDomains: (projectId: string, siteId: string) => ipcRenderer.invoke('gcp:firebase:list-hosting-domains', projectId, siteId),
+  listGcpFirebaseHostingChannels: (projectId: string, siteId: string) => ipcRenderer.invoke('gcp:firebase:list-hosting-channels', projectId, siteId),
 
   listAzureSubscriptions: () => ipcRenderer.invoke('azure:subscriptions:list'),
   getAzureRbacOverview: (subscriptionId: string) => ipcRenderer.invoke('azure:rbac:get-overview', subscriptionId),
@@ -321,6 +373,98 @@ const awsLensApi = {
     ipcRenderer.invoke('azure:app-service:list-slots', subscriptionId, resourceGroup, siteName),
   listAzureWebAppDeployments: (subscriptionId: string, resourceGroup: string, siteName: string) =>
     ipcRenderer.invoke('azure:app-service:list-deployments', subscriptionId, resourceGroup, siteName),
+
+  /* ── Managed Disks ── */
+  listAzureManagedDisks: (subscriptionId: string, location: string) =>
+    ipcRenderer.invoke('azure:disks:list', subscriptionId, location),
+  listAzureDiskSnapshots: (subscriptionId: string, location: string) =>
+    ipcRenderer.invoke('azure:disk-snapshots:list', subscriptionId, location),
+
+  /* ── Network Enrichment ── */
+  listAzureVNetPeerings: (subscriptionId: string, resourceGroup: string, vnetName: string) =>
+    ipcRenderer.invoke('azure:network:list-peerings', subscriptionId, resourceGroup, vnetName),
+  listAzureRouteTables: (subscriptionId: string, location: string) =>
+    ipcRenderer.invoke('azure:network:list-route-tables', subscriptionId, location),
+  listAzureNatGateways: (subscriptionId: string, location: string) =>
+    ipcRenderer.invoke('azure:network:list-nat-gateways', subscriptionId, location),
+  listAzureLoadBalancers: (subscriptionId: string, location: string) =>
+    ipcRenderer.invoke('azure:network:list-load-balancers', subscriptionId, location),
+  listAzurePrivateEndpoints: (subscriptionId: string, location: string) =>
+    ipcRenderer.invoke('azure:network:list-private-endpoints', subscriptionId, location),
+
+  /* ── Azure DNS ── */
+  listAzureDnsZones: (subscriptionId: string, location: string) =>
+    ipcRenderer.invoke('azure:dns:list-zones', subscriptionId, location),
+  listAzureDnsRecordSets: (subscriptionId: string, resourceGroup: string, zoneName: string) =>
+    ipcRenderer.invoke('azure:dns:list-records', subscriptionId, resourceGroup, zoneName),
+  upsertAzureDnsRecord: (subscriptionId: string, resourceGroup: string, zoneName: string, input: unknown) =>
+    ipcRenderer.invoke('azure:dns:upsert-record', subscriptionId, resourceGroup, zoneName, input),
+  deleteAzureDnsRecord: (subscriptionId: string, resourceGroup: string, zoneName: string, recordType: string, recordName: string) =>
+    ipcRenderer.invoke('azure:dns:delete-record', subscriptionId, resourceGroup, zoneName, recordType, recordName),
+  createAzureDnsZone: (subscriptionId: string, resourceGroup: string, zoneName: string, zoneType: string) =>
+    ipcRenderer.invoke('azure:dns:create-zone', subscriptionId, resourceGroup, zoneName, zoneType),
+
+  /* ── Storage Enrichment ── */
+  listAzureStorageFileShares: (subscriptionId: string, resourceGroup: string, accountName: string) =>
+    ipcRenderer.invoke('azure:storage-file-shares:list', subscriptionId, resourceGroup, accountName),
+  listAzureStorageQueues: (subscriptionId: string, resourceGroup: string, accountName: string) =>
+    ipcRenderer.invoke('azure:storage-queues:list', subscriptionId, resourceGroup, accountName),
+  listAzureStorageTables: (subscriptionId: string, resourceGroup: string, accountName: string) =>
+    ipcRenderer.invoke('azure:storage-tables:list', subscriptionId, resourceGroup, accountName),
+
+  /* ── MySQL ── */
+  getAzureMySqlEstate: (subscriptionId: string, location: string) =>
+    ipcRenderer.invoke('azure:mysql:get-estate', subscriptionId, location),
+  describeAzureMySqlServer: (subscriptionId: string, resourceGroup: string, serverName: string) =>
+    ipcRenderer.invoke('azure:mysql:describe-server', subscriptionId, resourceGroup, serverName),
+
+  /* ── Cosmos DB ── */
+  getAzureCosmosDbEstate: (subscriptionId: string, location: string) =>
+    ipcRenderer.invoke('azure:cosmos-db:get-estate', subscriptionId, location),
+  describeAzureCosmosDbAccount: (subscriptionId: string, resourceGroup: string, accountName: string) =>
+    ipcRenderer.invoke('azure:cosmos-db:describe-account', subscriptionId, resourceGroup, accountName),
+
+  /* ── App Service / Functions Enrichment ── */
+  listAzureFunctionApps: (subscriptionId: string, location: string) =>
+    ipcRenderer.invoke('azure:app-service:list-function-apps', subscriptionId, location),
+  listAzureFunctions: (subscriptionId: string, resourceGroup: string, siteName: string) =>
+    ipcRenderer.invoke('azure:app-service:list-functions', subscriptionId, resourceGroup, siteName),
+  getAzureWebAppConfiguration: (subscriptionId: string, resourceGroup: string, siteName: string) =>
+    ipcRenderer.invoke('azure:app-service:get-config', subscriptionId, resourceGroup, siteName),
+  runAzureWebAppAction: (subscriptionId: string, resourceGroup: string, siteName: string, action: string) =>
+    ipcRenderer.invoke('azure:app-service:action', subscriptionId, resourceGroup, siteName, action),
+
+  /* ── Log Analytics ── */
+  listAzureLogAnalyticsWorkspaces: (subscriptionId: string, location: string) =>
+    ipcRenderer.invoke('azure:log-analytics:list', subscriptionId, location),
+  queryAzureLogAnalytics: (workspaceId: string, query: string, timespan?: string) =>
+    ipcRenderer.invoke('azure:log-analytics:query', workspaceId, query, timespan),
+  listAzureLogAnalyticsSavedSearches: (subscriptionId: string, resourceGroup: string, workspaceName: string) =>
+    ipcRenderer.invoke('azure:log-analytics:list-saved-searches', subscriptionId, resourceGroup, workspaceName),
+  listAzureLogAnalyticsLinkedServices: (subscriptionId: string, resourceGroup: string, workspaceName: string) =>
+    ipcRenderer.invoke('azure:log-analytics:list-linked-services', subscriptionId, resourceGroup, workspaceName),
+
+  /* ── Event Grid ── */
+  listAzureEventGridTopics: (subscriptionId: string, location: string) =>
+    ipcRenderer.invoke('azure:event-grid:list-topics', subscriptionId, location),
+  listAzureEventGridSystemTopics: (subscriptionId: string, location: string) =>
+    ipcRenderer.invoke('azure:event-grid:list-system-topics', subscriptionId, location),
+  listAzureEventGridEventSubscriptions: (subscriptionId: string) =>
+    ipcRenderer.invoke('azure:event-grid:list-event-subscriptions', subscriptionId),
+  listAzureEventGridDomains: (subscriptionId: string, location: string) =>
+    ipcRenderer.invoke('azure:event-grid:list-domains', subscriptionId, location),
+  listAzureEventGridDomainTopics: (subscriptionId: string, resourceGroup: string, domainName: string) =>
+    ipcRenderer.invoke('azure:event-grid:list-domain-topics', subscriptionId, resourceGroup, domainName),
+
+  /* ── Azure Firewall ── */
+  listAzureFirewalls: (subscriptionId: string, location: string) =>
+    ipcRenderer.invoke('azure:firewall:list', subscriptionId, location),
+  describeAzureFirewall: (subscriptionId: string, resourceGroup: string, firewallName: string) =>
+    ipcRenderer.invoke('azure:firewall:describe', subscriptionId, resourceGroup, firewallName),
+
+  /* ── Azure Load Balancers (detail) ── */
+  describeAzureLoadBalancer: (subscriptionId: string, resourceGroup: string, lbName: string) =>
+    ipcRenderer.invoke('azure:load-balancers:describe', subscriptionId, resourceGroup, lbName),
 
   checkForAppUpdates: () => ipcRenderer.invoke('app:update:check'),
   downloadAppUpdate: () => ipcRenderer.invoke('app:update:download'),

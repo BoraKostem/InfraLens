@@ -27,9 +27,9 @@ const MAIN_TABS: Array<{ id: MainTab; label: string }> = [
 /* ── Helpers ────────────────────────────────────────── */
 
 function extractQuotedCommand(error: string): string | null {
-  const straight = error.match(/"([^"]+)"/)
+  const straight = error.match(/Run "([^"]+)"/)
   if (straight?.[1]?.trim()) return straight[1].trim()
-  const curly = error.match(/\u201c([^\u201d]+)\u201d/)
+  const curly = error.match(/Run \u201c([^\u201d]+)\u201d/)
   return curly?.[1]?.trim() ?? null
 }
 

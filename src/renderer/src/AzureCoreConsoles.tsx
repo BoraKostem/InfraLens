@@ -6,6 +6,8 @@ import type {
   AzureAksClusterDetail,
   AzureAksClusterSummary,
   AzureAksNodePoolSummary,
+  AzureManagedDiskSummary,
+  AzureDiskSnapshotSummary,
   AzureMonitorActivityEvent,
   AzureRbacOverview,
   AzureRoleAssignmentSummary,
@@ -23,6 +25,8 @@ import {
   getAzureRbacOverview,
   listAzureAksClusters,
   listAzureAksNodePools,
+  listAzureManagedDisks,
+  listAzureDiskSnapshots,
   listAzureRoleAssignments,
   listAzureRoleDefinitions,
   listAzureSubscriptions,
@@ -1165,6 +1169,9 @@ export function AzureVirtualMachinesConsole({
   onOpenMonitor: (query: string) => void
   onOpenDirectAccess: () => void
 }): JSX.Element {
+  type VmTopTab = 'vms' | 'disks' | 'snapshots'
+  const [vmTopTab, setVmTopTab] = useState<VmTopTab>('vms')
+
   const [machines, setMachines] = useState<AzureVirtualMachineSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -1184,6 +1191,38 @@ export function AzureVirtualMachinesConsole({
   const [timelineEvents, setTimelineEvents] = useState<AzureMonitorActivityEvent[]>([])
   const [timelineLoading, setTimelineLoading] = useState(false)
   const [timelineError, setTimelineError] = useState('')
+
+  /* ── Disks & Snapshots state ── */
+  const [disks, setDisks] = useState<AzureManagedDiskSummary[]>([])
+  const [disksLoading, setDisksLoading] = useState(false)
+  const [disksError, setDisksError] = useState('')
+  const [selectedDiskId, setSelectedDiskId] = useState('')
+  const [diskFilter, setDiskFilter] = useState('')
+
+  const [snapshots, setSnapshots] = useState<AzureDiskSnapshotSummary[]>([])
+  const [snapshotsLoading, setSnapshotsLoading] = useState(false)
+  const [snapshotsError, setSnapshotsError] = useState('')
+  const [selectedSnapshotId, setSelectedSnapshotId] = useState('')
+  const [snapshotFilter, setSnapshotFilter] = useState('')
+
+  useEffect(() => {
+    if (vmTopTab === 'disks' && disks.length === 0 && !disksLoading) {
+      setDisksLoading(true)
+      setDisksError('')
+      listAzureManagedDisks(subscriptionId, location)
+        .then((next) => { setDisks(sortByName(next)); if (next.length > 0 && !selectedDiskId) setSelectedDiskId(next[0].id) })
+        .catch((err) => setDisksError(normalizeError(err)))
+        .finally(() => setDisksLoading(false))
+    }
+    if (vmTopTab === 'snapshots' && snapshots.length === 0 && !snapshotsLoading) {
+      setSnapshotsLoading(true)
+      setSnapshotsError('')
+      listAzureDiskSnapshots(subscriptionId, location)
+        .then((next) => { setSnapshots(sortByName(next)); if (next.length > 0 && !selectedSnapshotId) setSelectedSnapshotId(next[0].id) })
+        .catch((err) => setSnapshotsError(normalizeError(err)))
+        .finally(() => setSnapshotsLoading(false))
+    }
+  }, [vmTopTab, subscriptionId, location, refreshNonce])
 
   async function reload(): Promise<void> {
     setLoading(true)
@@ -1340,18 +1379,20 @@ export function AzureVirtualMachinesConsole({
       <div className="ec2-shell-toolbar">
         <div className="ec2-shell-status" />
         <div className="ec2-tab-bar">
-          <button className="ec2-tab active" type="button">Instances</button>
-          <button className="ec2-toolbar-btn accent" type="button" onClick={() => void reload()}>Refresh</button>
+          <button className={`ec2-tab${vmTopTab === 'vms' ? ' active' : ''}`} type="button" onClick={() => setVmTopTab('vms')}>Instances</button>
+          <button className={`ec2-tab${vmTopTab === 'disks' ? ' active' : ''}`} type="button" onClick={() => setVmTopTab('disks')}>Managed Disks</button>
+          <button className={`ec2-tab${vmTopTab === 'snapshots' ? ' active' : ''}`} type="button" onClick={() => setVmTopTab('snapshots')}>Snapshots</button>
+          <button className="ec2-toolbar-btn accent" type="button" onClick={() => { if (vmTopTab === 'vms') void reload(); else if (vmTopTab === 'disks') { setDisks([]); setDisksLoading(false) } else { setSnapshots([]); setSnapshotsLoading(false) } }}>Refresh</button>
         </div>
       </div>
 
-      {msg && <div className="ec2-msg">{msg}</div>}
-      {!loading && error ? <SvcState variant="error" error={error} /> : null}
-      {!loading && !error && machines.length === 0 ? (
+      {vmTopTab === 'vms' && msg && <div className="ec2-msg">{msg}</div>}
+      {vmTopTab === 'vms' && !loading && error ? <SvcState variant="error" error={error} /> : null}
+      {vmTopTab === 'vms' && !loading && !error && machines.length === 0 ? (
         <SvcState variant="empty" message="No Azure virtual machines were discovered for the selected subscription/location." />
       ) : null}
 
-      {machines.length > 0 && (
+      {vmTopTab === 'vms' && machines.length > 0 && (
         <>
           <div className="ec2-filter-shell">
             <div className="ec2-filter-grid">
@@ -1529,6 +1570,157 @@ export function AzureVirtualMachinesConsole({
           </div>
         </>
       )}
+
+      {/* ── Managed Disks tab ── */}
+      {vmTopTab === 'disks' && disksLoading && <SvcState variant="loading" resourceName="managed disks" />}
+      {vmTopTab === 'disks' && !disksLoading && disksError && <SvcState variant="error" error={disksError} />}
+      {vmTopTab === 'disks' && !disksLoading && !disksError && disks.length === 0 && <SvcState variant="empty" message="No managed disks found." />}
+      {vmTopTab === 'disks' && !disksLoading && disks.length > 0 && (() => {
+        const filteredDisks = diskFilter
+          ? disks.filter((d) => d.name.toLowerCase().includes(diskFilter.toLowerCase()) || d.resourceGroup.toLowerCase().includes(diskFilter.toLowerCase()))
+          : disks
+        const selectedDisk = disks.find((d) => d.id === selectedDiskId)
+        const orphanedCount = disks.filter((d) => !d.managedBy).length
+        return (
+          <div className="ec2-main-layout">
+            <div className="ec2-table-shell">
+              <div className="ec2-table-shell-header">
+                <div>
+                  <h3>Managed Disks</h3>
+                  <p>{filteredDisks.length} disks, {orphanedCount} orphaned (unattached)</p>
+                </div>
+              </div>
+              <div style={{ padding: '6px 12px' }}>
+                <input className="ec2-search-input" placeholder="Filter disks..." value={diskFilter} onChange={(e) => setDiskFilter(e.target.value)} style={{ width: '100%' }} />
+              </div>
+              <div className="ec2-table-area">
+                <table className="ec2-data-table">
+                  <thead><tr><th>Name</th><th>State</th><th>Size</th><th>SKU</th><th>OS</th><th>Attached To</th><th>Location</th></tr></thead>
+                  <tbody>
+                    {filteredDisks.map((d) => (
+                      <tr key={d.id} className={d.id === selectedDiskId ? 'active' : ''} onClick={() => setSelectedDiskId(d.id)}>
+                        <td><div className="ec2-cell-stack"><span>{d.name}</span><small style={{ color: '#9ca7b7', fontSize: '10px' }}>{d.resourceGroup}</small></div></td>
+                        <td><span className={`ec2-badge ${d.diskState.toLowerCase() === 'attached' ? 'ok' : d.diskState.toLowerCase() === 'unattached' ? 'warn' : ''}`}>{d.diskState}</span></td>
+                        <td>{d.diskSizeGb} GiB</td>
+                        <td>{d.skuName}</td>
+                        <td>{d.osType || '-'}</td>
+                        <td style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.managedBy ? d.managedBy.split('/').pop() : <span style={{ color: '#f59e0b' }}>Orphaned</span>}</td>
+                        <td>{d.location}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div className="ec2-sidebar">
+              {selectedDisk ? (
+                <>
+                  <div className="ec2-sidebar-section">
+                    <h3>Disk Detail</h3>
+                    <AzureVmKV items={[
+                      ['Name', selectedDisk.name],
+                      ['Resource Group', selectedDisk.resourceGroup],
+                      ['Location', selectedDisk.location],
+                      ['Disk State', selectedDisk.diskState],
+                      ['SKU', selectedDisk.skuName],
+                      ['Size', `${selectedDisk.diskSizeGb} GiB`],
+                      ['OS Type', selectedDisk.osType || '-'],
+                      ['Created', selectedDisk.timeCreated ? new Date(selectedDisk.timeCreated).toLocaleString() : '-'],
+                      ['Network Policy', selectedDisk.networkAccessPolicy || '-'],
+                      ['Zones', selectedDisk.zones.length > 0 ? selectedDisk.zones.join(', ') : '-'],
+                      ['Provisioning', selectedDisk.provisioningState],
+                      ['Tags', String(selectedDisk.tagCount)]
+                    ]} />
+                  </div>
+                  <div className="ec2-sidebar-section">
+                    <h3>Attached VM</h3>
+                    {selectedDisk.managedBy
+                      ? <AzureVmKV items={[['VM', selectedDisk.managedBy.split('/').pop() ?? '-'], ['Resource ID', selectedDisk.managedBy]]} />
+                      : <div className="ec2-empty" style={{ color: '#f59e0b' }}>This disk is not attached to any VM (orphaned).</div>}
+                  </div>
+                  {canRunTerminalCommand && (
+                    <div className="ec2-sidebar-section">
+                      <h3>Terminal</h3>
+                      <div className="ec2-actions-grid">
+                        <button className="ec2-action-btn" type="button" onClick={() => onRunTerminalCommand(`az disk show -g "${selectedDisk.resourceGroup}" -n "${selectedDisk.name}" --subscription "${subscriptionId}" --output jsonc`)}>Describe</button>
+                        <button className="ec2-action-btn" type="button" onClick={() => onRunTerminalCommand(`az snapshot list -g "${selectedDisk.resourceGroup}" --subscription "${subscriptionId}" --query "[?creationData.sourceResourceId=='${selectedDisk.id}']" --output table`)}>Snapshots</button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="ec2-sidebar-section"><div className="ec2-empty">Select a disk to view details.</div></div>
+              )}
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ── Snapshots tab ── */}
+      {vmTopTab === 'snapshots' && snapshotsLoading && <SvcState variant="loading" resourceName="disk snapshots" />}
+      {vmTopTab === 'snapshots' && !snapshotsLoading && snapshotsError && <SvcState variant="error" error={snapshotsError} />}
+      {vmTopTab === 'snapshots' && !snapshotsLoading && !snapshotsError && snapshots.length === 0 && <SvcState variant="empty" message="No disk snapshots found." />}
+      {vmTopTab === 'snapshots' && !snapshotsLoading && snapshots.length > 0 && (() => {
+        const filteredSnaps = snapshotFilter
+          ? snapshots.filter((s) => s.name.toLowerCase().includes(snapshotFilter.toLowerCase()) || s.resourceGroup.toLowerCase().includes(snapshotFilter.toLowerCase()))
+          : snapshots
+        const selectedSnap = snapshots.find((s) => s.id === selectedSnapshotId)
+        const incrementalCount = snapshots.filter((s) => s.incremental).length
+        return (
+          <div className="ec2-main-layout">
+            <div className="ec2-table-shell">
+              <div className="ec2-table-shell-header">
+                <div>
+                  <h3>Disk Snapshots</h3>
+                  <p>{filteredSnaps.length} snapshots, {incrementalCount} incremental</p>
+                </div>
+              </div>
+              <div style={{ padding: '6px 12px' }}>
+                <input className="ec2-search-input" placeholder="Filter snapshots..." value={snapshotFilter} onChange={(e) => setSnapshotFilter(e.target.value)} style={{ width: '100%' }} />
+              </div>
+              <div className="ec2-table-area">
+                <table className="ec2-data-table">
+                  <thead><tr><th>Name</th><th>Size</th><th>SKU</th><th>Incremental</th><th>Source</th><th>Created</th><th>Location</th></tr></thead>
+                  <tbody>
+                    {filteredSnaps.map((s) => (
+                      <tr key={s.id} className={s.id === selectedSnapshotId ? 'active' : ''} onClick={() => setSelectedSnapshotId(s.id)}>
+                        <td><div className="ec2-cell-stack"><span>{s.name}</span><small style={{ color: '#9ca7b7', fontSize: '10px' }}>{s.resourceGroup}</small></div></td>
+                        <td>{s.diskSizeGb} GiB</td>
+                        <td>{s.skuName}</td>
+                        <td><span className={`ec2-badge ${s.incremental ? 'ok' : ''}`}>{s.incremental ? 'Yes' : 'Full'}</span></td>
+                        <td style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.sourceResourceId ? s.sourceResourceId.split('/').pop() : '-'}</td>
+                        <td>{s.timeCreated ? new Date(s.timeCreated).toLocaleDateString() : '-'}</td>
+                        <td>{s.location}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div className="ec2-sidebar">
+              {selectedSnap ? (
+                <div className="ec2-sidebar-section">
+                  <h3>Snapshot Detail</h3>
+                  <AzureVmKV items={[
+                    ['Name', selectedSnap.name],
+                    ['Resource Group', selectedSnap.resourceGroup],
+                    ['Location', selectedSnap.location],
+                    ['SKU', selectedSnap.skuName],
+                    ['Size', `${selectedSnap.diskSizeGb} GiB`],
+                    ['Incremental', selectedSnap.incremental ? 'Yes' : 'Full'],
+                    ['Source Disk', selectedSnap.sourceResourceId ? selectedSnap.sourceResourceId.split('/').pop() ?? '-' : '-'],
+                    ['Created', selectedSnap.timeCreated ? new Date(selectedSnap.timeCreated).toLocaleString() : '-'],
+                    ['Provisioning', selectedSnap.provisioningState],
+                    ['Tags', String(selectedSnap.tagCount)]
+                  ]} />
+                </div>
+              ) : (
+                <div className="ec2-sidebar-section"><div className="ec2-empty">Select a snapshot to view details.</div></div>
+              )}
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

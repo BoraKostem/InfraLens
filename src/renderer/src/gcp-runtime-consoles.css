@@ -12,6 +12,20 @@
     linear-gradient(180deg, rgba(20, 46, 31, 0.96), rgba(10, 24, 17, 0.96));
 }
 
+.gcp-runtime-console .iam-shell-hero {
+  background:
+    radial-gradient(circle at top left, var(--provider-accent-glow), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(74, 143, 231, 0.12), transparent 30%),
+    linear-gradient(180deg, rgba(15, 32, 24, 0.98), rgba(8, 18, 14, 0.98));
+}
+
+.gcp-runtime-console .iam-shell-stat-card-accent {
+  border-color: var(--provider-accent-border-strong);
+  background:
+    radial-gradient(circle at top right, var(--provider-accent-glow), transparent 42%),
+    linear-gradient(180deg, rgba(20, 46, 31, 0.96), rgba(10, 24, 17, 0.96));
+}
+
 .gcp-runtime-console .overview-glance-card-accent strong,
 .gcp-runtime-console .eyebrow {
   color: var(--provider-accent-strong);

@@ -10,8 +10,11 @@ import type {
   AwsConnection,
   AzureProviderContextSnapshot,
   AzureVmAction,
+  AzureWebAppAction,
+  AzureDnsRecordUpsertInput,
   CloudProviderId,
-  GcpComputeInstanceAction
+  GcpComputeInstanceAction,
+  GcpDnsRecordUpsertInput
 } from '@shared/types'
 import { getAppSettings, resetAppSettings, updateAppSettings } from './appSettings'
 import { importAwsConfigFile } from './aws/profiles'
@@ -220,6 +223,55 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('gcp:vpc:list-service-networking-connections', async (_event, projectId: string, networkNames: string[]) =>
     wrap(async () => (await loadGcpSdk()).listGcpServiceNetworkingConnections(projectId, networkNames))
   )
+
+  /* ── Cloud DNS ── */
+  ipcMain.handle('gcp:cloud-dns:list-zones', async (_event, projectId: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpDnsManagedZones(projectId))
+  )
+  ipcMain.handle('gcp:cloud-dns:list-records', async (_event, projectId: string, managedZone: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpDnsResourceRecordSets(projectId, managedZone))
+  )
+  ipcMain.handle('gcp:cloud-dns:create-record', async (_event, projectId: string, managedZone: string, input: GcpDnsRecordUpsertInput) =>
+    wrap(async () => (await loadGcpSdk()).createGcpDnsResourceRecordSet(projectId, managedZone, input))
+  )
+  ipcMain.handle('gcp:cloud-dns:update-record', async (_event, projectId: string, managedZone: string, input: GcpDnsRecordUpsertInput) =>
+    wrap(async () => (await loadGcpSdk()).updateGcpDnsResourceRecordSet(projectId, managedZone, input))
+  )
+  ipcMain.handle('gcp:cloud-dns:delete-record', async (_event, projectId: string, managedZone: string, name: string, type: string) =>
+    wrap(async () => (await loadGcpSdk()).deleteGcpDnsResourceRecordSet(projectId, managedZone, name, type))
+  )
+
+  // Memorystore (Redis)
+  ipcMain.handle('gcp:memorystore:list-instances', async (_event, projectId: string, location: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpMemorystoreInstances(projectId, location))
+  )
+  ipcMain.handle('gcp:memorystore:get-instance-detail', async (_event, projectId: string, instanceName: string) =>
+    wrap(async () => (await loadGcpSdk()).getGcpMemorystoreInstanceDetail(projectId, instanceName))
+  )
+
+  // Load Balancer + Cloud Armor
+  ipcMain.handle('gcp:load-balancer:list-url-maps', async (_event, projectId: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpUrlMaps(projectId))
+  )
+  ipcMain.handle('gcp:load-balancer:get-url-map-detail', async (_event, projectId: string, urlMapName: string, region?: string) =>
+    wrap(async () => (await loadGcpSdk()).getGcpUrlMapDetail(projectId, urlMapName, region))
+  )
+  ipcMain.handle('gcp:load-balancer:list-backend-services', async (_event, projectId: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpBackendServices(projectId))
+  )
+  ipcMain.handle('gcp:load-balancer:list-forwarding-rules', async (_event, projectId: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpForwardingRules(projectId))
+  )
+  ipcMain.handle('gcp:load-balancer:list-health-checks', async (_event, projectId: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpHealthChecks(projectId))
+  )
+  ipcMain.handle('gcp:cloud-armor:list-security-policies', async (_event, projectId: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpSecurityPolicies(projectId))
+  )
+  ipcMain.handle('gcp:cloud-armor:get-security-policy-detail', async (_event, projectId: string, policyName: string) =>
+    wrap(async () => (await loadGcpSdk()).getGcpSecurityPolicyDetail(projectId, policyName))
+  )
+
   ipcMain.handle('gcp:gke:list', async (_event, projectId: string, location: string) =>
     wrap(async () => (await loadGcpSdk()).listGcpGkeClusters(projectId, location))
   )
@@ -321,17 +373,17 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   )
 
   // Security Command Center
-  ipcMain.handle('gcp:scc:list-findings', async (_event, projectId: string, filter?: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpSccFindings(projectId, filter))
+  ipcMain.handle('gcp:scc:list-findings', async (_event, projectId: string, location?: string, filter?: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpSccFindings(projectId, location, filter))
   )
-  ipcMain.handle('gcp:scc:list-sources', async (_event, projectId: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpSccSources(projectId))
+  ipcMain.handle('gcp:scc:list-sources', async (_event, projectId: string, location?: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpSccSources(projectId, location))
   )
-  ipcMain.handle('gcp:scc:get-finding-detail', async (_event, projectId: string, findingName: string) =>
-    wrap(async () => (await loadGcpSdk()).getGcpSccFindingDetail(projectId, findingName))
+  ipcMain.handle('gcp:scc:get-finding-detail', async (_event, projectId: string, findingName: string, location?: string) =>
+    wrap(async () => (await loadGcpSdk()).getGcpSccFindingDetail(projectId, findingName, location))
   )
-  ipcMain.handle('gcp:scc:get-severity-breakdown', async (_event, projectId: string) =>
-    wrap(async () => (await loadGcpSdk()).getGcpSccSeverityBreakdown(projectId))
+  ipcMain.handle('gcp:scc:get-severity-breakdown', async (_event, projectId: string, location?: string) =>
+    wrap(async () => (await loadGcpSdk()).getGcpSccSeverityBreakdown(projectId, location))
   )
 
   // Firestore
@@ -346,6 +398,49 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   )
   ipcMain.handle('gcp:firestore:get-document-detail', async (_event, projectId: string, databaseId: string, documentPath: string) =>
     wrap(async () => (await loadGcpSdk()).getGcpFirestoreDocumentDetail(projectId, databaseId, documentPath))
+  )
+
+  // ── Cloud Run ──
+  ipcMain.handle('gcp:cloud-run:list-services', async (_event, projectId: string, location: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpCloudRunServices(projectId, location))
+  )
+  ipcMain.handle('gcp:cloud-run:list-revisions', async (_event, projectId: string, location: string, serviceId: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpCloudRunRevisions(projectId, location, serviceId))
+  )
+  ipcMain.handle('gcp:cloud-run:list-jobs', async (_event, projectId: string, location: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpCloudRunJobs(projectId, location))
+  )
+  ipcMain.handle('gcp:cloud-run:list-executions', async (_event, projectId: string, location: string, jobId: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpCloudRunExecutions(projectId, location, jobId))
+  )
+  ipcMain.handle('gcp:cloud-run:list-domain-mappings', async (_event, projectId: string, location: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpCloudRunDomainMappings(projectId, location))
+  )
+
+  // ── Firebase ──
+  ipcMain.handle('gcp:firebase:get-project', async (_event, projectId: string) =>
+    wrap(async () => (await loadGcpSdk()).getGcpFirebaseProject(projectId))
+  )
+  ipcMain.handle('gcp:firebase:list-web-apps', async (_event, projectId: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpFirebaseWebApps(projectId))
+  )
+  ipcMain.handle('gcp:firebase:list-android-apps', async (_event, projectId: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpFirebaseAndroidApps(projectId))
+  )
+  ipcMain.handle('gcp:firebase:list-ios-apps', async (_event, projectId: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpFirebaseIosApps(projectId))
+  )
+  ipcMain.handle('gcp:firebase:list-hosting-sites', async (_event, projectId: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpFirebaseHostingSites(projectId))
+  )
+  ipcMain.handle('gcp:firebase:list-hosting-releases', async (_event, projectId: string, siteId: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpFirebaseHostingReleases(projectId, siteId))
+  )
+  ipcMain.handle('gcp:firebase:list-hosting-domains', async (_event, projectId: string, siteId: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpFirebaseHostingDomains(projectId, siteId))
+  )
+  ipcMain.handle('gcp:firebase:list-hosting-channels', async (_event, projectId: string, siteId: string) =>
+    wrap(async () => (await loadGcpSdk()).listGcpFirebaseHostingChannels(projectId, siteId))
   )
 
   ipcMain.handle('azure:subscriptions:list', async () =>
@@ -540,6 +635,133 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   )
   ipcMain.handle('azure:app-service:list-deployments', async (_event, subscriptionId: string, resourceGroup: string, siteName: string) =>
     wrap(async () => (await loadAzureSdk()).listAzureWebAppDeployments(subscriptionId, resourceGroup, siteName))
+  )
+
+  /* ── Managed Disks ── */
+  ipcMain.handle('azure:disks:list', async (_event, subscriptionId: string, location: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureManagedDisks(subscriptionId, location))
+  )
+  ipcMain.handle('azure:disk-snapshots:list', async (_event, subscriptionId: string, location: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureDiskSnapshots(subscriptionId, location))
+  )
+
+  /* ── Network Enrichment ── */
+  ipcMain.handle('azure:network:list-peerings', async (_event, subscriptionId: string, resourceGroup: string, vnetName: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureVNetPeerings(subscriptionId, resourceGroup, vnetName))
+  )
+  ipcMain.handle('azure:network:list-route-tables', async (_event, subscriptionId: string, location: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureRouteTables(subscriptionId, location))
+  )
+  ipcMain.handle('azure:network:list-nat-gateways', async (_event, subscriptionId: string, location: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureNatGateways(subscriptionId, location))
+  )
+  ipcMain.handle('azure:network:list-load-balancers', async (_event, subscriptionId: string, location: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureLoadBalancers(subscriptionId, location))
+  )
+  ipcMain.handle('azure:network:list-private-endpoints', async (_event, subscriptionId: string, location: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzurePrivateEndpoints(subscriptionId, location))
+  )
+
+  /* ── Azure DNS ── */
+  ipcMain.handle('azure:dns:list-zones', async (_event, subscriptionId: string, location: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureDnsZones(subscriptionId, location))
+  )
+  ipcMain.handle('azure:dns:list-records', async (_event, subscriptionId: string, resourceGroup: string, zoneName: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureDnsRecordSets(subscriptionId, resourceGroup, zoneName))
+  )
+  ipcMain.handle('azure:dns:upsert-record', async (_event, subscriptionId: string, resourceGroup: string, zoneName: string, input: AzureDnsRecordUpsertInput) =>
+    wrap(async () => (await loadAzureSdk()).upsertAzureDnsRecord(subscriptionId, resourceGroup, zoneName, input))
+  )
+  ipcMain.handle('azure:dns:delete-record', async (_event, subscriptionId: string, resourceGroup: string, zoneName: string, recordType: string, recordName: string) =>
+    wrap(async () => (await loadAzureSdk()).deleteAzureDnsRecord(subscriptionId, resourceGroup, zoneName, recordType, recordName))
+  )
+  ipcMain.handle('azure:dns:create-zone', async (_event, subscriptionId: string, resourceGroup: string, zoneName: string, zoneType: 'Public' | 'Private') =>
+    wrap(async () => (await loadAzureSdk()).createAzureDnsZone(subscriptionId, resourceGroup, zoneName, zoneType))
+  )
+
+  /* ── Storage Enrichment ── */
+  ipcMain.handle('azure:storage-file-shares:list', async (_event, subscriptionId: string, resourceGroup: string, accountName: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureStorageFileShares(subscriptionId, resourceGroup, accountName))
+  )
+  ipcMain.handle('azure:storage-queues:list', async (_event, subscriptionId: string, resourceGroup: string, accountName: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureStorageQueues(subscriptionId, resourceGroup, accountName))
+  )
+  ipcMain.handle('azure:storage-tables:list', async (_event, subscriptionId: string, resourceGroup: string, accountName: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureStorageTables(subscriptionId, resourceGroup, accountName))
+  )
+
+  /* ── MySQL ── */
+  ipcMain.handle('azure:mysql:get-estate', async (_event, subscriptionId: string, location: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureMySqlEstate(subscriptionId, location))
+  )
+  ipcMain.handle('azure:mysql:describe-server', async (_event, subscriptionId: string, resourceGroup: string, serverName: string) =>
+    wrap(async () => (await loadAzureSdk()).describeAzureMySqlServer(subscriptionId, resourceGroup, serverName))
+  )
+
+  /* ── Cosmos DB ── */
+  ipcMain.handle('azure:cosmos-db:get-estate', async (_event, subscriptionId: string, location: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureCosmosDbEstate(subscriptionId, location))
+  )
+  ipcMain.handle('azure:cosmos-db:describe-account', async (_event, subscriptionId: string, resourceGroup: string, accountName: string) =>
+    wrap(async () => (await loadAzureSdk()).describeAzureCosmosDbAccount(subscriptionId, resourceGroup, accountName))
+  )
+
+  /* ── App Service / Functions Enrichment ── */
+  ipcMain.handle('azure:app-service:list-function-apps', async (_event, subscriptionId: string, location: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureFunctionApps(subscriptionId, location))
+  )
+  ipcMain.handle('azure:app-service:list-functions', async (_event, subscriptionId: string, resourceGroup: string, siteName: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureFunctions(subscriptionId, resourceGroup, siteName))
+  )
+  ipcMain.handle('azure:app-service:get-config', async (_event, subscriptionId: string, resourceGroup: string, siteName: string) =>
+    wrap(async () => (await loadAzureSdk()).getAzureWebAppConfiguration(subscriptionId, resourceGroup, siteName))
+  )
+  ipcMain.handle('azure:app-service:action', async (_event, subscriptionId: string, resourceGroup: string, siteName: string, action: AzureWebAppAction) =>
+    wrap(async () => (await loadAzureSdk()).runAzureWebAppAction(subscriptionId, resourceGroup, siteName, action))
+  )
+
+  /* ── Log Analytics ── */
+  ipcMain.handle('azure:log-analytics:list', async (_event, subscriptionId: string, location: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureLogAnalyticsWorkspaces(subscriptionId, location))
+  )
+  ipcMain.handle('azure:log-analytics:query', async (_event, workspaceId: string, query: string, timespan: string) =>
+    wrap(async () => (await loadAzureSdk()).queryAzureLogAnalytics(workspaceId, query, timespan))
+  )
+  ipcMain.handle('azure:log-analytics:list-saved-searches', async (_event, subscriptionId: string, resourceGroup: string, workspaceName: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureLogAnalyticsSavedSearches(subscriptionId, resourceGroup, workspaceName))
+  )
+  ipcMain.handle('azure:log-analytics:list-linked-services', async (_event, subscriptionId: string, resourceGroup: string, workspaceName: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureLogAnalyticsLinkedServices(subscriptionId, resourceGroup, workspaceName))
+  )
+
+  /* ── Event Grid ── */
+  ipcMain.handle('azure:event-grid:list-topics', async (_event, subscriptionId: string, location: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureEventGridTopics(subscriptionId, location))
+  )
+  ipcMain.handle('azure:event-grid:list-system-topics', async (_event, subscriptionId: string, location: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureEventGridSystemTopics(subscriptionId, location))
+  )
+  ipcMain.handle('azure:event-grid:list-event-subscriptions', async (_event, subscriptionId: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureEventGridEventSubscriptions(subscriptionId))
+  )
+  ipcMain.handle('azure:event-grid:list-domains', async (_event, subscriptionId: string, location: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureEventGridDomains(subscriptionId, location))
+  )
+  ipcMain.handle('azure:event-grid:list-domain-topics', async (_event, subscriptionId: string, resourceGroup: string, domainName: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureEventGridDomainTopics(subscriptionId, resourceGroup, domainName))
+  )
+
+  /* ── Azure Firewall ── */
+  ipcMain.handle('azure:firewall:list', async (_event, subscriptionId: string, location: string) =>
+    wrap(async () => (await loadAzureSdk()).listAzureFirewalls(subscriptionId, location))
+  )
+  ipcMain.handle('azure:firewall:describe', async (_event, subscriptionId: string, resourceGroup: string, firewallName: string) =>
+    wrap(async () => (await loadAzureSdk()).describeAzureFirewall(subscriptionId, resourceGroup, firewallName))
+  )
+
+  /* ── Azure Load Balancers (detail) ── */
+  ipcMain.handle('azure:load-balancers:describe', async (_event, subscriptionId: string, resourceGroup: string, lbName: string) =>
+    wrap(async () => (await loadAzureSdk()).describeAzureLoadBalancer(subscriptionId, resourceGroup, lbName))
   )
 
   ipcMain.handle('app:update:check', async () => wrap(() => checkForAppUpdates()))

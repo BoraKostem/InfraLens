@@ -5,17 +5,27 @@ import type {
   AzureAppServicePlanSummary,
   AzureWebAppSummary,
   AzureWebAppSlotSummary,
-  AzureWebAppDeploymentSummary
+  AzureWebAppDeploymentSummary,
+  AzureFunctionAppSummary,
+  AzureFunctionSummary,
+  AzureWebAppConfigSummary,
+  AzureWebAppAction
 } from '@shared/types'
 import {
   listAzureAppServicePlans,
   listAzureWebApps,
   listAzureWebAppSlots,
-  listAzureWebAppDeployments
+  listAzureWebAppDeployments,
+  listAzureFunctionApps,
+  listAzureFunctions,
+  getAzureWebAppConfiguration,
+  runAzureWebAppAction
 } from './api'
+import { ConfirmButton } from './ConfirmButton'
 import { SvcState } from './SvcState'
 
-type AppDetailTab = 'info' | 'slots' | 'deployments'
+type AppKind = 'webApps' | 'functionApps'
+type AppDetailTab = 'info' | 'config' | 'slots' | 'deployments' | 'functions'
 
 function truncate(value: string, max = 30): string {
   if (!value) return '-'
@@ -50,6 +60,7 @@ export function AzureAppServiceConsole({
   canRunTerminalCommand: boolean
   onOpenMonitor: (query: string) => void
 }): JSX.Element {
+  const [appKind, setAppKind] = useState<AppKind>('webApps')
   const [plans, setPlans] = useState<AzureAppServicePlanSummary[]>([])
   const [apps, setApps] = useState<AzureWebAppSummary[]>([])
   const [loading, setLoading] = useState(true)
@@ -61,6 +72,19 @@ export function AzureAppServiceConsole({
   const [deployments, setDeployments] = useState<AzureWebAppDeploymentSummary[]>([])
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState('')
+
+  // Function Apps state
+  const [functionApps, setFunctionApps] = useState<AzureFunctionAppSummary[]>([])
+  const [functionAppsLoading, setFunctionAppsLoading] = useState(false)
+  const [selectedFuncAppId, setSelectedFuncAppId] = useState('')
+  const [functions, setFunctions] = useState<AzureFunctionSummary[]>([])
+  const [functionsLoading, setFunctionsLoading] = useState(false)
+
+  // App config & actions state
+  const [appConfig, setAppConfig] = useState<AzureWebAppConfigSummary | null>(null)
+  const [configLoading, setConfigLoading] = useState(false)
+  const [actionBusy, setActionBusy] = useState(false)
+  const [actionMsg, setActionMsg] = useState('')
 
   function doRefresh() {
     setLoading(true)
@@ -113,7 +137,60 @@ export function AzureAppServiceConsole({
   const runningCount = useMemo(() => apps.filter((a) => a.state === 'Running').length, [apps])
   const httpsOnlyCount = useMemo(() => apps.filter((a) => a.httpsOnly).length, [apps])
 
-  if (loading && !apps.length) return <SvcState type="loading" message="Loading App Service resources..." />
+  const selectedFuncApp = useMemo(
+    () => functionApps.find((a) => a.id === selectedFuncAppId) ?? null,
+    [functionApps, selectedFuncAppId]
+  )
+
+  // Load Function Apps when switching to that tab
+  useEffect(() => {
+    if (appKind === 'functionApps' && functionApps.length === 0 && !functionAppsLoading) {
+      setFunctionAppsLoading(true)
+      listAzureFunctionApps(subscriptionId, location)
+        .then((next) => { setFunctionApps(next); if (next.length > 0) setSelectedFuncAppId(next[0].id) })
+        .catch(() => {})
+        .finally(() => setFunctionAppsLoading(false))
+    }
+  }, [appKind, subscriptionId, location, refreshNonce])
+
+  // Load config when config tab is active for the selected web app
+  useEffect(() => {
+    if (detailTab === 'config' && selectedApp) {
+      setConfigLoading(true)
+      getAzureWebAppConfiguration(subscriptionId, selectedApp.resourceGroup, selectedApp.name)
+        .then(setAppConfig)
+        .catch(() => setAppConfig(null))
+        .finally(() => setConfigLoading(false))
+    }
+  }, [detailTab, selectedApp?.id])
+
+  // Load functions for selected function app
+  useEffect(() => {
+    const funcApp = functionApps.find((a) => a.id === selectedFuncAppId)
+    if (funcApp && appKind === 'functionApps') {
+      setFunctionsLoading(true)
+      listAzureFunctions(subscriptionId, funcApp.resourceGroup, funcApp.name)
+        .then(setFunctions)
+        .catch(() => setFunctions([]))
+        .finally(() => setFunctionsLoading(false))
+    }
+  }, [selectedFuncAppId, appKind])
+
+  async function doWebAppAction(action: AzureWebAppAction): Promise<void> {
+    if (!selectedApp) return
+    setActionBusy(true)
+    setActionMsg('')
+    try {
+      const result = await runAzureWebAppAction(subscriptionId, selectedApp.resourceGroup, selectedApp.name, action)
+      setActionMsg(result.accepted ? `${action} sent to ${selectedApp.name}` : (result.error || `${action} failed`))
+    } catch (err) {
+      setActionMsg(err instanceof Error ? err.message : String(err))
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
+  if (loading && !apps.length) return <SvcState variant="loading" message="Loading App Service resources..." />
 
   return (
     <div className="svc-console asg-console azure-app-service-theme">
@@ -164,6 +241,13 @@ export function AzureAppServiceConsole({
         </div>
       </section>
 
+      {/* ── Kind toggle ── */}
+      <div className="svc-tab-bar" style={{ marginBottom: 12 }}>
+        <button className={`svc-tab ${appKind === 'webApps' ? 'active' : ''}`} type="button" onClick={() => setAppKind('webApps')}>Web Apps</button>
+        <button className={`svc-tab ${appKind === 'functionApps' ? 'active' : ''}`} type="button" onClick={() => setAppKind('functionApps')}>Function Apps</button>
+      </div>
+
+      {appKind === 'webApps' && (
       <div className="asg-main-layout">
         {/* ── Left sidebar: App list ── */}
         <aside className="asg-groups-pane">
@@ -243,6 +327,12 @@ export function AzureAppServiceConsole({
                       <strong>{truncate(selectedApp.defaultHostName, 28)}</strong>
                     </div>
                   </div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                    <button className="svc-btn svc-btn-success" type="button" disabled={actionBusy} onClick={() => void doWebAppAction('start')}>Start</button>
+                    <ConfirmButton className="svc-btn svc-btn-warn" disabled={actionBusy} onConfirm={() => void doWebAppAction('stop')}>Stop</ConfirmButton>
+                    <ConfirmButton className="svc-btn svc-btn-primary" disabled={actionBusy} onConfirm={() => void doWebAppAction('restart')}>Restart</ConfirmButton>
+                  </div>
+                  {actionMsg && <div style={{ fontSize: 12, color: '#9ca7b7', marginTop: 6 }}>{actionMsg}</div>}
                 </div>
                 <div className="asg-detail-glance">
                   <div className="asg-stat-card">
@@ -261,12 +351,13 @@ export function AzureAppServiceConsole({
               {/* Detail tabs */}
               <div className="svc-tab-bar asg-tab-bar" style={{ marginBottom: 12 }}>
                 <button className={`svc-tab ${detailTab === 'info' ? 'active' : ''}`} type="button" onClick={() => setDetailTab('info')}>Overview</button>
+                <button className={`svc-tab ${detailTab === 'config' ? 'active' : ''}`} type="button" onClick={() => setDetailTab('config')}>Configuration</button>
                 <button className={`svc-tab ${detailTab === 'slots' ? 'active' : ''}`} type="button" onClick={() => setDetailTab('slots')}>Slots ({slots.length})</button>
                 <button className={`svc-tab ${detailTab === 'deployments' ? 'active' : ''}`} type="button" onClick={() => setDetailTab('deployments')}>Deployments ({deployments.length})</button>
                 <button className="svc-tab right" type="button" onClick={doRefresh}>Refresh</button>
               </div>
 
-              {detailLoading && <SvcState type="loading" message="Loading app details..." />}
+              {detailLoading && <SvcState variant="loading" message="Loading app details..." />}
               {detailError && <div className="svc-error">{detailError}</div>}
 
               {/* Overview tab */}
@@ -368,6 +459,49 @@ export function AzureAppServiceConsole({
                   {!deployments.length && <div className="svc-empty">No deployments found for this app.</div>}
                 </div>
               )}
+
+              {/* Config tab */}
+              {detailTab === 'config' && (
+                <div>
+                  {configLoading && <div style={{ color: '#9ca7b7', fontSize: 12 }}>Loading configuration...</div>}
+                  {!configLoading && appConfig && (
+                    <>
+                      <h4 style={{ color: '#eef0f4', margin: '12px 0 8px' }}>General Settings</h4>
+                      <div className="svc-kv">
+                        <div className="svc-kv-label">Linux FX Version</div><div className="svc-kv-value">{appConfig.linuxFxVersion || '-'}</div>
+                        <div className="svc-kv-label">Always On</div><div className="svc-kv-value">{appConfig.alwaysOn ? 'Yes' : 'No'}</div>
+                        <div className="svc-kv-label">HTTP/2</div><div className="svc-kv-value">{appConfig.http20Enabled ? 'Enabled' : 'Disabled'}</div>
+                        <div className="svc-kv-label">Min TLS</div><div className="svc-kv-value">{appConfig.minTlsVersion || '-'}</div>
+                        <div className="svc-kv-label">FTPS State</div><div className="svc-kv-value">{appConfig.ftpsState || '-'}</div>
+                      </div>
+                      <h4 style={{ color: '#eef0f4', margin: '16px 0 8px' }}>App Settings ({appConfig.appSettings.length})</h4>
+                      {appConfig.appSettings.length > 0 ? (
+                        <div style={{ maxHeight: 200, overflow: 'auto' }}>
+                          <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+                            <thead><tr><th style={{ textAlign: 'left', padding: '4px 8px', color: '#9ca7b7', borderBottom: '1px solid #3b4350' }}>Name</th><th style={{ textAlign: 'left', padding: '4px 8px', color: '#9ca7b7', borderBottom: '1px solid #3b4350' }}>Value</th></tr></thead>
+                            <tbody>
+                              {appConfig.appSettings.map((s) => (
+                                <tr key={s.name}><td style={{ padding: '3px 8px', color: '#d0d8e2', borderBottom: '1px solid #262c35' }}>{s.name}</td><td style={{ padding: '3px 8px', color: '#9ca7b7', borderBottom: '1px solid #262c35', fontFamily: 'monospace', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.value || '-'}</td></tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : <div style={{ color: '#9ca7b7', fontSize: 12 }}>No app settings configured.</div>}
+                      <h4 style={{ color: '#eef0f4', margin: '16px 0 8px' }}>Connection Strings ({appConfig.connectionStrings.length})</h4>
+                      {appConfig.connectionStrings.length > 0 ? (
+                        <div style={{ maxHeight: 150, overflow: 'auto' }}>
+                          {appConfig.connectionStrings.map((cs) => (
+                            <div key={cs.name} style={{ display: 'flex', gap: 8, padding: '3px 0', fontSize: 11, borderBottom: '1px solid #262c35' }}>
+                              <span style={{ color: '#d0d8e2' }}>{cs.name}</span>
+                              <span style={{ color: '#9ca7b7' }}>({cs.type})</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : <div style={{ color: '#9ca7b7', fontSize: 12 }}>No connection strings configured.</div>}
+                    </>
+                  )}
+                </div>
+              )}
             </>
           ) : (
             <div className="asg-empty-state">
@@ -378,6 +512,164 @@ export function AzureAppServiceConsole({
           )}
         </section>
       </div>
+      )}
+
+      {appKind === 'functionApps' && (
+      <div className="asg-main-layout">
+        {/* ── Left sidebar: Function App list ── */}
+        <aside className="asg-groups-pane">
+          <div className="asg-pane-head">
+            <div>
+              <span className="asg-pane-kicker">Discovered apps</span>
+              <h3>Function App inventory</h3>
+            </div>
+            <span className="asg-pane-summary">{functionApps.length} total</span>
+          </div>
+          <div className="asg-group-list">
+            {functionAppsLoading && <SvcState variant="loading" message="Loading Function Apps..." />}
+            {!functionAppsLoading && functionApps.map((a) => (
+              <button
+                key={a.id}
+                type="button"
+                className={`asg-group-card ${a.id === selectedFuncAppId ? 'active' : ''}`}
+                onClick={() => { setSelectedFuncAppId(a.id); setDetailTab('info') }}
+              >
+                <div className="asg-group-card-head">
+                  <div className="asg-group-card-copy">
+                    <strong>{a.name}</strong>
+                    <span>{a.kind}</span>
+                  </div>
+                  <span className={`svc-badge ${a.state === 'Running' ? 'ok' : a.state === 'Stopped' ? 'danger' : 'warn'}`} style={{ fontSize: 10 }}>{a.state}</span>
+                </div>
+                <div className="asg-group-card-metrics">
+                  <div>
+                    <span>Plan</span>
+                    <strong>{truncate(a.appServicePlanName, 14)}</strong>
+                  </div>
+                  <div>
+                    <span>HTTPS</span>
+                    <strong>{a.httpsOnly ? 'Yes' : 'No'}</strong>
+                  </div>
+                  <div>
+                    <span>Runtime</span>
+                    <strong>{truncate(a.runtimeStack || '-', 14)}</strong>
+                  </div>
+                </div>
+              </button>
+            ))}
+            {!functionAppsLoading && !functionApps.length && <div className="svc-empty">No function apps found.</div>}
+          </div>
+        </aside>
+
+        {/* ── Right pane: Function App detail ── */}
+        <section className="asg-detail-pane">
+          {selectedFuncApp ? (
+            <>
+              {/* Detail hero */}
+              <section className="asg-detail-hero">
+                <div className="asg-detail-copy">
+                  <div className="eyebrow">Selected function app</div>
+                  <h3>{selectedFuncApp.name}</h3>
+                  <p>Overview and discovered functions for the active function app.</p>
+                  <div className="asg-meta-strip">
+                    <div className="asg-meta-pill">
+                      <span>State</span>
+                      <strong>{selectedFuncApp.state}</strong>
+                    </div>
+                    <div className="asg-meta-pill">
+                      <span>Hostname</span>
+                      <strong>{truncate(selectedFuncApp.defaultHostName, 28)}</strong>
+                    </div>
+                    <div className="asg-meta-pill">
+                      <span>Runtime</span>
+                      <strong>{selectedFuncApp.runtimeStack || '-'}</strong>
+                    </div>
+                    <div className="asg-meta-pill">
+                      <span>Plan</span>
+                      <strong>{selectedFuncApp.appServicePlanName}</strong>
+                    </div>
+                  </div>
+                </div>
+                <div className="asg-detail-glance">
+                  <div className="asg-stat-card">
+                    <span>Functions</span>
+                    <strong>{functionsLoading ? '...' : functions.length}</strong>
+                    <small>Discovered functions.</small>
+                  </div>
+                </div>
+              </section>
+
+              {/* Detail tabs */}
+              <div className="svc-tab-bar asg-tab-bar" style={{ marginBottom: 12 }}>
+                <button className={`svc-tab ${detailTab === 'info' ? 'active' : ''}`} type="button" onClick={() => setDetailTab('info')}>Overview</button>
+                <button className={`svc-tab ${detailTab === 'functions' ? 'active' : ''}`} type="button" onClick={() => setDetailTab('functions')}>Functions ({functions.length})</button>
+                <button className="svc-tab right" type="button" onClick={doRefresh}>Refresh</button>
+              </div>
+
+              {/* Overview tab */}
+              {detailTab === 'info' && (
+                <div className="asg-toolbar-grid">
+                  <section className="svc-panel asg-capacity-panel">
+                    <div className="asg-section-head">
+                      <div>
+                        <span className="asg-pane-kicker">Configuration</span>
+                        <h3>Function App settings</h3>
+                      </div>
+                    </div>
+                    <table className="svc-kv-table">
+                      <tbody>
+                        <tr><td>Name</td><td>{selectedFuncApp.name}</td></tr>
+                        <tr><td>State</td><td><span className={`svc-badge ${selectedFuncApp.state === 'Running' ? 'ok' : selectedFuncApp.state === 'Stopped' ? 'danger' : 'warn'}`}>{selectedFuncApp.state}</span></td></tr>
+                        <tr><td>Hostname</td><td><code style={{ wordBreak: 'break-all', fontSize: 11 }}>{selectedFuncApp.defaultHostName}</code></td></tr>
+                        <tr><td>Runtime</td><td>{selectedFuncApp.runtimeStack || '-'}</td></tr>
+                        <tr><td>Plan</td><td>{selectedFuncApp.appServicePlanName}</td></tr>
+                        <tr><td>HTTPS Only</td><td><span className={`svc-badge ${selectedFuncApp.httpsOnly ? 'ok' : 'danger'}`}>{selectedFuncApp.httpsOnly ? 'Yes' : 'No'}</span></td></tr>
+                        <tr><td>Enabled</td><td>{selectedFuncApp.enabled ? 'Yes' : 'No'}</td></tr>
+                        <tr><td>Resource Group</td><td>{selectedFuncApp.resourceGroup}</td></tr>
+                        <tr><td>Location</td><td>{selectedFuncApp.location}</td></tr>
+                        <tr><td>Public Access</td><td><span className={`svc-badge ${selectedFuncApp.publicNetworkAccess.toLowerCase() === 'enabled' ? 'ok' : 'warn'}`}>{selectedFuncApp.publicNetworkAccess}</span></td></tr>
+                        <tr><td>Last Modified</td><td>{formatDateTime(selectedFuncApp.lastModifiedTimeUtc)}</td></tr>
+                      </tbody>
+                    </table>
+                  </section>
+                </div>
+              )}
+
+              {/* Functions tab */}
+              {detailTab === 'functions' && (
+                <div className="svc-table-area asg-table-area">
+                  {functionsLoading && <SvcState variant="loading" message="Loading functions..." />}
+                  {!functionsLoading && (
+                    <>
+                      <table className="svc-table">
+                        <thead><tr><th>Name</th><th>Language</th><th>Disabled</th><th>Bindings</th></tr></thead>
+                        <tbody>
+                          {functions.map((f) => (
+                            <tr key={f.name}>
+                              <td><strong>{f.name}</strong></td>
+                              <td>{f.language || '-'}</td>
+                              <td><span className={`svc-badge ${f.isDisabled ? 'danger' : 'ok'}`}>{f.isDisabled ? 'Yes' : 'No'}</span></td>
+                              <td>{f.bindingCount}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {!functions.length && <div className="svc-empty">No functions discovered for this app.</div>}
+                    </>
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="asg-empty-state">
+              <div className="eyebrow">No selection</div>
+              <h3>Select a Function App</h3>
+              <p>Choose a function app from the inventory to inspect its configuration and discovered functions.</p>
+            </div>
+          )}
+        </section>
+      </div>
+      )}
     </div>
   )
 }

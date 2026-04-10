@@ -78,6 +78,31 @@ import type {
   GcpPubSubSubscriptionSummary,
   GcpPubSubTopicDetail,
   GcpPubSubSubscriptionDetail,
+  GcpCloudRunServiceSummary,
+  GcpCloudRunRevisionSummary,
+  GcpCloudRunJobSummary,
+  GcpCloudRunExecutionSummary,
+  GcpCloudRunDomainMappingSummary,
+  GcpFirebaseProjectSummary,
+  GcpFirebaseWebAppSummary,
+  GcpFirebaseAndroidAppSummary,
+  GcpFirebaseIosAppSummary,
+  GcpFirebaseHostingSiteSummary,
+  GcpFirebaseHostingReleaseSummary,
+  GcpFirebaseHostingDomainSummary,
+  GcpFirebaseHostingChannelSummary,
+  GcpDnsManagedZoneSummary,
+  GcpDnsResourceRecordSetSummary,
+  GcpDnsRecordUpsertInput,
+  GcpMemorystoreInstanceSummary,
+  GcpMemorystoreInstanceDetail,
+  GcpUrlMapSummary,
+  GcpUrlMapDetail,
+  GcpBackendServiceSummary,
+  GcpForwardingRuleSummary,
+  GcpHealthCheckSummary,
+  GcpSecurityPolicySummary,
+  GcpSecurityPolicyDetail,
   AppReleaseInfo,
   AppSecuritySummary,
   AzureAksClusterDetail,
@@ -118,6 +143,40 @@ import type {
   AzureWebAppSummary,
   AzureWebAppSlotSummary,
   AzureWebAppDeploymentSummary,
+  AzureManagedDiskSummary,
+  AzureDiskSnapshotSummary,
+  AzureVNetPeeringSummary,
+  AzureRouteTableSummary,
+  AzureNatGatewaySummary,
+  AzureLoadBalancerSummary,
+  AzureLoadBalancerDetail,
+  AzurePrivateEndpointSummary,
+  AzureFirewallSummary,
+  AzureFirewallDetail,
+  AzureStorageFileShareSummary,
+  AzureStorageQueueSummary,
+  AzureStorageTableSummary,
+  AzureMySqlEstateOverview,
+  AzureMySqlServerDetail,
+  AzureCosmosDbEstateOverview,
+  AzureCosmosDbAccountDetail,
+  AzureFunctionAppSummary,
+  AzureFunctionSummary,
+  AzureWebAppConfigSummary,
+  AzureWebAppAction,
+  AzureWebAppActionResult,
+  AzureLogAnalyticsWorkspaceSummary,
+  AzureLogAnalyticsQueryResult,
+  AzureLogAnalyticsSavedSearch,
+  AzureLogAnalyticsLinkedService,
+  AzureEventGridTopicSummary,
+  AzureEventGridSystemTopicSummary,
+  AzureEventGridEventSubscriptionSummary,
+  AzureEventGridDomainSummary,
+  AzureEventGridDomainTopicSummary,
+  AzureDnsZoneSummary,
+  AzureDnsRecordSummary,
+  AzureDnsRecordUpsertInput,
   CloudProviderId,
   CloudWatchInvestigationHistoryEntry,
   CloudWatchInvestigationHistoryInput,
@@ -705,7 +764,13 @@ const MUTATING_METHODS = new Set<keyof AwsLensBridge>([
   'runEc2BulkInstanceAction',
   'terminateEc2Instances',
   'startSsmSession',
-  'sendSsmCommand'
+  'sendSsmCommand',
+  'upsertAzureDnsRecord',
+  'deleteAzureDnsRecord',
+  'createAzureDnsZone',
+  'createGcpDnsResourceRecordSet',
+  'updateGcpDnsResourceRecordSet',
+  'deleteGcpDnsResourceRecordSet'
 ])
 
 const EXTRA_INVALIDATION_TAGS_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag[]>> = {
@@ -1681,17 +1746,17 @@ export async function queryGcpMonitoringTimeSeries(projectId: string, metricType
 }
 
 // Security Command Center
-export async function listGcpSccFindings(projectId: string, filter?: string): Promise<GcpSccFindingSummary[]> {
-  return unwrap((await rawAwsBridge().listGcpSccFindings(projectId, filter)) as Wrapped<GcpSccFindingSummary[]>)
+export async function listGcpSccFindings(projectId: string, location?: string, filter?: string): Promise<GcpSccFindingSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpSccFindings(projectId, location, filter)) as Wrapped<GcpSccFindingSummary[]>)
 }
-export async function listGcpSccSources(projectId: string): Promise<GcpSccSourceSummary[]> {
-  return unwrap((await rawAwsBridge().listGcpSccSources(projectId)) as Wrapped<GcpSccSourceSummary[]>)
+export async function listGcpSccSources(projectId: string, location?: string): Promise<GcpSccSourceSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpSccSources(projectId, location)) as Wrapped<GcpSccSourceSummary[]>)
 }
-export async function getGcpSccFindingDetail(projectId: string, findingName: string): Promise<GcpSccFindingDetail> {
-  return unwrap((await rawAwsBridge().getGcpSccFindingDetail(projectId, findingName)) as Wrapped<GcpSccFindingDetail>)
+export async function getGcpSccFindingDetail(projectId: string, findingName: string, location?: string): Promise<GcpSccFindingDetail> {
+  return unwrap((await rawAwsBridge().getGcpSccFindingDetail(projectId, findingName, location)) as Wrapped<GcpSccFindingDetail>)
 }
-export async function getGcpSccSeverityBreakdown(projectId: string): Promise<GcpSccSeverityBreakdown> {
-  return unwrap((await rawAwsBridge().getGcpSccSeverityBreakdown(projectId)) as Wrapped<GcpSccSeverityBreakdown>)
+export async function getGcpSccSeverityBreakdown(projectId: string, location?: string): Promise<GcpSccSeverityBreakdown> {
+  return unwrap((await rawAwsBridge().getGcpSccSeverityBreakdown(projectId, location)) as Wrapped<GcpSccSeverityBreakdown>)
 }
 
 // Firestore
@@ -1706,6 +1771,97 @@ export async function listGcpFirestoreDocuments(projectId: string, databaseId: s
 }
 export async function getGcpFirestoreDocumentDetail(projectId: string, databaseId: string, documentPath: string): Promise<GcpFirestoreDocumentDetail> {
   return unwrap((await rawAwsBridge().getGcpFirestoreDocumentDetail(projectId, databaseId, documentPath)) as Wrapped<GcpFirestoreDocumentDetail>)
+}
+
+// ── Cloud Run ──
+export async function listGcpCloudRunServices(projectId: string, location: string): Promise<GcpCloudRunServiceSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpCloudRunServices(projectId, location)) as Wrapped<GcpCloudRunServiceSummary[]>)
+}
+export async function listGcpCloudRunRevisions(projectId: string, location: string, serviceId: string): Promise<GcpCloudRunRevisionSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpCloudRunRevisions(projectId, location, serviceId)) as Wrapped<GcpCloudRunRevisionSummary[]>)
+}
+export async function listGcpCloudRunJobs(projectId: string, location: string): Promise<GcpCloudRunJobSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpCloudRunJobs(projectId, location)) as Wrapped<GcpCloudRunJobSummary[]>)
+}
+export async function listGcpCloudRunExecutions(projectId: string, location: string, jobId: string): Promise<GcpCloudRunExecutionSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpCloudRunExecutions(projectId, location, jobId)) as Wrapped<GcpCloudRunExecutionSummary[]>)
+}
+export async function listGcpCloudRunDomainMappings(projectId: string, location: string): Promise<GcpCloudRunDomainMappingSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpCloudRunDomainMappings(projectId, location)) as Wrapped<GcpCloudRunDomainMappingSummary[]>)
+}
+
+// ── Firebase ──
+export async function getGcpFirebaseProject(projectId: string): Promise<GcpFirebaseProjectSummary> {
+  return unwrap((await rawAwsBridge().getGcpFirebaseProject(projectId)) as Wrapped<GcpFirebaseProjectSummary>)
+}
+export async function listGcpFirebaseWebApps(projectId: string): Promise<GcpFirebaseWebAppSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpFirebaseWebApps(projectId)) as Wrapped<GcpFirebaseWebAppSummary[]>)
+}
+export async function listGcpFirebaseAndroidApps(projectId: string): Promise<GcpFirebaseAndroidAppSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpFirebaseAndroidApps(projectId)) as Wrapped<GcpFirebaseAndroidAppSummary[]>)
+}
+export async function listGcpFirebaseIosApps(projectId: string): Promise<GcpFirebaseIosAppSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpFirebaseIosApps(projectId)) as Wrapped<GcpFirebaseIosAppSummary[]>)
+}
+export async function listGcpFirebaseHostingSites(projectId: string): Promise<GcpFirebaseHostingSiteSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpFirebaseHostingSites(projectId)) as Wrapped<GcpFirebaseHostingSiteSummary[]>)
+}
+export async function listGcpFirebaseHostingReleases(projectId: string, siteId: string): Promise<GcpFirebaseHostingReleaseSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpFirebaseHostingReleases(projectId, siteId)) as Wrapped<GcpFirebaseHostingReleaseSummary[]>)
+}
+export async function listGcpFirebaseHostingDomains(projectId: string, siteId: string): Promise<GcpFirebaseHostingDomainSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpFirebaseHostingDomains(projectId, siteId)) as Wrapped<GcpFirebaseHostingDomainSummary[]>)
+}
+export async function listGcpFirebaseHostingChannels(projectId: string, siteId: string): Promise<GcpFirebaseHostingChannelSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpFirebaseHostingChannels(projectId, siteId)) as Wrapped<GcpFirebaseHostingChannelSummary[]>)
+}
+
+/* ── Cloud DNS ── */
+export async function listGcpDnsManagedZones(projectId: string): Promise<GcpDnsManagedZoneSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpDnsManagedZones(projectId)) as Wrapped<GcpDnsManagedZoneSummary[]>)
+}
+export async function listGcpDnsResourceRecordSets(projectId: string, managedZone: string): Promise<GcpDnsResourceRecordSetSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpDnsResourceRecordSets(projectId, managedZone)) as Wrapped<GcpDnsResourceRecordSetSummary[]>)
+}
+export async function createGcpDnsResourceRecordSet(projectId: string, managedZone: string, input: GcpDnsRecordUpsertInput): Promise<void> {
+  return unwrap((await rawAwsBridge().createGcpDnsResourceRecordSet(projectId, managedZone, input)) as Wrapped<void>)
+}
+export async function updateGcpDnsResourceRecordSet(projectId: string, managedZone: string, input: GcpDnsRecordUpsertInput): Promise<void> {
+  return unwrap((await rawAwsBridge().updateGcpDnsResourceRecordSet(projectId, managedZone, input)) as Wrapped<void>)
+}
+export async function deleteGcpDnsResourceRecordSet(projectId: string, managedZone: string, name: string, type: string): Promise<void> {
+  return unwrap((await rawAwsBridge().deleteGcpDnsResourceRecordSet(projectId, managedZone, name, type)) as Wrapped<void>)
+}
+
+// Memorystore (Redis)
+export async function listGcpMemorystoreInstances(projectId: string, location: string): Promise<GcpMemorystoreInstanceSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpMemorystoreInstances(projectId, location)) as Wrapped<GcpMemorystoreInstanceSummary[]>)
+}
+export async function getGcpMemorystoreInstanceDetail(projectId: string, instanceName: string): Promise<GcpMemorystoreInstanceDetail> {
+  return unwrap((await rawAwsBridge().getGcpMemorystoreInstanceDetail(projectId, instanceName)) as Wrapped<GcpMemorystoreInstanceDetail>)
+}
+
+// Load Balancer + Cloud Armor
+export async function listGcpUrlMaps(projectId: string): Promise<GcpUrlMapSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpUrlMaps(projectId)) as Wrapped<GcpUrlMapSummary[]>)
+}
+export async function getGcpUrlMapDetail(projectId: string, urlMapName: string, region?: string): Promise<GcpUrlMapDetail> {
+  return unwrap((await rawAwsBridge().getGcpUrlMapDetail(projectId, urlMapName, region)) as Wrapped<GcpUrlMapDetail>)
+}
+export async function listGcpBackendServices(projectId: string): Promise<GcpBackendServiceSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpBackendServices(projectId)) as Wrapped<GcpBackendServiceSummary[]>)
+}
+export async function listGcpForwardingRules(projectId: string): Promise<GcpForwardingRuleSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpForwardingRules(projectId)) as Wrapped<GcpForwardingRuleSummary[]>)
+}
+export async function listGcpHealthChecks(projectId: string): Promise<GcpHealthCheckSummary[]> {
+  return unwrap((await rawAwsBridge().listGcpHealthChecks(projectId)) as Wrapped<GcpHealthCheckSummary[]>)
+}
+export async function listGcpSecurityPolicies(projectId: string): Promise<GcpSecurityPolicySummary[]> {
+  return unwrap((await rawAwsBridge().listGcpSecurityPolicies(projectId)) as Wrapped<GcpSecurityPolicySummary[]>)
+}
+export async function getGcpSecurityPolicyDetail(projectId: string, policyName: string): Promise<GcpSecurityPolicyDetail> {
+  return unwrap((await rawAwsBridge().getGcpSecurityPolicyDetail(projectId, policyName)) as Wrapped<GcpSecurityPolicyDetail>)
 }
 
 export async function listAzureSubscriptions(): Promise<AzureSubscriptionSummary[]> {
@@ -1936,6 +2092,160 @@ export async function listAzureWebAppSlots(subscriptionId: string, resourceGroup
 
 export async function listAzureWebAppDeployments(subscriptionId: string, resourceGroup: string, siteName: string): Promise<AzureWebAppDeploymentSummary[]> {
   return unwrap((await rawAwsBridge().listAzureWebAppDeployments(subscriptionId, resourceGroup, siteName)) as Wrapped<AzureWebAppDeploymentSummary[]>)
+}
+
+/* ── Managed Disks ── */
+
+export async function listAzureManagedDisks(subscriptionId: string, location: string): Promise<AzureManagedDiskSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureManagedDisks(subscriptionId, location)) as Wrapped<AzureManagedDiskSummary[]>)
+}
+
+export async function listAzureDiskSnapshots(subscriptionId: string, location: string): Promise<AzureDiskSnapshotSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureDiskSnapshots(subscriptionId, location)) as Wrapped<AzureDiskSnapshotSummary[]>)
+}
+
+/* ── Network Enrichment ── */
+
+export async function listAzureVNetPeerings(subscriptionId: string, resourceGroup: string, vnetName: string): Promise<AzureVNetPeeringSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureVNetPeerings(subscriptionId, resourceGroup, vnetName)) as Wrapped<AzureVNetPeeringSummary[]>)
+}
+
+export async function listAzureRouteTables(subscriptionId: string, location: string): Promise<AzureRouteTableSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureRouteTables(subscriptionId, location)) as Wrapped<AzureRouteTableSummary[]>)
+}
+
+export async function listAzureNatGateways(subscriptionId: string, location: string): Promise<AzureNatGatewaySummary[]> {
+  return unwrap((await rawAwsBridge().listAzureNatGateways(subscriptionId, location)) as Wrapped<AzureNatGatewaySummary[]>)
+}
+
+export async function listAzureLoadBalancers(subscriptionId: string, location: string): Promise<AzureLoadBalancerSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureLoadBalancers(subscriptionId, location)) as Wrapped<AzureLoadBalancerSummary[]>)
+}
+
+export async function listAzurePrivateEndpoints(subscriptionId: string, location: string): Promise<AzurePrivateEndpointSummary[]> {
+  return unwrap((await rawAwsBridge().listAzurePrivateEndpoints(subscriptionId, location)) as Wrapped<AzurePrivateEndpointSummary[]>)
+}
+
+/* ── Azure Firewall ── */
+export async function listAzureFirewalls(subscriptionId: string, location: string): Promise<AzureFirewallSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureFirewalls(subscriptionId, location)) as Wrapped<AzureFirewallSummary[]>)
+}
+export async function describeAzureFirewall(subscriptionId: string, resourceGroup: string, firewallName: string): Promise<AzureFirewallDetail> {
+  return unwrap((await rawAwsBridge().describeAzureFirewall(subscriptionId, resourceGroup, firewallName)) as Wrapped<AzureFirewallDetail>)
+}
+
+/* ── Azure Load Balancers (detail) ── */
+export async function describeAzureLoadBalancer(subscriptionId: string, resourceGroup: string, lbName: string): Promise<AzureLoadBalancerDetail> {
+  return unwrap((await rawAwsBridge().describeAzureLoadBalancer(subscriptionId, resourceGroup, lbName)) as Wrapped<AzureLoadBalancerDetail>)
+}
+
+/* ── Azure DNS ── */
+export async function listAzureDnsZones(subscriptionId: string, location: string): Promise<AzureDnsZoneSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureDnsZones(subscriptionId, location)) as Wrapped<AzureDnsZoneSummary[]>)
+}
+export async function listAzureDnsRecordSets(subscriptionId: string, resourceGroup: string, zoneName: string): Promise<AzureDnsRecordSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureDnsRecordSets(subscriptionId, resourceGroup, zoneName)) as Wrapped<AzureDnsRecordSummary[]>)
+}
+export async function upsertAzureDnsRecord(subscriptionId: string, resourceGroup: string, zoneName: string, input: AzureDnsRecordUpsertInput): Promise<void> {
+  return unwrap((await rawAwsBridge().upsertAzureDnsRecord(subscriptionId, resourceGroup, zoneName, input)) as Wrapped<void>)
+}
+export async function deleteAzureDnsRecord(subscriptionId: string, resourceGroup: string, zoneName: string, recordType: string, recordName: string): Promise<void> {
+  return unwrap((await rawAwsBridge().deleteAzureDnsRecord(subscriptionId, resourceGroup, zoneName, recordType, recordName)) as Wrapped<void>)
+}
+export async function createAzureDnsZone(subscriptionId: string, resourceGroup: string, zoneName: string, zoneType: 'Public' | 'Private'): Promise<AzureDnsZoneSummary> {
+  return unwrap((await rawAwsBridge().createAzureDnsZone(subscriptionId, resourceGroup, zoneName, zoneType)) as Wrapped<AzureDnsZoneSummary>)
+}
+
+/* ── Storage Enrichment ── */
+
+export async function listAzureStorageFileShares(subscriptionId: string, resourceGroup: string, accountName: string): Promise<AzureStorageFileShareSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureStorageFileShares(subscriptionId, resourceGroup, accountName)) as Wrapped<AzureStorageFileShareSummary[]>)
+}
+
+export async function listAzureStorageQueues(subscriptionId: string, resourceGroup: string, accountName: string): Promise<AzureStorageQueueSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureStorageQueues(subscriptionId, resourceGroup, accountName)) as Wrapped<AzureStorageQueueSummary[]>)
+}
+
+export async function listAzureStorageTables(subscriptionId: string, resourceGroup: string, accountName: string): Promise<AzureStorageTableSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureStorageTables(subscriptionId, resourceGroup, accountName)) as Wrapped<AzureStorageTableSummary[]>)
+}
+
+/* ── MySQL ── */
+
+export async function getAzureMySqlEstate(subscriptionId: string, location: string): Promise<AzureMySqlEstateOverview> {
+  return unwrap((await rawAwsBridge().getAzureMySqlEstate(subscriptionId, location)) as Wrapped<AzureMySqlEstateOverview>)
+}
+
+export async function describeAzureMySqlServer(subscriptionId: string, resourceGroup: string, serverName: string): Promise<AzureMySqlServerDetail> {
+  return unwrap((await rawAwsBridge().describeAzureMySqlServer(subscriptionId, resourceGroup, serverName)) as Wrapped<AzureMySqlServerDetail>)
+}
+
+/* ── Cosmos DB ── */
+
+export async function getAzureCosmosDbEstate(subscriptionId: string, location: string): Promise<AzureCosmosDbEstateOverview> {
+  return unwrap((await rawAwsBridge().getAzureCosmosDbEstate(subscriptionId, location)) as Wrapped<AzureCosmosDbEstateOverview>)
+}
+
+export async function describeAzureCosmosDbAccount(subscriptionId: string, resourceGroup: string, accountName: string): Promise<AzureCosmosDbAccountDetail> {
+  return unwrap((await rawAwsBridge().describeAzureCosmosDbAccount(subscriptionId, resourceGroup, accountName)) as Wrapped<AzureCosmosDbAccountDetail>)
+}
+
+/* ── App Service / Functions Enrichment ── */
+
+export async function listAzureFunctionApps(subscriptionId: string, location: string): Promise<AzureFunctionAppSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureFunctionApps(subscriptionId, location)) as Wrapped<AzureFunctionAppSummary[]>)
+}
+
+export async function listAzureFunctions(subscriptionId: string, resourceGroup: string, siteName: string): Promise<AzureFunctionSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureFunctions(subscriptionId, resourceGroup, siteName)) as Wrapped<AzureFunctionSummary[]>)
+}
+
+export async function getAzureWebAppConfiguration(subscriptionId: string, resourceGroup: string, siteName: string): Promise<AzureWebAppConfigSummary> {
+  return unwrap((await rawAwsBridge().getAzureWebAppConfiguration(subscriptionId, resourceGroup, siteName)) as Wrapped<AzureWebAppConfigSummary>)
+}
+
+export async function runAzureWebAppAction(subscriptionId: string, resourceGroup: string, siteName: string, action: AzureWebAppAction): Promise<AzureWebAppActionResult> {
+  return unwrap((await rawAwsBridge().runAzureWebAppAction(subscriptionId, resourceGroup, siteName, action)) as Wrapped<AzureWebAppActionResult>)
+}
+
+/* ── Log Analytics ── */
+
+export async function listAzureLogAnalyticsWorkspaces(subscriptionId: string, location: string): Promise<AzureLogAnalyticsWorkspaceSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureLogAnalyticsWorkspaces(subscriptionId, location)) as Wrapped<AzureLogAnalyticsWorkspaceSummary[]>)
+}
+
+export async function queryAzureLogAnalytics(workspaceId: string, query: string, timespan?: string): Promise<AzureLogAnalyticsQueryResult> {
+  return unwrap((await rawAwsBridge().queryAzureLogAnalytics(workspaceId, query, timespan)) as Wrapped<AzureLogAnalyticsQueryResult>)
+}
+
+export async function listAzureLogAnalyticsSavedSearches(subscriptionId: string, resourceGroup: string, workspaceName: string): Promise<AzureLogAnalyticsSavedSearch[]> {
+  return unwrap((await rawAwsBridge().listAzureLogAnalyticsSavedSearches(subscriptionId, resourceGroup, workspaceName)) as Wrapped<AzureLogAnalyticsSavedSearch[]>)
+}
+
+export async function listAzureLogAnalyticsLinkedServices(subscriptionId: string, resourceGroup: string, workspaceName: string): Promise<AzureLogAnalyticsLinkedService[]> {
+  return unwrap((await rawAwsBridge().listAzureLogAnalyticsLinkedServices(subscriptionId, resourceGroup, workspaceName)) as Wrapped<AzureLogAnalyticsLinkedService[]>)
+}
+
+/* ── Event Grid ── */
+
+export async function listAzureEventGridTopics(subscriptionId: string, location: string): Promise<AzureEventGridTopicSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureEventGridTopics(subscriptionId, location)) as Wrapped<AzureEventGridTopicSummary[]>)
+}
+
+export async function listAzureEventGridSystemTopics(subscriptionId: string, location: string): Promise<AzureEventGridSystemTopicSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureEventGridSystemTopics(subscriptionId, location)) as Wrapped<AzureEventGridSystemTopicSummary[]>)
+}
+
+export async function listAzureEventGridEventSubscriptions(subscriptionId: string): Promise<AzureEventGridEventSubscriptionSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureEventGridEventSubscriptions(subscriptionId)) as Wrapped<AzureEventGridEventSubscriptionSummary[]>)
+}
+
+export async function listAzureEventGridDomains(subscriptionId: string, location: string): Promise<AzureEventGridDomainSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureEventGridDomains(subscriptionId, location)) as Wrapped<AzureEventGridDomainSummary[]>)
+}
+
+export async function listAzureEventGridDomainTopics(subscriptionId: string, resourceGroup: string, domainName: string): Promise<AzureEventGridDomainTopicSummary[]> {
+  return unwrap((await rawAwsBridge().listAzureEventGridDomainTopics(subscriptionId, resourceGroup, domainName)) as Wrapped<AzureEventGridDomainTopicSummary[]>)
 }
 
 export async function checkForAppUpdates(): Promise<AppReleaseInfo> {

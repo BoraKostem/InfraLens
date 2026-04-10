@@ -444,8 +444,11 @@
 }
 
 .cw-table thead {
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(18, 26, 40, 0.98);
   border-bottom: 1px solid rgba(145, 176, 207, 0.08);
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .cw-table th {
@@ -1206,4 +1209,26 @@
   background:
     radial-gradient(circle at top right, rgba(56, 142, 224, 0.14), transparent 60%),
     linear-gradient(180deg, rgba(24, 36, 56, 0.98), rgba(16, 26, 42, 0.98));
+}
+
+/* ── Log Summary Modal ─────────────────────────────── */
+
+.cw-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+}
+
+.cw-modal-content {
+  background: linear-gradient(180deg, rgba(24, 34, 50, 0.98), rgba(16, 24, 38, 0.98));
+  border: 1px solid rgba(145, 176, 207, 0.14);
+  border-radius: 16px;
+  padding: 20px 24px;
+  width: 90vw;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
 }
