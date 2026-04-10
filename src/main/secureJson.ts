@@ -53,10 +53,16 @@ export function readSecureJsonFile<T>(filePath: string, options: ReadOptions<T>)
 
     logWarn(
       'secureJson.plaintext-fallback',
-      `${options.fileLabel} is stored as plaintext instead of encrypted. It may have been tampered with.`,
+      `${options.fileLabel} is stored as plaintext instead of encrypted — migrating to encrypted storage.`,
       { filePath }
     )
-    return JSON.parse(raw) as T
+    const parsed = JSON.parse(raw) as T
+    try {
+      writeSecureJsonFile(filePath, parsed, options.fileLabel)
+    } catch {
+      /* migration is best-effort — encrypted write may fail if safeStorage is unavailable */
+    }
+    return parsed
   } catch {
     return options.fallback
   }
