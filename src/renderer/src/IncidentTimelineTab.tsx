@@ -465,7 +465,9 @@ export function IncidentTimelineTab({
         try {
           const nextDrift = await getDrift(connection.profile, nextProject.id, connection, { forceRefresh: false })
           if (!cancelled) setLinkedDriftReport(nextDrift)
-        } catch {}
+        } catch (driftError) {
+          console.warn('Failed to load drift report for incident timeline:', driftError)
+        }
       } catch (error) {
         if (!cancelled) setTerraformContextMessage(error instanceof Error ? error.message : String(error))
       }
