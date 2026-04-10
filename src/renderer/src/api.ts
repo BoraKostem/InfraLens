@@ -221,6 +221,7 @@ import type {
   EnterpriseAuditEvent,
   EnterpriseAuditExportResult,
   EnterpriseSettings,
+  ProviderCliStatus,
   ProviderDescriptor,
   ServiceDescriptor,
   WorkspaceCatalog,
@@ -1238,6 +1239,10 @@ export async function getAssumedSessionCredentials(sessionId: string): Promise<{
 
 export async function listProviders(): Promise<ProviderDescriptor[]> {
   return unwrap((await awsBridge().listProviders()) as Wrapped<ProviderDescriptor[]>)
+}
+
+export async function getProviderCliStatus(): Promise<ProviderCliStatus> {
+  return unwrap((await rawAwsBridge().getProviderCliStatus()) as Wrapped<ProviderCliStatus>)
 }
 
 export async function getWorkspaceCatalog(providerId?: CloudProviderId): Promise<WorkspaceCatalog> {

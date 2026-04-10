@@ -139,6 +139,15 @@ export type ProviderDescriptor = {
   connectionLabel: string
 }
 
+export type ProviderCliStatusEntry = {
+  installed: boolean
+  cliName: string
+  version: string
+  path: string
+}
+
+export type ProviderCliStatus = Record<CloudProviderId, ProviderCliStatusEntry>
+
 export type ProviderProfileDescriptor = {
   providerId: CloudProviderId
   id: string
@@ -517,6 +526,18 @@ export type AppFeatureFlagId =
   | 'service.sns'
   | 'service.sqs'
   | 'service.waf'
+  | 'service.gcp-iam'
+  | 'service.gcp-pubsub'
+  | 'service.gcp-scc'
+  | 'service.gcp-cloud-dns'
+  | 'service.gcp-memorystore'
+  | 'service.gcp-firebase'
+  | 'service.azure-rbac'
+  | 'service.azure-key-vault'
+  | 'service.azure-event-hub'
+  | 'service.azure-event-grid'
+  | 'service.azure-firewall'
+  | 'service.azure-dns'
 
 export type AppSettingsFeatures = {
   registry: Partial<Record<AppFeatureFlagId, boolean>>

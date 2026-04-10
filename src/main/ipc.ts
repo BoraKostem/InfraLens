@@ -21,7 +21,7 @@ import { importAwsConfigFile } from './aws/profiles'
 import { getVisibleServiceCatalog, getVisibleWorkspaceCatalog } from './catalog'
 import { exportDiagnosticsBundle } from './diagnostics'
 import { recordDiagnosticsFailure, updateDiagnosticsActiveContext } from './diagnosticsState'
-import { getEnvironmentHealthReport } from './environment'
+import { detectProviderCliStatus, getEnvironmentHealthReport } from './environment'
 import { exportEnterpriseAuditEvents, getEnterpriseSettings, listEnterpriseAuditEvents, setEnterpriseAccessMode } from './enterprise'
 import {
   getGcpCliContext,
@@ -87,6 +87,7 @@ function loadAzureSdk(): Promise<AzureSdkModule> {
 
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('providers:list', async () => wrap(() => listProviders()))
+  ipcMain.handle('providers:cli-status', async () => wrap(() => detectProviderCliStatus()))
   ipcMain.handle('workspace-catalog:get', async (_event, providerId?: CloudProviderId) =>
     wrap(() => getVisibleWorkspaceCatalog(providerId ?? 'aws', getAppSettings().features))
   )

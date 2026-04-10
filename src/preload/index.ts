@@ -77,6 +77,7 @@ const awsLensApi = {
   assumeSavedRoleTarget: (targetId: string) => ipcRenderer.invoke('session-hub:assume-target', targetId),
   getAssumedSessionCredentials: (sessionId: string) => ipcRenderer.invoke('aws:sts:get-session-credentials', sessionId),
   listProviders: () => ipcRenderer.invoke('providers:list'),
+  getProviderCliStatus: () => ipcRenderer.invoke('providers:cli-status'),
   getWorkspaceCatalog: (providerId?: CloudProviderId) => ipcRenderer.invoke('workspace-catalog:get', providerId),
   listServices: (providerId?: CloudProviderId) => ipcRenderer.invoke('services:list', providerId),
   getGovernanceTagDefaults: () => ipcRenderer.invoke('phase1:get-governance-tag-defaults'),

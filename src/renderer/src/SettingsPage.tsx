@@ -626,7 +626,7 @@ export function SettingsPage({
     return (
       <>
         <SettingSection title="Default Tags">
-          <SettingRow label="Apply defaults automatically" description="When enabled, the shell applies the saved Owner, Environment, Project, and CostCenter tags to supported EC2 workflows it creates.">
+          <SettingRow label="Apply defaults automatically" description="When enabled, the shell applies the saved Owner, Environment, Project, and CostCenter tags to supported resource workflows it creates.">
             <label className="settings-toggle">
               <input
                 type="checkbox"
@@ -687,7 +687,7 @@ export function SettingsPage({
         </SettingSection>
 
         <SettingSection title="Current Coverage">
-          <SettingRow label="Configured values" description="Only non-empty values are applied to new supported resources and the EC2 apply-defaults shortcuts.">
+          <SettingRow label="Configured values" description="Only non-empty values are applied to new supported resources and the apply-defaults shortcuts.">
             <div className="settings-static-value">
               {configuredValues.length > 0
                 ? configuredValues.map(([key, value]) => `${key}=${value}`).join(' | ')
@@ -1138,7 +1138,7 @@ export function SettingsPage({
               {activeTab === 'general' && <p>Set the default profile, region, and launch screen when you want the shell to boot into a predictable operator context.</p>}
               {activeTab === 'terminal' && <p>Terminal preferences control how the embedded shell opens after a session becomes active. Operator mode is still required for command execution.</p>}
               {activeTab === 'refresh' && <p>Use refresh policy to decide whether heavy screens re-query automatically or only on demand. Conservative defaults reduce surprise provider API traffic.</p>}
-              {activeTab === 'governance' && <p>Governance defaults define reusable ownership tags that the shell can inherit into supported EC2 workflows and reapply from resource consoles.</p>}
+              {activeTab === 'governance' && <p>Governance defaults define reusable ownership tags that the shell can inherit into supported resource workflows and reapply from resource consoles across all providers.</p>}
               {activeTab === 'toolchain' && <p>Toolchain settings define which local CLI the shell should prefer and let you override Terraform, AWS, Google Cloud, and Azure executable paths when workstation PATH state is inconsistent.</p>}
               {activeTab === 'updates' && <p>Update preferences let you pin stable versus preview behavior, check release state manually, and decide whether packages download automatically.</p>}
               {activeTab === 'security' && <p>Security is the operational control plane for workspace mode, vault inventory, secret handling, audit export, diagnostics export, and active session review.</p>}

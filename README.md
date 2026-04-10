@@ -1,62 +1,88 @@
 # InfraLens
 
-InfraLens is an Electron desktop app for cloud operators who want the provider console view, Terraform context, and a working terminal in the same place. The codebase already uses the `InfraLens` brand, while some repository, package, and installer metadata still carry `InfraLens` or `aws-lens` during the rename migration.
+![InfraLens overview](images/overview-aws.png)
 
-![InfraLens overview](images/overview.png)
+InfraLens is a desktop app for cloud teams who are tired of splitting the same job across cloud consoles, Terraform files, and terminal tabs. It gives you one place to inspect infrastructure, understand context, compare environments, and take the next step without constantly rebuilding your mental model.
 
-## What The App Covers
+## The Problem It Solves
 
-The current product is centered on AWS, with GCP now wired into the same navigation and terminal model as an active preview surface. Azure groundwork exists in the repository, especially around provider abstractions and terminal handoff, but it is not a production-ready UI surface yet.
+Managing infrastructure usually means jumping between too many surfaces.
 
-Most of the day-to-day flow starts in a small set of shared workspaces rather than a single provider page. `Overview`, `Session Hub`, `Terraform`, `Compare`, and `Compliance Center` sit above the individual service consoles so you can keep context while moving between inspection, shell work, and infrastructure changes.
+- You open a cloud console to inspect a resource.
+- You switch to Terraform to check whether it is managed.
+- You open a terminal to run the next command.
+- You lose account, region, project, or subscription context along the way.
+
+InfraLens is built for that gap. It is not just another console clone and it is not just a Terraform wrapper. It is the layer in between, where operators actually spend time figuring out what exists, what changed, what is risky, and what to do next.
 
 ![Session Hub](images/session-hub.png)
 
-## What It Is Good At
+## What InfraLens Feels Like
 
-The app is strongest when the job is not purely “click around a console” and not purely “stay in Terraform.” It is built for the in-between work: inspect a resource, check whether Terraform owns it, keep the same session and region, run the next command, and avoid rebuilding context each time.
+InfraLens keeps the operational flow in one place.
 
-On the AWS side, the repository already contains dedicated consoles for EC2, CloudWatch, CloudTrail, S3, Lambda, RDS, CloudFormation, ECR, EKS, ECS, VPC, Route 53, IAM, Identity Center, Secrets Manager, KMS, SNS, SQS, WAF, STS, key pairs, and related shared workflows. The same shell also includes local encrypted storage for app-managed credentials, session state, comparison baselines, and Terraform metadata, along with `operator` and `read-only` runtime modes.
+- Start from a high-level overview instead of a blank terminal.
+- Move from shared workspaces into provider-specific services without losing context.
+- Compare environments side by side when something looks off.
+- Keep Terraform close to the live resource view instead of treating it as a separate world.
+- Use the built-in terminal with the active provider context already in place.
 
-![EC2 console](images/ec2.png)
+That makes it easier to investigate incidents, review posture, trace drift, and work across multiple cloud environments without the usual tab sprawl.
 
-![S3 console](images/s3.png)
+## Who It Is For
 
-## Terraform In The Loop
+InfraLens is aimed at:
 
-Terraform is treated as a first-class operational surface, not an external tool that happens to live next to the app. The Electron main process handles project registration, workspace switching, plan and apply orchestration, drift inspection, governance checks, adoption/import flows, and state-related metadata. The code also supports choosing Terraform or OpenTofu and storing local tool path overrides in app settings.
+- platform engineers
+- cloud operators
+- DevOps and SRE teams
+- people who work across AWS, Google Cloud, Azure, and Terraform in the same day
+
+If your work is mostly "find the resource, understand the state, verify the IaC story, then act," this is the workflow the app is trying to improve.
 
 ![Terraform workspace](images/terraform-main.png)
 
-![Terraform visualization](images/terraform-visualization.png)
+## What You Can Do With It
 
-## Security And Operations
+- Explore cloud resources through provider-aware workspaces instead of starting from raw CLI output.
+- Keep shared surfaces like Overview, Session Hub, Compare, and Compliance Center above individual service pages.
+- Work across AWS, Google Cloud, and Azure in the same product.
+- Bring Terraform and OpenTofu into the same operating flow as console inspection.
+- Use local toolchain and provider context without stitching everything together manually.
 
-The app keeps privileged behavior on the Electron main-process side and exposes renderer functionality through the preload bridge. App-created credentials are stored in the local encrypted vault instead of being written back into provider credential files, assumed-role session material stays scoped to the app flow, and critical actions can be blocked entirely when the runtime is set to `read-only`.
+AWS currently has the deepest service coverage in the repository. Google Cloud and Azure are also part of the current product direction, with dedicated workspaces and provider-aware flows already in place.
 
-The compliance and diagnostics surfaces are part of that same operational model. Alongside the service consoles, the repository includes audit export, diagnostics bundles, update checks, and environment/toolchain detection for local operator workflows.
+![Google Cloud workflow](images/compliance-center-gcp.png)
 
-![Compliance Center](images/complience-center.png)
+![Azure Terraform workflow](images/terraform-azure.png)
 
-## Running It Locally
+## Why Multi-Cloud Matters Here
 
-This repository uses `pnpm`. The release workflow in `.github/workflows/release.yml` builds with Node.js `22` and `pnpm` `10`, so that is the safest local baseline if you want parity with CI packaging.
+InfraLens is not trying to flatten every provider into the same generic UI. The point is to keep a consistent operating model while still respecting provider-specific context.
+
+You should be able to move between:
+
+- AWS accounts and regions
+- Google Cloud projects and locations
+- Azure subscriptions and tenants
+- Terraform workspaces and plans
+
+without feeling like you are switching products every few minutes.
+
+## For Contributors
+
+This repository uses `pnpm` and the current release workflow targets Node.js `22` with `pnpm` `10`.
 
 ```powershell
 pnpm install
 pnpm dev
 ```
 
-For normal development, the main verification commands are `pnpm typecheck` and `pnpm build`. Packaged builds are produced with `pnpm dist`, or with the platform-specific variants `pnpm dist:win`, `pnpm dist:mac`, and `pnpm dist:linux`.
+Useful verification commands:
 
-The optional local tooling depends on which workflows you actually use. Terraform or OpenTofu matters for infrastructure workspaces, local AWS credentials matter for AWS flows, `gcloud` plus ADC matters for GCP flows, and tools such as `kubectl` and `docker` become useful once you lean on cluster and runtime helper flows.
+```powershell
+pnpm typecheck
+pnpm build
+```
 
-## Project Shape
-
-The repository is split along standard Electron boundaries. `src/main/` contains the privileged process code, IPC handlers, provider integrations, Terraform orchestration, diagnostics, release checks, and local persistence. `src/preload/` exposes the secure bridge with `contextBridge`. `src/renderer/src/` contains the React UI for the shared workspaces, AWS consoles, and current GCP pages. Shared branding, feature flags, provider descriptors, and contracts live in `src/shared/`, while packaging assets live in `assets/` and longer workflow notes live in `docs/`.
-
-There is no dedicated automated test suite in the repository yet. The current contributor guidance in `CONTRIBUTING.md` expects local verification with `pnpm typecheck`, `pnpm build` when relevant, and manual validation in `pnpm dev`.
-
-## Further Reading
-
-The `docs/` directory covers the operating model in more detail, especially around [AWS usage and security](docs/infra-lens-usage.md), [Session Hub](docs/session-hub-usage.md), [Terraform workspace management](docs/terraform-workspace-management.md), [Terraform drift reconciliation](docs/terraform-drift-reconciliation.md), [Terraform state operations center](docs/terraform-state-operations-center.md), and the [observability and resilience lab](docs/observability-and-resilience-lab.md).
+Contributor guidance lives in [CONTRIBUTING.md](CONTRIBUTING.md). Deeper workflow notes live in [docs/](docs/).

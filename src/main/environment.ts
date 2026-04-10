@@ -8,7 +8,8 @@ import type {
   EnvironmentHealthReport,
   EnvironmentPermissionCheck,
   EnvironmentToolCheck,
-  EnvironmentToolId
+  EnvironmentToolId,
+  ProviderCliStatus
 } from '@shared/types'
 import { getResolvedProcessEnv, listSessionManagerPluginCommandCandidates, resolveExecutablePath } from './shell'
 import { detectTerraformCli } from './terraform'
@@ -468,4 +469,30 @@ export async function getEnvironmentHealthReport(): Promise<EnvironmentHealthRep
     tools,
     permissions
   }
+}
+
+const PROVIDER_CLI_SPECS: { providerId: 'aws' | 'gcp' | 'azure'; spec: ToolProbeSpec }[] = [
+  { providerId: 'aws', spec: TOOL_SPECS.find((s) => s.id === 'aws-cli')! },
+  { providerId: 'gcp', spec: TOOL_SPECS.find((s) => s.id === 'gcloud-cli')! },
+  { providerId: 'azure', spec: TOOL_SPECS.find((s) => s.id === 'azure-cli')! }
+]
+
+export async function detectProviderCliStatus(): Promise<ProviderCliStatus> {
+  const resolvedEnv = await getResolvedProcessEnv({ fresh: true })
+  const results = await Promise.all(
+    PROVIDER_CLI_SPECS.map(async ({ providerId, spec }) => {
+      const check = await detectTool(spec, resolvedEnv)
+      return {
+        providerId,
+        installed: check.found,
+        cliName: spec.label,
+        version: check.version,
+        path: check.path
+      }
+    })
+  )
+
+  return Object.fromEntries(
+    results.map(({ providerId, ...entry }) => [providerId, entry])
+  ) as ProviderCliStatus
 }

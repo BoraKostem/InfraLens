@@ -28,19 +28,23 @@ export function AzureFoundationPanel({
   snapshot,
   busy,
   searchQuery,
+  pinnedSubscriptionIds,
   onRefresh,
   onSignIn,
   onSignOut,
   onSelectSubscription,
+  onTogglePinSubscription,
   onOpenVerification
 }: {
   snapshot: AzureProviderContextSnapshot | null
   busy: boolean
   searchQuery: string
+  pinnedSubscriptionIds: string[]
   onRefresh: () => void
   onSignIn: () => void
   onSignOut: () => void
   onSelectSubscription: (subscriptionId: string) => void
+  onTogglePinSubscription: (subscriptionId: string) => void
   onOpenVerification: (url: string) => void
 }): JSX.Element {
   const auth = snapshot?.auth
@@ -137,12 +141,16 @@ export function AzureFoundationPanel({
                   <span>{selectedSubscriptionId === subscription.subscriptionId ? 'Active context' : 'Available'}</span>
                   <div className="enterprise-card-status">
                     {recentSubscriptionIds.has(subscription.subscriptionId) ? <strong>Recent</strong> : null}
+                    {pinnedSubscriptionIds.includes(subscription.subscriptionId) && <strong>Pinned</strong>}
                     <span className="enterprise-mode-pill read-only">{subscription.state || 'Unknown'}</span>
                   </div>
                 </div>
                 <div className="button-row profile-catalog-actions">
                   <button type="button" className="accent" onClick={() => onSelectSubscription(subscription.subscriptionId)}>
                     {selectedSubscriptionId === subscription.subscriptionId ? 'Selected' : 'Select'}
+                  </button>
+                  <button type="button" className={pinnedSubscriptionIds.includes(subscription.subscriptionId) ? 'active' : ''} onClick={() => onTogglePinSubscription(subscription.subscriptionId)}>
+                    {pinnedSubscriptionIds.includes(subscription.subscriptionId) ? 'Unpin' : 'Pin'}
                   </button>
                 </div>
               </div>

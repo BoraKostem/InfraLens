@@ -8420,21 +8420,6 @@ textarea {
   flex: 1;
 }
 
-.service-nav-provider-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 20px;
-  padding: 0.12rem 0.42rem;
-  border-radius: 999px;
-  border: 1px solid var(--provider-accent-border);
-  background: var(--provider-accent-soft);
-  color: var(--provider-accent-text);
-  font-size: 0.62rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  flex-shrink: 0;
-}
 
 .service-nav-header h1 {
   font-size: 0.94rem;
@@ -8850,6 +8835,18 @@ textarea {
 .provider-selector-card.active {
   border-color: var(--provider-card-border-strong);
   box-shadow: inset 0 0 0 1px var(--provider-card-accent);
+}
+
+.provider-selector-card-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+  cursor: not-allowed;
+  filter: grayscale(0.6);
+  transform: none !important;
+}
+
+.provider-selector-card-disabled .provider-selector-card-header small {
+  color: #c07a5a;
 }
 
 .provider-selector-card-header {

@@ -97,6 +97,15 @@ setInterval(() => {
   }
 }, CLIENT_TTL_MS).unref()
 
+function evictPooledClientsForProfile(profile: string): void {
+  const needle = `\x00${encodeURIComponent(profile)}\x00`
+  for (const key of clientPool.keys()) {
+    if (key.includes(needle)) {
+      clientPool.delete(key)
+    }
+  }
+}
+
 // ── Credential Providers ───────────────────────────────────────────────────────
 
 // How far before expiry to proactively evict the cached provider and its clients.
@@ -132,11 +141,7 @@ export function getProfileCredentialsProvider(profile: string): AwsCredentialsPr
     }
     // Proactively evict stale provider and its pooled clients
     credentialProviders.delete(profile)
-    for (const key of clientPool.keys()) {
-      if (key.includes(`::${profile}::`)) {
-        clientPool.delete(key)
-      }
-    }
+    evictPooledClientsForProfile(profile)
   }
 
   const baseProvider = createProfileCredentialsProvider(profile)
@@ -165,22 +170,13 @@ export function getProfileCredentialsProvider(profile: string): AwsCredentialsPr
  */
 export function refreshCredentialsForProfile(profile: string): void {
   credentialProviders.delete(profile)
-  for (const key of clientPool.keys()) {
-    if (key.includes(`::${profile}::`)) {
-      clientPool.delete(key)
-    }
-  }
+  evictPooledClientsForProfile(profile)
 }
 
 export function clearCredentialsProviderCache(profile?: string): void {
   if (profile) {
     credentialProviders.delete(profile)
-    // Evict pooled clients for this profile across all regions
-    for (const key of clientPool.keys()) {
-      if (key.includes(`::${profile}::`)) {
-        clientPool.delete(key)
-      }
-    }
+    evictPooledClientsForProfile(profile)
     return
   }
 

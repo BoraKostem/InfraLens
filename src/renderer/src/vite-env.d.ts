@@ -105,6 +105,7 @@ declare global {
       resetAppSettings: () => Promise<unknown>
       getAppSecuritySummary: () => Promise<unknown>
       getEnvironmentHealth: () => Promise<unknown>
+      getProviderCliStatus: () => Promise<unknown>
       getAzureProviderContext: () => Promise<AzureProviderContextSnapshot>
       startAzureDeviceCodeSignIn: () => Promise<AzureProviderContextSnapshot>
       signOutAzureProvider: () => Promise<AzureProviderContextSnapshot>

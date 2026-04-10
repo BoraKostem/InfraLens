@@ -32,6 +32,7 @@ import type {
   GcpStorageBucketSummary,
   GovernanceTagDefaults,
   NavigationFocus,
+  ProviderCliStatus,
   ProviderDescriptor,
   ServiceDescriptor,
   ServiceId,
@@ -55,6 +56,7 @@ import {
   getAppSettings,
   getAzureProviderContext,
   getEnvironmentHealth,
+  getProviderCliStatus,
   getGcpCliContext,
   getGcpBillingOverview,
   getGcpIamOverview,
@@ -181,7 +183,7 @@ type FabMode = 'closed' | 'menu' | 'credentials'
 type CompareSeed = { token: number; request: ComparisonRequest } | null
 type AzureMonitorSeed = { query: string; token: number } | null
 type CompareSeedByScope = Partial<Record<string, NonNullable<CompareSeed>>>
-type ProfileContextMenuState = { profileName: string; x: number; y: number } | null
+type ProfileContextMenuState = { profileName: string; provider: 'aws' | 'gcp' | 'azure'; x: number; y: number } | null
 type AuditSummary = {
   total: number
   blocked: number
@@ -192,6 +194,8 @@ const ENVIRONMENT_ONBOARDING_STORAGE_KEY = `${STORAGE_NAMESPACE}:environment-onb
 const GCP_CONNECTION_CONTEXT_STORAGE_KEY = `${STORAGE_NAMESPACE}:gcp-connection-context-v1`
 const GCP_CLI_CONTEXT_CACHE_STORAGE_KEY = `${STORAGE_NAMESPACE}:gcp-cli-context-cache-v1`
 const GCP_RECENT_PROJECTS_STORAGE_KEY = `${STORAGE_NAMESPACE}:gcp-recent-projects-v1`
+const GCP_PINNED_PROJECTS_STORAGE_KEY = `${STORAGE_NAMESPACE}:gcp-pinned-projects-v1`
+const AZURE_PINNED_SUBSCRIPTIONS_STORAGE_KEY = `${STORAGE_NAMESPACE}:azure-pinned-subscriptions-v1`
 const PREVIEW_MODE_SELECTION_STORAGE_KEY = `${STORAGE_NAMESPACE}:provider-preview-mode-selection-v1`
 const AZURE_CONNECTION_CONTEXT_STORAGE_KEY = `${STORAGE_NAMESPACE}:azure-connection-context-v1`
 const AZURE_CONTEXT_CACHE_STORAGE_KEY = `${STORAGE_NAMESPACE}:azure-context-cache-v1`
@@ -2887,13 +2891,10 @@ function writeGcpCliContextCache(context: GcpCliContext | null): void {
   }
 }
 
-function readGcpRecentProjectIds(): string[] {
+function readStoredStringArray(key: string): string[] {
   try {
-    const raw = window.localStorage.getItem(GCP_RECENT_PROJECTS_STORAGE_KEY)
-    if (!raw) {
-      return []
-    }
-
+    const raw = window.localStorage.getItem(key)
+    if (!raw) return []
     const parsed = JSON.parse(raw)
     return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : []
   } catch {
@@ -2901,12 +2902,20 @@ function readGcpRecentProjectIds(): string[] {
   }
 }
 
-function writeGcpRecentProjectIds(projectIds: string[]): void {
+function writeStoredStringArray(key: string, values: string[]): void {
   try {
-    window.localStorage.setItem(GCP_RECENT_PROJECTS_STORAGE_KEY, JSON.stringify(projectIds))
+    window.localStorage.setItem(key, JSON.stringify(values))
   } catch {
-    // Ignore recent project persistence failures and keep the current in-memory state.
+    // Ignore persistence failures and keep the current in-memory state.
   }
+}
+
+function readGcpRecentProjectIds(): string[] {
+  return readStoredStringArray(GCP_RECENT_PROJECTS_STORAGE_KEY)
+}
+
+function writeGcpRecentProjectIds(projectIds: string[]): void {
+  writeStoredStringArray(GCP_RECENT_PROJECTS_STORAGE_KEY, projectIds)
 }
 
 function readPreviewModeSelections(): Partial<Record<PreviewProviderId, string>> {
@@ -3251,6 +3260,8 @@ export function App() {
   const [azureConnectionDrafts, setAzureConnectionDrafts] = useState<AzureConnectionDraftByMode>(() => readAzureConnectionDrafts())
   const [gcpCliContext, setGcpCliContext] = useState<GcpCliContext | null>(() => readGcpCliContextCache())
   const [recentGcpProjectIds, setRecentGcpProjectIds] = useState<string[]>(() => readGcpRecentProjectIds())
+  const [pinnedGcpProjectIds, setPinnedGcpProjectIds] = useState<string[]>(() => readStoredStringArray(GCP_PINNED_PROJECTS_STORAGE_KEY))
+  const [pinnedAzureSubscriptionIds, setPinnedAzureSubscriptionIds] = useState<string[]>(() => readStoredStringArray(AZURE_PINNED_SUBSCRIPTIONS_STORAGE_KEY))
   const [gcpCliBusy, setGcpCliBusy] = useState(false)
   const [gcpProjectCatalogBusy, setGcpProjectCatalogBusy] = useState(false)
   const [gcpCliError, setGcpCliError] = useState('')
@@ -3280,6 +3291,7 @@ export function App() {
   const [settingsMessage, setSettingsMessage] = useState('')
   const [environmentHealth, setEnvironmentHealth] = useState<EnvironmentHealthReport | null>(null)
   const [environmentBusy, setEnvironmentBusy] = useState(false)
+  const [providerCliStatus, setProviderCliStatus] = useState<ProviderCliStatus | null>(null)
   const settingsEnvironmentHydratedRef = useRef(false)
   const onboardingEnvironmentHydratedRef = useRef(false)
   const [governanceDefaults, setGovernanceDefaults] = useState<GovernanceTagDefaults | null>(null)
@@ -3343,6 +3355,20 @@ export function App() {
   }, [])
 
   useEffect(() => {
+    const allInstalled: ProviderCliStatus = {
+      aws: { installed: true, cliName: 'AWS CLI', version: '', path: '' },
+      gcp: { installed: true, cliName: 'Google Cloud CLI', version: '', path: '' },
+      azure: { installed: true, cliName: 'Azure CLI', version: '', path: '' }
+    }
+    void getProviderCliStatus()
+      .then(setProviderCliStatus)
+      .catch(() => {
+        // On failure, assume all CLIs are available so the app is not blocked.
+        setProviderCliStatus(allInstalled)
+      })
+  }, [])
+
+  useEffect(() => {
     void getGovernanceTagDefaults()
       .then(setGovernanceDefaults)
       .catch(() => {
@@ -3350,7 +3376,7 @@ export function App() {
       })
   }, [])
 
-  const showInitialLoadingScreen = !servicesHydrated || !settingsHydrated
+  const showInitialLoadingScreen = !servicesHydrated || !settingsHydrated || providerCliStatus === null
 
   useEffect(() => {
     void detectTerraformCli().then(setToolchainInfo).catch(() => {
@@ -3436,17 +3462,31 @@ export function App() {
     }
   }
 
-  function applyGeneralSettingsToRuntime(general: AppSettings['general']): void {
-    setActiveProviderId(general.defaultProviderId)
+  function resolveEffectiveProviderId(desired: CloudProviderId): CloudProviderId {
+    if (!providerCliStatus) return desired
+    if (providerCliStatus[desired]?.installed) return desired
 
-    if (general.defaultProviderId === 'aws') {
+    const fallbackOrder: CloudProviderId[] = ['aws', 'gcp', 'azure']
+    const fallback = fallbackOrder.find((id) => providerCliStatus[id]?.installed)
+    return fallback ?? desired
+  }
+
+  function applyGeneralSettingsToRuntime(general: AppSettings['general']): void {
+    const effectiveProviderId = resolveEffectiveProviderId(general.defaultProviderId)
+    setActiveProviderId(effectiveProviderId)
+
+    if (providerCliStatus && !providerCliStatus.aws.installed && !providerCliStatus.gcp.installed && !providerCliStatus.azure.installed) {
+      setGlobalWarning('No cloud CLI is installed on this machine. Install at least one of the AWS CLI, Google Cloud CLI, or Azure CLI to use InfraLens.')
+    }
+
+    if (effectiveProviderId === 'aws') {
       connectionState.clearActiveSession()
       connectionState.setProfile(general.defaultProfileName)
       connectionState.setRegion(general.defaultRegion || 'us-east-1')
       return
     }
 
-    if (general.defaultProviderId === 'gcp') {
+    if (effectiveProviderId === 'gcp') {
       const modeId = resolveGcpStartupModeId(general, gcpCliContext)
       setSelectedPreviewModeIds((current) => ({ ...current, gcp: modeId }))
       setGcpConnectionDrafts((current) => ({
@@ -3496,13 +3536,13 @@ export function App() {
   }
 
   useEffect(() => {
-    if (!appSettings || startupGeneralSettingsAppliedRef.current) {
+    if (!appSettings || providerCliStatus === null || startupGeneralSettingsAppliedRef.current) {
       return
     }
 
     startupGeneralSettingsAppliedRef.current = true
     applyGeneralSettingsToRuntime(appSettings.general)
-  }, [appSettings])
+  }, [appSettings, providerCliStatus])
 
   useEffect(() => {
     if (!appSettings || startupAzureContextAppliedRef.current || !azureProviderContext) {
@@ -3706,6 +3746,14 @@ export function App() {
   }, [recentGcpProjectIds])
 
   useEffect(() => {
+    writeStoredStringArray(GCP_PINNED_PROJECTS_STORAGE_KEY, pinnedGcpProjectIds)
+  }, [pinnedGcpProjectIds])
+
+  useEffect(() => {
+    writeStoredStringArray(AZURE_PINNED_SUBSCRIPTIONS_STORAGE_KEY, pinnedAzureSubscriptionIds)
+  }, [pinnedAzureSubscriptionIds])
+
+  useEffect(() => {
     writePreviewModeSelections(selectedPreviewModeIds)
   }, [selectedPreviewModeIds])
 
@@ -3750,9 +3798,9 @@ export function App() {
   const totalPinnedProfiles = isAwsProviderActive
     ? connectionState.pinnedProfileNames.length
     : activeProviderId === 'gcp'
-      ? gcpCliContext?.configurations.length ?? 0
+      ? pinnedGcpProjectIds.length
       : activeProviderId === 'azure'
-        ? azureProviderContext?.recentSubscriptionIds.length ?? 0
+        ? pinnedAzureSubscriptionIds.length
         : providerWorkspaceCount
   const totalVisibleServices = services.length
   const selectedPreviewModeId = activePreviewProviderId ? selectedPreviewModeIds[activePreviewProviderId] ?? '' : ''
@@ -4087,7 +4135,13 @@ export function App() {
     const permissionIssues = environmentHealth.permissions.filter((item) => item.status !== 'ok').length
     return toolIssues + permissionIssues
   }, [environmentHealth])
-  const selectedProfileCount = connectionState.pinnedProfileNames.length
+  const selectedProfileCount = isAwsProviderActive
+    ? connectionState.pinnedProfileNames.length
+    : activeProviderId === 'gcp'
+      ? pinnedGcpProjectIds.length
+      : activeProviderId === 'azure'
+        ? pinnedAzureSubscriptionIds.length
+        : 0
   const onboardingStepIndex = ENVIRONMENT_ONBOARDING_STEPS.indexOf(environmentOnboardingStep)
   const onboardingBackEnabled = onboardingStepIndex > 0
   const onboardingNextLabel = onboardingStepIndex === ENVIRONMENT_ONBOARDING_STEPS.length - 1 ? 'Finish onboarding' : 'Next step'
@@ -4317,7 +4371,13 @@ export function App() {
     return <PlaceholderScreen service={service} />
   }
 
+  function isProviderCliMissing(providerId: CloudProviderId): boolean {
+    return providerCliStatus !== null && !providerCliStatus[providerId]?.installed
+  }
+
   function handleSelectProvider(providerId: CloudProviderId): void {
+    if (isProviderCliMissing(providerId)) return
+
     const providerChanged = providerId !== activeProviderId
 
     setProfileContextMenu(null)
@@ -4334,6 +4394,16 @@ export function App() {
       setServices([])
       setWorkspaceCatalog(null)
       setCatalogError('')
+      setSelectedPreviewModeIds((current) => ({ ...current, gcp: '', azure: '' }))
+      setGcpConnectionDrafts({})
+      setAzureConnectionDrafts({})
+      setGcpProjectSearch('')
+      setAzureProviderContext((current) => {
+        if (!current) return current
+        const cleared = { ...current, activeSubscriptionId: '', activeLocation: '' }
+        writeAzureContextCache(cleared)
+        return cleared
+      })
     }
 
     setActiveProviderId(providerId)
@@ -4393,6 +4463,18 @@ export function App() {
     }))
     setRecentGcpProjectIds((current) => [projectId, ...current.filter((entry) => entry !== projectId)].slice(0, 6))
     setNavOpen(true)
+  }
+
+  function togglePinnedGcpProject(projectId: string): void {
+    setPinnedGcpProjectIds((current) =>
+      current.includes(projectId) ? current.filter((entry) => entry !== projectId) : [...current, projectId]
+    )
+  }
+
+  function togglePinnedAzureSubscription(subscriptionId: string): void {
+    setPinnedAzureSubscriptionIds((current) =>
+      current.includes(subscriptionId) ? current.filter((entry) => entry !== subscriptionId) : [...current, subscriptionId]
+    )
   }
 
   function handleApplyGcpLocation(location: string): void {
@@ -4536,11 +4618,15 @@ export function App() {
             <span className={`enterprise-mode-pill ${project.lifecycleState === 'ACTIVE' ? 'operator' : 'read-only'}`}>
               {project.lifecycleState || 'Detected'}
             </span>
+            {pinnedGcpProjectIds.includes(project.projectId) && <strong>Pinned</strong>}
           </div>
         </div>
         <div className="button-row profile-catalog-actions">
           <button type="button" className={isSelected ? 'accent' : ''} onClick={() => handleApplyGcpProject(project.projectId)}>
             {isSelected ? 'Selected' : 'Select'}
+          </button>
+          <button type="button" className={pinnedGcpProjectIds.includes(project.projectId) ? 'active' : ''} onClick={() => togglePinnedGcpProject(project.projectId)}>
+            {pinnedGcpProjectIds.includes(project.projectId) ? 'Unpin' : 'Pin'}
           </button>
         </div>
       </div>
@@ -5502,35 +5588,43 @@ export function App() {
           </div>
           <div className="panel stack profile-catalog-panel">
             <div className="provider-selector-grid">
-              {providers.map((provider) => (
-                <button
-                  key={provider.id}
-                  type="button"
-                  className={`provider-selector-card provider-selector-card-${provider.id} ${provider.id === activeProviderId ? 'active' : ''}`}
-                  onClick={() => handleSelectProvider(provider.id)}
-                >
-                  <div className="provider-selector-card-header">
-                    <div>
-                      <strong>{provider.label}</strong>
-                      <small>{provider.connectionLabel}</small>
+              {providers.map((provider) => {
+                const cliMissing = isProviderCliMissing(provider.id)
+                return (
+                  <button
+                    key={provider.id}
+                    type="button"
+                    className={`provider-selector-card provider-selector-card-${provider.id} ${provider.id === activeProviderId ? 'active' : ''} ${cliMissing ? 'provider-selector-card-disabled' : ''}`}
+                    onClick={() => handleSelectProvider(provider.id)}
+                    disabled={cliMissing}
+                  >
+                    <div className="provider-selector-card-header">
+                      <div>
+                        <strong>{provider.label}</strong>
+                        <small>{cliMissing ? `Install ${providerCliStatus![provider.id].cliName} to enable` : provider.connectionLabel}</small>
+                      </div>
+                      {cliMissing ? (
+                        <span className="enterprise-mode-pill read-only">CLI not found</span>
+                      ) : (
+                        <span className={`enterprise-mode-pill ${provider.availability === 'available' ? 'operator' : 'read-only'}`}>
+                          {provider.id === 'azure'
+                            ? 'Beta'
+                            : provider.availability === 'available'
+                            ? 'Live'
+                            : provider.id === 'gcp'
+                              ? 'Beta'
+                              : 'Preview'}
+                        </span>
+                      )}
                     </div>
-                    <span className={`enterprise-mode-pill ${provider.availability === 'available' ? 'operator' : 'read-only'}`}>
-                      {provider.id === 'azure'
-                        ? 'Beta'
-                        : provider.availability === 'available'
-                        ? 'Live'
-                        : provider.id === 'gcp'
-                          ? 'Beta'
-                          : 'Preview'}
-                    </span>
-                  </div>
-                  <div className="provider-selector-card-meta">
-                    <span className={`provider-selector-chip provider-selector-chip-${provider.id}`}>{provider.shortLabel}</span>
-                    <span>{provider.profileLabel}</span>
-                    <span>{provider.locationLabel}</span>
-                  </div>
-                </button>
-              ))}
+                    <div className="provider-selector-card-meta">
+                      <span className={`provider-selector-chip provider-selector-chip-${provider.id}`}>{provider.shortLabel}</span>
+                      <span>{provider.profileLabel}</span>
+                      <span>{provider.locationLabel}</span>
+                    </div>
+                  </button>
+                )
+              })}
             </div>
             <div className="catalog-page-header profile-catalog-toolbar">
               <div>
@@ -5752,10 +5846,12 @@ export function App() {
                   snapshot={azureProviderContext}
                   busy={azureContextBusy}
                   searchQuery={azureSubscriptionSearch}
+                  pinnedSubscriptionIds={pinnedAzureSubscriptionIds}
                   onRefresh={() => void loadAzureContext()}
                   onSignIn={() => void handleAzureDeviceCodeSignIn()}
                   onSignOut={() => void handleAzureSignOut()}
                   onSelectSubscription={(subscriptionId) => void handleApplyAzureSubscription(subscriptionId)}
+                  onTogglePinSubscription={togglePinnedAzureSubscription}
                   onOpenVerification={(url) => void openExternalUrl(url)}
                 />
               ) : (
@@ -6891,6 +6987,7 @@ export function App() {
     }
 
     if (targetScreen === 'overview') {
+      if (isAwsProviderActive && !connectionState.connected) return null
       return <OverviewConsole state={connectionState} embedded refreshNonce={pageRefreshNonceByScreen['overview'] ?? 0} onNavigate={(target) => {
         if (IMPLEMENTED_SCREENS.has(target)) setScreen(target as Screen)
       }} />
@@ -7030,7 +7127,7 @@ export function App() {
         <button type="button" className={`rail-logo ${screen === 'settings' ? 'active' : ''}`} onClick={() => setScreen('settings')} aria-label="Open settings">
           <img src={appLogoUrl} alt={PRODUCT_BRAND_NAME} style={{ width: 28, height: 28, borderRadius: 6 }} />
         </button>
-        {isAwsProviderActive && (
+        {isAwsProviderActive && connectionState.pinnedProfileNames.length > 0 && (
           <>
             <div className="rail-divider" />
             {connectionState.pinnedProfileNames.map((pinnedName) => (
@@ -7046,6 +7143,7 @@ export function App() {
                   event.preventDefault()
                   setProfileContextMenu({
                     profileName: pinnedName,
+                    provider: 'aws',
                     x: event.clientX,
                     y: event.clientY
                   })
@@ -7055,6 +7153,66 @@ export function App() {
                 {getProfileBadge(pinnedName)}
               </button>
             ))}
+          </>
+        )}
+        {activeProviderId === 'gcp' && pinnedGcpProjectIds.length > 0 && (
+          <>
+            <div className="rail-divider" />
+            {pinnedGcpProjectIds.map((projectId) => (
+              <button
+                key={projectId}
+                type="button"
+                className={`rail-avatar ${activeGcpConnectionDraft?.projectId.trim() === projectId ? 'active' : ''}`}
+                onClick={() => {
+                  setProfileContextMenu(null)
+                  handleApplyGcpProject(projectId)
+                }}
+                onContextMenu={(event) => {
+                  event.preventDefault()
+                  setProfileContextMenu({
+                    profileName: projectId,
+                    provider: 'gcp',
+                    x: event.clientX,
+                    y: event.clientY
+                  })
+                }}
+                title={projectId}
+              >
+                {getProfileBadge(projectId)}
+              </button>
+            ))}
+          </>
+        )}
+        {activeProviderId === 'azure' && pinnedAzureSubscriptionIds.length > 0 && (
+          <>
+            <div className="rail-divider" />
+            {pinnedAzureSubscriptionIds.map((subId) => {
+              const sub = azureProviderContext?.subscriptions.find((s) => s.subscriptionId === subId)
+              const label = sub?.displayName || subId
+              return (
+                <button
+                  key={subId}
+                  type="button"
+                  className={`rail-avatar ${azureProviderContext?.activeSubscriptionId === subId ? 'active' : ''}`}
+                  onClick={() => {
+                    setProfileContextMenu(null)
+                    void handleApplyAzureSubscription(subId)
+                  }}
+                  onContextMenu={(event) => {
+                    event.preventDefault()
+                    setProfileContextMenu({
+                      profileName: subId,
+                      provider: 'azure',
+                      x: event.clientX,
+                      y: event.clientY
+                    })
+                  }}
+                  title={label}
+                >
+                  {getProfileBadge(label)}
+                </button>
+              )
+            })}
           </>
         )}
         <div className="rail-actions">
@@ -7072,7 +7230,6 @@ export function App() {
             </button>
             <div className="service-nav-title">
               <h1>{PRODUCT_BRAND_NAME}</h1>
-              <span className={`service-nav-provider-badge service-nav-provider-badge-${activeProviderId}`}>{activeProvider.label}</span>
             </div>
             <div className="app-version-row service-nav-version-row">
                 {versionLabel && <span className="app-version-badge">v{versionLabel}</span>}
@@ -7748,7 +7905,13 @@ export function App() {
             type="button"
             className="profile-context-menu__item danger"
             onClick={() => {
-              connectionState.togglePinnedProfile(profileContextMenu.profileName)
+              if (profileContextMenu.provider === 'gcp') {
+                togglePinnedGcpProject(profileContextMenu.profileName)
+              } else if (profileContextMenu.provider === 'azure') {
+                togglePinnedAzureSubscription(profileContextMenu.profileName)
+              } else {
+                connectionState.togglePinnedProfile(profileContextMenu.profileName)
+              }
               setProfileContextMenu(null)
             }}
           >

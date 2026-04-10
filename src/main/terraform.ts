@@ -156,8 +156,10 @@ function hasSavedPlanArtifacts(rootPath: string): boolean {
   return fs.existsSync(planPath(rootPath)) && fs.existsSync(planJsonPath(rootPath))
 }
 
+const ANSI_ESCAPE_RE = /\x1b\[[0-9;]*m/g
+
 function stripAnsi(text: string): string {
-  return text.replace(/\x1b\[[0-9;]*m/g, '')
+  return text.replace(ANSI_ESCAPE_RE, '')
 }
 
 class TerraformCommandCancelledError extends Error {
