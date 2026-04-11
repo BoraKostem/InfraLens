@@ -34,7 +34,7 @@ type AzureCatalogData = {
   providerRegistrations: AzureProviderRegistrationSummary[]
 }
 
-type AzureCredentialSource = 'azure-cli'
+type AzureCredentialSource = 'azure-cli' | 'sdk'
 
 type CatalogCache = {
   subscriptionId: string
@@ -126,6 +126,8 @@ function labelAzureCredentialSource(source: AzureCredentialSource): string {
   switch (source) {
     case 'azure-cli':
       return 'az login'
+    case 'sdk':
+      return 'Azure SDK'
     default:
       return 'Azure'
   }
@@ -155,7 +157,7 @@ function activateAzureCredential(
 }
 
 async function tryHydrateAmbientAzureCredential(): Promise<boolean> {
-  if (runtimeState.credentialSource === 'azure-cli' || runtimeState.authFlow) {
+  if (runtimeState.credentialSource !== null || runtimeState.authFlow) {
     return runtimeState.auth.status === 'authenticated'
   }
 
@@ -449,6 +451,56 @@ async function loadAzureCliProviderRegistrations(subscriptionId: string): Promis
   }
 }
 
+// ── ARM-based Catalog Discovery (for SDK auth) ────────────────────────────────
+
+async function loadAzureArmCatalogData(): Promise<Pick<AzureCatalogData, 'tenants' | 'subscriptions'>> {
+  const { fetchAzureArmCollection } = await import('./azure/client')
+
+  const [tenantResult, subscriptionResult] = await Promise.allSettled([
+    fetchAzureArmCollection<Record<string, unknown>>('/tenants', '2022-01-01'),
+    fetchAzureArmCollection<Record<string, unknown>>('/subscriptions', '2022-12-01')
+  ])
+
+  const tenants = (tenantResult.status === 'fulfilled' ? tenantResult.value : [])
+    .map(toTenantSummary)
+    .filter((entry) => entry.tenantId)
+  const subscriptions = (subscriptionResult.status === 'fulfilled' ? subscriptionResult.value : [])
+    .map(toSubscriptionSummary)
+    .filter((entry) => entry.subscriptionId)
+
+  return { tenants, subscriptions }
+}
+
+async function loadAzureArmLocations(subscriptionId: string): Promise<AzureLocationSummary[]> {
+  if (!subscriptionId.trim()) return []
+  try {
+    const { fetchAzureArmCollection } = await import('./azure/client')
+    const records = await fetchAzureArmCollection<Record<string, unknown>>(
+      `/subscriptions/${encodeURIComponent(subscriptionId)}/locations`,
+      '2022-12-01'
+    )
+    return records.map(toLocationSummary).filter((entry) => entry.name)
+  } catch {
+    return []
+  }
+}
+
+async function loadAzureArmProviderRegistrations(subscriptionId: string): Promise<AzureProviderRegistrationSummary[]> {
+  if (!subscriptionId.trim()) return []
+  try {
+    const { fetchAzureArmCollection } = await import('./azure/client')
+    const records = await fetchAzureArmCollection<Record<string, unknown>>(
+      `/subscriptions/${encodeURIComponent(subscriptionId)}/providers`,
+      '2022-12-01'
+    )
+    return records
+      .map(toProviderRegistrationSummary)
+      .filter((entry) => REQUIRED_PROVIDER_NAMESPACES.includes(entry.namespace))
+  } catch {
+    return []
+  }
+}
+
 function toLocationSummary(entry: Record<string, unknown>): AzureLocationSummary {
   const pairedRegionIds = Array.isArray(entry.metadata && typeof entry.metadata === 'object' ? (entry.metadata as Record<string, unknown>).pairedRegion : undefined)
     ? ((entry.metadata as Record<string, unknown>).pairedRegion as unknown[])
@@ -478,20 +530,28 @@ function toProviderRegistrationSummary(entry: Record<string, unknown>): AzurePro
 }
 
 async function loadAzureCatalogData(activeSubscriptionId: string): Promise<AzureCatalogData> {
-  const cliCatalog = await loadAzureCliCatalogData()
-  const tenants = cliCatalog.tenants
-  const subscriptions = cliCatalog.subscriptions
+  const useArm = runtimeState.credentialSource === 'sdk'
+  const baseCatalog = useArm
+    ? await loadAzureArmCatalogData()
+    : await loadAzureCliCatalogData()
+
+  const tenants = baseCatalog.tenants
+  const subscriptions = baseCatalog.subscriptions
 
   let locations: AzureLocationSummary[] = []
   let providerRegistrations: AzureProviderRegistrationSummary[] = []
 
   if (activeSubscriptionId) {
-    const [cliLocations, cliProviders] = await Promise.all([
-      loadAzureCliLocations(activeSubscriptionId),
-      loadAzureCliProviderRegistrations(activeSubscriptionId)
+    const [resolvedLocations, resolvedProviders] = await Promise.all([
+      useArm
+        ? loadAzureArmLocations(activeSubscriptionId)
+        : loadAzureCliLocations(activeSubscriptionId),
+      useArm
+        ? loadAzureArmProviderRegistrations(activeSubscriptionId)
+        : loadAzureCliProviderRegistrations(activeSubscriptionId)
     ])
-    locations = cliLocations
-    providerRegistrations = cliProviders
+    locations = resolvedLocations
+    providerRegistrations = resolvedProviders
   }
 
   return {
@@ -616,7 +676,7 @@ async function buildAzureProviderContextSnapshot(): Promise<AzureProviderContext
   const store = readAzureFoundationStore()
   const cliPath = await loadCliPath()
   const auth = runtimeState.auth
-  const authenticated = auth.status === 'authenticated' && runtimeState.credentialSource === 'azure-cli'
+  const authenticated = auth.status === 'authenticated' && runtimeState.credentialSource !== null
 
   let tenants: AzureTenantSummary[] = []
   let subscriptions: AzureSubscriptionSummary[] = []
@@ -816,10 +876,10 @@ export async function getAzureProviderContext(): Promise<AzureProviderContextSna
   } catch (error) {
     const lastError = formatAzureError(error)
     writeAuthState({
-      status: runtimeState.credentialSource === 'azure-cli' ? 'error' : 'signed-out',
-      message: runtimeState.credentialSource === 'azure-cli'
+      status: runtimeState.credentialSource !== null ? 'error' : 'signed-out',
+      message: runtimeState.credentialSource !== null
         ? 'Azure account context failed to refresh.'
-        : 'No local az login session was found. Start browser sign-in to connect Azure.',
+        : 'No Azure session was found. Start browser sign-in to connect Azure.',
       prompt: null,
       lastError
     })
@@ -832,7 +892,7 @@ export async function getAzureProviderContext(): Promise<AzureProviderContextSna
       activeTenantId: '',
       activeSubscriptionId: '',
       activeLocation: '',
-      activeAccountLabel: runtimeState.credentialSource === 'azure-cli' ? 'Azure context unavailable' : 'No local az login session found',
+      activeAccountLabel: runtimeState.credentialSource !== null ? 'Azure context unavailable' : 'No Azure session found',
       tenants: [],
       subscriptions: [],
       locations: [],
@@ -852,7 +912,7 @@ export async function getAzureProviderContext(): Promise<AzureProviderContextSna
 }
 
 export async function startAzureDeviceCodeSignIn(): Promise<AzureProviderContextSnapshot> {
-  if (runtimeState.credentialSource === 'azure-cli' && runtimeState.auth.status === 'authenticated') {
+  if (runtimeState.credentialSource !== null && runtimeState.auth.status === 'authenticated') {
     return getAzureProviderContext()
   }
 
@@ -865,16 +925,94 @@ export async function startAzureDeviceCodeSignIn(): Promise<AzureProviderContext
   runtimeState.authRunId = authRunId
   writeAuthState({
     status: 'starting',
-    message: 'Starting Azure CLI device-code sign-in.',
+    message: 'Starting Azure device-code sign-in.',
     prompt: null,
     lastError: ''
   })
 
   runtimeState.authFlow = (async () => {
+    const tenantId = store.activeTenantId.trim()
+
+    // ── Try SDK device code flow first ──────────────────────────────────���─────
+    try {
+      const { startSdkDeviceCodeAuth, classifyAzureAuthError } = await import('./azure/auth')
+
+      const sdkSuccess = await startSdkDeviceCodeAuth(
+        tenantId || undefined,
+        (prompt) => {
+          if (runtimeState.authRunId !== authRunId) return
+          writeAuthState({
+            status: 'waiting-for-device-code',
+            message: 'Open the verification link and enter the Azure device code to finish sign-in.',
+            prompt: {
+              message: prompt.message,
+              userCode: prompt.userCode,
+              verificationUri: prompt.verificationUri
+            },
+            lastError: ''
+          })
+        }
+      )
+
+      if (runtimeState.authRunId !== authRunId) {
+        runtimeState.authFlow = null
+        return
+      }
+
+      if (sdkSuccess) {
+        activateAzureCredential('sdk', 'Connected using Azure SDK device code authentication.')
+        updateAzureFoundationStore({
+          authMethod: 'sdk',
+          tokenCacheState: 'active',
+          lastTokenRefreshAt: new Date().toISOString()
+        })
+        runtimeState.authFlow = null
+        return
+      }
+    } catch (sdkError) {
+      if (runtimeState.authRunId !== authRunId) {
+        runtimeState.authFlow = null
+        return
+      }
+
+      // For certain AADSTS errors, don't fall back to CLI — report directly
+      const detail = sdkError instanceof Error ? sdkError.message : String(sdkError)
+      if (
+        detail.includes('AADSTS50076') ||
+        detail.includes('AADSTS53003') ||
+        detail.includes('AADSTS50057') ||
+        detail.includes('AADSTS50053')
+      ) {
+        const { classifyAzureAuthError } = await import('./azure/auth')
+        runtimeState.credentialSource = null
+        writeAuthState({
+          status: 'error',
+          message: 'Azure sign-in failed.',
+          prompt: null,
+          lastError: classifyAzureAuthError(sdkError)
+        })
+        runtimeState.authFlow = null
+        return
+      }
+      // Other errors: fall through to CLI fallback
+    }
+
+    if (runtimeState.authRunId !== authRunId) {
+      runtimeState.authFlow = null
+      return
+    }
+
+    // ── Fall back to CLI device code flow ────────────────────────────────���─────
+    writeAuthState({
+      status: 'starting',
+      message: 'Falling back to Azure CLI device-code sign-in.',
+      prompt: null,
+      lastError: ''
+    })
+
     const cliPath = await loadCliPath()
     const command = cliPath || 'az'
     const args = ['login', '--use-device-code', '--output', 'json']
-    const tenantId = store.activeTenantId.trim()
 
     if (tenantId) {
       args.push('--tenant', tenantId)
@@ -941,6 +1079,7 @@ export async function startAzureDeviceCodeSignIn(): Promise<AzureProviderContext
           ? 'Connected using the local az login session.'
           : 'Azure CLI sign-in completed, but no subscriptions were returned.'
       )
+      updateAzureFoundationStore({ authMethod: 'cli' })
     } catch (error) {
       if (runtimeState.authRunId !== authRunId) {
         return
@@ -967,7 +1106,12 @@ export async function startAzureDeviceCodeSignIn(): Promise<AzureProviderContext
 
 export async function signOutAzureProvider(): Promise<AzureProviderContextSnapshot> {
   runtimeState.skipAmbientDiscoveryOnce = true
-  resetAuthState('No local az login session was found. Start browser sign-in to connect Azure.')
+  try {
+    const { clearSdkAuth } = await import('./azure/auth')
+    clearSdkAuth()
+  } catch { /* auth module not loaded */ }
+  resetAuthState('No Azure session was found. Start browser sign-in to connect Azure.')
+  updateAzureFoundationStore({ authMethod: '', tokenCacheState: '', lastTokenRefreshAt: '' })
   return getAzureProviderContext()
 }
 
@@ -1012,7 +1156,7 @@ export async function setAzureActiveLocation(location: string): Promise<AzurePro
   if (
     cache
     && cache.subscriptionId === store.activeSubscriptionId.trim()
-    && runtimeState.credentialSource === 'azure-cli'
+    && runtimeState.credentialSource !== null
     && runtimeState.auth.status === 'authenticated'
   ) {
     return buildSnapshotFromCache(cache, store)

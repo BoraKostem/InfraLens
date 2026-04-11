@@ -1,4 +1,5 @@
-import { DefaultAzureCredential } from '@azure/identity'
+import { DefaultAzureCredential, type TokenCredential } from '@azure/identity'
+import { getSdkCredential } from './auth'
 import { logWarn } from '../observability'
 
 // ── Constants ───────────────────────────────────────────────────────────────────
@@ -21,7 +22,14 @@ interface CachedToken {
 let cachedToken: CachedToken | null = null
 const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000 // refresh 5 min before expiry
 
-export function getAzureCredential(): DefaultAzureCredential {
+/**
+ * Returns the active Azure credential. Prefers the SDK credential (from device
+ * code auth) when available, falling back to DefaultAzureCredential.
+ */
+export function getAzureCredential(): TokenCredential {
+  const sdkCred = getSdkCredential()
+  if (sdkCred) return sdkCred
+
   if (!azureCredential) {
     azureCredential = new DefaultAzureCredential()
   }

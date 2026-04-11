@@ -138,6 +138,19 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('azure:context:set-location', async (_event, location: string) =>
     wrap<AzureProviderContextSnapshot>(async () => setAzureActiveLocation(location))
   )
+  ipcMain.handle('azure:auth:silent-refresh', async () =>
+    wrap(async () => {
+      const { silentTokenRefresh } = await import('./azure/auth')
+      const refreshed = await silentTokenRefresh()
+      return { refreshed }
+    })
+  )
+  ipcMain.handle('azure:auth:credential-status', async () =>
+    wrap(async () => {
+      const { getAzureCredentialStatus } = await import('./azure/auth')
+      return getAzureCredentialStatus()
+    })
+  )
   ipcMain.handle('gcp:cli-context', async () => wrap(() => getGcpCliContext()))
   ipcMain.handle('gcp:auth:status', async (_event, projectId: string) =>
     wrap(async () => {
