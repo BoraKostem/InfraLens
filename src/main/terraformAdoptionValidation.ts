@@ -81,7 +81,7 @@ export async function validateTerraformAdoptionImport(
   target: TerraformAdoptionTarget,
   window: BrowserWindow | null
 ): Promise<TerraformAdoptionValidationResult> {
-  const codegen = generateTerraformAdoptionCode(profileName, projectId, connection, target)
+  const codegen = await generateTerraformAdoptionCode(profileName, projectId, connection, target)
   const address = codegen.mapping.suggestedAddress
   const log = await runProjectCommand({
     profileName,
@@ -93,7 +93,7 @@ export async function validateTerraformAdoptionImport(
       targets: [address]
     }
   }, window)
-  const project = getProject(profileName, projectId, connection)
+  const project = await getProject(profileName, projectId, connection)
   const planSummary = project?.lastPlanSummary ?? emptyPlanSummary()
   const matchingChanges = (project?.planChanges ?? []).filter((change) => change.address === address && change.actionLabel !== 'no-op')
   const { status, summary } = summarizeValidation(address, log, planSummary, matchingChanges)

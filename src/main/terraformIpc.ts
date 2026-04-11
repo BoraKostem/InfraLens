@@ -198,7 +198,7 @@ export function registerTerraformIpcHandlers(getWindow: () => BrowserWindow | nu
   )
   ipcMain.handle('terraform:adoption:execute-import', async (_event, profileName: string, projectId: string, connection: AwsConnection | undefined, target: TerraformAdoptionTarget) =>
     wrap(async () => {
-      const applyResult = applyTerraformAdoptionCode(profileName, projectId, connection, target)
+      const applyResult = await applyTerraformAdoptionCode(profileName, projectId, connection, target)
       const log = await runProjectCommand({
         profileName,
         connection,

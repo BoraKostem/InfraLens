@@ -958,7 +958,7 @@ export async function getGcpTerraformDriftReport(
   connection?: AwsConnection,
   _options?: { forceRefresh?: boolean }
 ): Promise<TerraformDriftReport> {
-  const project = getProject(profileName, projectId)
+  const project = await getProject(profileName, projectId)
   const context = parseGcpContext(profileName, project, connection)
   if (!context.projectId) {
     throw new Error('Choose a GCP project context before loading Terraform drift.')
@@ -1888,7 +1888,7 @@ export async function generateGcpTerraformObservabilityReport(
   projectId: string,
   connection?: AwsConnection
 ): Promise<ObservabilityPostureReport> {
-  const project = getProject(profileName, projectId)
+  const project = await getProject(profileName, projectId)
   const context = parseGcpContext(profileName, project, connection)
   if (!context.projectId) {
     throw new Error('Choose a GCP project context before loading the Terraform lab.')

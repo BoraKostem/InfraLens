@@ -286,14 +286,14 @@ function buildImportCommand(project: TerraformProject, mapping: TerraformAdoptio
   return `${workspaceSegment}terraform import ${mapping.suggestedAddress} ${mapping.importId}`
 }
 
-export function generateTerraformAdoptionCode(
+export async function generateTerraformAdoptionCode(
   profileName: string,
   projectId: string,
   connection: AwsConnection | undefined,
   target: TerraformAdoptionTarget
-): TerraformAdoptionCodegenResult {
-  const project = getProject(profileName, projectId, connection)
-  const mapping = mapTerraformAdoption(profileName, projectId, connection, target)
+): Promise<TerraformAdoptionCodegenResult> {
+  const project = await getProject(profileName, projectId, connection)
+  const mapping = await mapTerraformAdoption(profileName, projectId, connection, target)
   const moduleDirectoryResolution = resolveModuleDirectory(project, normalizePath(mapping.module.modulePath))
   const filePlan = chooseTargetFile(moduleDirectoryResolution.directory, mapping)
   const resourceBlock = buildResourceBlock(project, mapping)

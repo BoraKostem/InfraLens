@@ -345,12 +345,12 @@ function buildProjectSignal(
   }
 }
 
-export function detectTerraformAdoption(
+export async function detectTerraformAdoption(
   profileName: string,
   connection: AwsConnection | undefined,
   target: TerraformAdoptionTarget
-): TerraformAdoptionDetectionResult {
-  const projects = listProjectSummaries(profileName, connection)
+): Promise<TerraformAdoptionDetectionResult> {
+  const projects = await listProjectSummaries(profileName, connection)
   const signals = projects
     .map((project) => buildProjectSignal(project, target))
     .filter((project): project is TerraformAdoptionProjectSignal => Boolean(project))

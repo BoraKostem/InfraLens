@@ -18,13 +18,13 @@ function resourceHeader(code: string): string {
   return normalizeNewlines(code).split('\n').find((line) => line.startsWith('resource '))?.trim() ?? ''
 }
 
-export function applyTerraformAdoptionCode(
+export async function applyTerraformAdoptionCode(
   profileName: string,
   projectId: string,
   connection: AwsConnection | undefined,
   target: TerraformAdoptionTarget
-): TerraformAdoptionCodeApplyResult {
-  const codegen = generateTerraformAdoptionCode(profileName, projectId, connection, target)
+): Promise<TerraformAdoptionCodeApplyResult> {
+  const codegen = await generateTerraformAdoptionCode(profileName, projectId, connection, target)
   const filePath = codegen.filePlan.suggestedFilePath
   const header = resourceHeader(codegen.resourceBlock)
 

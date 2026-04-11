@@ -2721,7 +2721,7 @@ async function scanProjectDrift(
   connection: AwsConnection,
   trigger: TerraformDriftSnapshot['trigger']
 ): Promise<StoredDriftContext> {
-  const project = getProject(profileName, projectId)
+  const project = await getProject(profileName, projectId)
   const liveInventory = await loadLiveInventory(connection)
   const items = [
     ...buildSupportedItems(project, connection, 'aws_instance', project.inventory, liveInventory.aws_instance, SUPPORTED_HANDLERS.aws_instance),

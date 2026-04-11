@@ -88,6 +88,7 @@ const PLAN_METADATA_FILE = '.terraform-workspace.tfplan.meta.json'
 const STATE_CACHE_FILE = '.terraform-workspace.state.json'
 const STATE_BACKUP_LIMIT = 20
 const COMMAND_LOG_CAP_PER_PROJECT = 100
+const COMMAND_LOG_OUTPUT_MAX_BYTES = 50_000 // Keep only last 50KB of output in memory; full output is saved to disk
 
 const commandLogs = new Map<string, TerraformCommandLog[]>()
 const savedPlanPaths = new Map<string, string>()
@@ -687,34 +688,32 @@ function parseWorkspaceList(output: string, currentWorkspace: string): Terraform
   return [...names.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
-function readWorkspaceSnapshot(
+async function readWorkspaceSnapshot(
   profileName: string,
   project: StoredProject,
   connection?: AwsConnection
-): { currentWorkspace: string; workspaces: TerraformWorkspaceSummary[] } {
+): Promise<{ currentWorkspace: string; workspaces: TerraformWorkspaceSummary[] }> {
   const fallback = fallbackWorkspaceSnapshot(project.rootPath)
 
   try {
     const env = buildEnvWithVars(project, profileName, connection)
-    const currentWorkspace = stripAnsi(execFileSync(terraformCommand(), ['workspace', 'show'], {
-      cwd: project.rootPath,
-      env,
-      timeout: 10000,
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe']
-    }).toString()).trim() || fallback.currentWorkspace
+    const [showResult, listResult] = await Promise.all([
+      new Promise<string>((resolve, reject) => {
+        execFile(terraformCommand(), ['workspace', 'show'], {
+          cwd: project.rootPath, env, timeout: 10000, windowsHide: true
+        }, (err, stdout) => err ? reject(err) : resolve(stdout))
+      }),
+      new Promise<string>((resolve, reject) => {
+        execFile(terraformCommand(), ['workspace', 'list'], {
+          cwd: project.rootPath, env, timeout: 10000, windowsHide: true
+        }, (err, stdout) => err ? reject(err) : resolve(stdout))
+      })
+    ])
 
-    const workspaceOutput = execFileSync(terraformCommand(), ['workspace', 'list'], {
-      cwd: project.rootPath,
-      env,
-      timeout: 10000,
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe']
-    }).toString()
-
+    const currentWorkspace = stripAnsi(showResult).trim() || fallback.currentWorkspace
     return {
       currentWorkspace,
-      workspaces: parseWorkspaceList(workspaceOutput, currentWorkspace)
+      workspaces: parseWorkspaceList(listResult, currentWorkspace)
     }
   } catch {
     return fallback
@@ -2561,7 +2560,7 @@ function projectStatus(rootPath: string): TerraformProjectStatus {
   return fs.existsSync(rootPath) ? 'Ready' : 'Missing'
 }
 
-function loadProject(project: StoredProject, profileName = '', connection?: AwsConnection): TerraformProject {
+async function loadProject(project: StoredProject, profileName = '', connection?: AwsConnection): Promise<TerraformProject> {
   const status = projectStatus(project.rootPath)
   if (status === 'Missing') {
     const stateBackups = listStateBackups(project.id)
@@ -2612,7 +2611,7 @@ function loadProject(project: StoredProject, profileName = '', connection?: AwsC
   }
 
   const { metadata, variables } = inferMetadata(project.rootPath)
-  const { currentWorkspace, workspaces } = readWorkspaceSnapshot(profileName, project, connection)
+  const { currentWorkspace, workspaces } = await readWorkspaceSnapshot(profileName, project, connection)
   const inputs = parseJsonFile<Record<string, unknown>>(managedInputsPath(project.rootPath), {})
   const { inventory, stateAddresses, rawStateJson, stateSource } = readStateSnapshot(project.rootPath)
   const { planChanges, lastPlanSummary } = readPlanSnapshot(project.rootPath)
@@ -2710,23 +2709,26 @@ function syncStoredProjectEnvironment(
   setStoredProjects(profileName, next)
 }
 
-export function listProjectSummaries(profileName: string, connection?: AwsConnection): TerraformProjectListItem[] {
-  return getStoredProjects(profileName).map((project) => {
-    const loaded = loadProject(project, profileName, connection)
+export async function listProjectSummaries(profileName: string, connection?: AwsConnection): Promise<TerraformProjectListItem[]> {
+  const projects = getStoredProjects(profileName)
+  const results: TerraformProjectListItem[] = []
+  for (const project of projects) {
+    const loaded = await loadProject(project, profileName, connection)
     syncStoredProjectEnvironment(profileName, project.id, loaded.environment)
-    return loaded
-  })
+    results.push(loaded)
+  }
+  return results
 }
 
-export function getProject(profileName: string, projectId: string, connection?: AwsConnection): TerraformProject {
+export async function getProject(profileName: string, projectId: string, connection?: AwsConnection): Promise<TerraformProject> {
   const project = getStoredProjects(profileName).find((p) => p.id === projectId)
   if (!project) throw new Error('Project not found.')
-  const loaded = loadProject(project, profileName, connection)
+  const loaded = await loadProject(project, profileName, connection)
   syncStoredProjectEnvironment(profileName, project.id, loaded.environment)
   return loaded
 }
 
-export function addProject(profileName: string, rootPath: string, connection?: AwsConnection): TerraformProject {
+export async function addProject(profileName: string, rootPath: string, connection?: AwsConnection): Promise<TerraformProject> {
   const normalized = path.resolve(rootPath)
   if (!fs.existsSync(normalized)) throw new Error('Selected path does not exist.')
   if (!fs.statSync(normalized).isDirectory()) throw new Error('Project path must be a directory.')
@@ -2734,13 +2736,13 @@ export function addProject(profileName: string, rootPath: string, connection?: A
 
   const stored = getStoredProjects(profileName)
   const existing = stored.find((p) => path.normalize(p.rootPath).toLowerCase() === path.normalize(normalized).toLowerCase())
-  if (existing) return getProject(profileName, existing.id, connection)
+  if (existing) return await getProject(profileName, existing.id, connection)
 
   const created: StoredProject = {
     id: randomUUID(), name: path.basename(normalized), rootPath: normalized, varFile: '', variables: {}
   }
   setStoredProjects(profileName, [...stored, created])
-  return getProject(profileName, created.id, connection)
+  return await getProject(profileName, created.id, connection)
 }
 
 export function removeProject(profileName: string, projectId: string): void {
@@ -2749,20 +2751,20 @@ export function removeProject(profileName: string, projectId: string): void {
   savedPlanPaths.delete(projectId)
 }
 
-export function renameProject(profileName: string, projectId: string, name: string): TerraformProject {
+export async function renameProject(profileName: string, projectId: string, name: string): Promise<TerraformProject> {
   const trimmed = name.trim()
   if (!trimmed) throw new Error('Project name is required.')
   const updated = getStoredProjects(profileName).map((p) => p.id === projectId ? { ...p, name: trimmed } : p)
   setStoredProjects(profileName, updated)
-  return getProject(profileName, projectId)
+  return await getProject(profileName, projectId)
 }
 
-export function updateProjectInputs(
+export async function updateProjectInputs(
   profileName: string,
   projectId: string,
   inputConfig: TerraformInputConfiguration,
   connection?: AwsConnection
-): TerraformProject {
+): Promise<TerraformProject> {
   const stored = getStoredProjects(profileName)
   const idx = stored.findIndex((p) => p.id === projectId)
   if (idx < 0) throw new Error('Project not found.')
@@ -2776,7 +2778,7 @@ export function updateProjectInputs(
   project.variables = readPersistedInputValues(project)
   writeAutoTfvars(project)
   setStoredProjects(profileName, stored)
-  return getProject(profileName, projectId, connection)
+  return await getProject(profileName, projectId, connection)
 }
 
 export async function validateProjectInputs(
@@ -2808,7 +2810,7 @@ export async function selectProjectWorkspace(
     backendType: project.environment?.backendType ?? 'local',
     varSetLabel: inferVarSetLabel(project) || project.environment?.varSetLabel || ''
   })
-  return getProject(profileName, projectId, connection)
+  return await getProject(profileName, projectId, connection)
 }
 
 export async function createProjectWorkspace(
@@ -2822,7 +2824,7 @@ export async function createProjectWorkspace(
   const target = validateWorkspaceName(workspaceName)
   await runWorkspaceCommand(profileName, project, ['workspace', 'new', target], connection)
   clearStateCache(project.rootPath)
-  return getProject(profileName, projectId, connection)
+  return await getProject(profileName, projectId, connection)
 }
 
 export async function deleteProjectWorkspace(
@@ -2837,13 +2839,13 @@ export async function deleteProjectWorkspace(
   if (target === 'default') {
     throw new Error('The default workspace cannot be deleted.')
   }
-  const snapshot = readWorkspaceSnapshot(profileName, project, connection)
+  const snapshot = await readWorkspaceSnapshot(profileName, project, connection)
   if (snapshot.currentWorkspace === target) {
     throw new Error('Select a different workspace before deleting the current workspace.')
   }
   await runWorkspaceCommand(profileName, project, ['workspace', 'delete', target], connection)
   clearStateCache(project.rootPath)
-  return getProject(profileName, projectId, connection)
+  return await getProject(profileName, projectId, connection)
 }
 
 export function getCommandLogs(projectId: string): TerraformCommandLog[] {
@@ -2917,6 +2919,10 @@ export { cloudTrailServiceForType }
 
 function pushLog(projectId: string, log: TerraformCommandLog): void {
   const logs = commandLogs.get(projectId) ?? []
+  // Truncate output stored in memory to limit RAM usage; full output is persisted to disk via updateRunRecord
+  if (log.output.length > COMMAND_LOG_OUTPUT_MAX_BYTES) {
+    log.output = '...(truncated)\n' + log.output.slice(-COMMAND_LOG_OUTPUT_MAX_BYTES)
+  }
   logs.unshift(log)
   commandLogs.set(projectId, logs.slice(0, COMMAND_LOG_CAP_PER_PROJECT))
 }
@@ -3267,7 +3273,7 @@ export async function runProjectCommand(
         fs.writeFileSync(stateCachePath(project.rootPath), log.output, 'utf-8')
       }
 
-    const refreshedProject = getProject(request.profileName, request.projectId, request.connection)
+    const refreshedProject = await getProject(request.profileName, request.projectId, request.connection)
     emit(window, { type: 'completed', projectId: request.projectId, log, project: refreshedProject })
 
     // Update history record on success
@@ -3294,7 +3300,7 @@ export async function runProjectCommand(
     if (!log.output.includes(errorMessage)) {
       log.output += `${log.output.endsWith('\n') || !log.output ? '' : '\n'}${errorMessage}`
     }
-    emit(window, { type: 'completed', projectId: request.projectId, log, project: getProject(request.profileName, request.projectId, request.connection) })
+    emit(window, { type: 'completed', projectId: request.projectId, log, project: await getProject(request.profileName, request.projectId, request.connection) })
 
     // Update history record on error
     updateRunRecord(log.id, {

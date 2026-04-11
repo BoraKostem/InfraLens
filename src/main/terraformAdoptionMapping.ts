@@ -373,13 +373,13 @@ function determineConfidence(
   return 'low'
 }
 
-export function mapTerraformAdoption(
+export async function mapTerraformAdoption(
   profileName: string,
   projectId: string,
   connection: AwsConnection | undefined,
   target: TerraformAdoptionTarget
-): TerraformAdoptionMappingResult {
-  const project = getProject(profileName, projectId, connection)
+): Promise<TerraformAdoptionMappingResult> {
+  const project = await getProject(profileName, projectId, connection)
   const supported = SUPPORTED_TARGET_TYPES.has(target.resourceType)
   const reasons: string[] = []
   const warnings: string[] = []
