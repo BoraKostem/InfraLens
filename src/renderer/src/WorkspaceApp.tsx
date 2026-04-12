@@ -249,7 +249,7 @@ export function WorkspaceApp({
       <section className="lbw-hero">
         <div className="lbw-hero-copy">
           <div className="eyebrow">Load Balancer Service</div>
-          <h2>ALB and NLB workspace with listener, target, and health posture in one surface.</h2>
+          <h2>Load Balancers</h2>
           <p>Filter the fleet, inspect the selected load balancer, and keep delete and refresh workflows exactly as before.</p>
           <div className="lbw-meta-strip">
             <div className="lbw-meta-pill"><span>Region</span><strong>{connection.region}</strong></div>
