@@ -6577,6 +6577,33 @@ export type TerraformAdoptionResourceType =
   | 'aws_kms_key'
   | 'aws_sqs_queue'
   | 'aws_sns_topic'
+  | 'google_compute_instance'
+  | 'google_compute_network'
+  | 'google_compute_subnetwork'
+  | 'google_compute_firewall'
+  | 'google_storage_bucket'
+  | 'google_sql_database_instance'
+  | 'google_container_cluster'
+  | 'google_cloud_run_service'
+  | 'google_pubsub_topic'
+  | 'google_pubsub_subscription'
+  | 'google_dns_managed_zone'
+  | 'google_project_iam_member'
+  | 'google_service_account'
+  | 'azurerm_virtual_machine'
+  | 'azurerm_resource_group'
+  | 'azurerm_virtual_network'
+  | 'azurerm_subnet'
+  | 'azurerm_network_security_group'
+  | 'azurerm_storage_account'
+  | 'azurerm_sql_server'
+  | 'azurerm_kubernetes_cluster'
+  | 'azurerm_app_service'
+  | 'azurerm_cosmosdb_account'
+  | 'azurerm_key_vault'
+  | 'azurerm_dns_zone'
+  | 'azurerm_eventhub_namespace'
+  | 'azurerm_postgresql_flexible_server'
 
 export type TerraformAdoptionTarget = {
   serviceId: ServiceId
@@ -6595,13 +6622,25 @@ export type TerraformAdoptionTarget = {
     availabilityZone?: string
     instanceType?: string
     imageId?: string
+    gcpProject?: string
+    gcpZone?: string
+    gcpMachineType?: string
+    gcpNetwork?: string
+    gcpSubnetwork?: string
+    gcpServiceAccountEmail?: string
+    azureSubscriptionId?: string
+    azureResourceGroup?: string
+    azureLocation?: string
+    azureVmSize?: string
+    azureVnetId?: string
+    azureSubnetId?: string
   }
 }
 
 export type TerraformAdoptionStateMatch = {
   address: string
   resourceType: string
-  matchedOn: 'identifier' | 'arn' | 'name' | 'eks-nodegroup'
+  matchedOn: 'identifier' | 'arn' | 'name' | 'eks-nodegroup' | 'self-link' | 'azure-resource-id'
   matchedValue: string
 }
 
@@ -6646,6 +6685,8 @@ export type TerraformAdoptionRelatedResourceMatch = {
   modulePath: string
   mode: 'managed' | 'data'
   matchedOn: 'subnet-id' | 'vpc-id' | 'security-group' | 'iam-instance-profile' | 'eks-nodegroup'
+    | 'gcp-network' | 'gcp-subnetwork' | 'gcp-service-account' | 'gke-cluster'
+    | 'azure-vnet' | 'azure-subnet' | 'azure-nsg' | 'azure-resource-group' | 'aks-cluster'
   matchedValue: string
 }
 
