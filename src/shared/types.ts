@@ -7644,3 +7644,168 @@ export type AzureFirewallDetail = {
   ipConfigurations: AzureFirewallIpConfiguration[]
   ruleCollections: AzureFirewallRuleCollection[]
 }
+
+/* ── Azure Monitor / Log Analytics Extended types ───────── */
+
+export type AzureMetricAlertRuleSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  description: string
+  severity: number
+  enabled: boolean
+  evaluationFrequency: string
+  windowSize: string
+  targetResourceType: string
+  targetResourceRegion: string
+  scopes: string[]
+  criteriaCount: number
+  actionGroupIds: string[]
+  lastUpdated: string
+}
+
+export type AzureScheduledQueryRuleSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  description: string
+  severity: number
+  enabled: boolean
+  evaluationFrequency: string
+  windowSize: string
+  scopes: string[]
+  criteriaCount: number
+  actionGroupIds: string[]
+  muteActionsDuration: string
+  autoMitigate: boolean
+  targetResourceTypes: string[]
+  kind: string
+  lastUpdated: string
+}
+
+export type AzureActionGroupSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  groupShortName: string
+  enabled: boolean
+  emailReceiverCount: number
+  smsReceiverCount: number
+  webhookReceiverCount: number
+  azureAppPushReceiverCount: number
+  automationRunbookReceiverCount: number
+  logicAppReceiverCount: number
+  azureFunctionReceiverCount: number
+  armRoleReceiverCount: number
+  totalReceiverCount: number
+}
+
+export type AzureMetricDataPoint = {
+  timestamp: string
+  average?: number
+  total?: number
+  maximum?: number
+  minimum?: number
+  count?: number
+}
+
+export type AzureMetricTimeSeries = {
+  metricName: string
+  displayName: string
+  unit: string
+  dataPoints: AzureMetricDataPoint[]
+}
+
+export type AzureMetricQueryResult = {
+  resourceId: string
+  timespan: string
+  interval: string
+  aggregation: string
+  metrics: AzureMetricTimeSeries[]
+}
+
+export type AzureDiagnosticSettingSummary = {
+  id: string
+  name: string
+  storageAccountId: string
+  workspaceId: string
+  eventHubAuthorizationRuleId: string
+  eventHubName: string
+  logAnalyticsDestinationType: string
+  enabledLogCategories: string[]
+  enabledMetricCategories: string[]
+  totalLogCategories: number
+  totalMetricCategories: number
+}
+
+export type AzureLogAnalyticsQueryTemplate = {
+  id: string
+  name: string
+  category: string
+  description: string
+  query: string
+  timespan: string
+}
+
+export type AzureLogAnalyticsQueryWithMeta = {
+  tables: Array<{
+    name: string
+    columns: Array<{ name: string; type: string }>
+    rows: unknown[][]
+  }>
+  statistics?: { query?: { executionTime?: number } }
+  error?: string
+  executionTimeMs: number
+  rowCount: number
+  truncated: boolean
+  visualizationHint: 'table' | 'timechart' | 'barchart' | 'piechart' | 'scalar'
+}
+
+export type AzureLogAnalyticsHistoryEntry = {
+  id: string
+  workspaceId: string
+  query: string
+  executedAt: string
+  success: boolean
+  executionTimeMs?: number
+  errorMessage?: string
+}
+
+export type AzureResourceHealthSummary = {
+  id: string
+  targetResourceId: string
+  resourceGroup: string
+  availabilityState: string
+  title: string
+  summary: string
+  reasonType: string
+  reasonChronicity: string
+  occurredTime: string
+  reportedTime: string
+  resolutionETA: string
+  category: string
+}
+
+export type AzureServiceHealthEvent = {
+  id: string
+  name: string
+  eventType: string
+  eventSource: string
+  status: string
+  title: string
+  summary: string
+  header: string
+  level: string
+  impactStartTime: string
+  impactMitigationTime: string
+  impactedServices: Array<{
+    serviceName: string
+    impactedRegions: string[]
+  }>
+  lastUpdateTime: string
+  isHIR: boolean
+  priority: number
+}

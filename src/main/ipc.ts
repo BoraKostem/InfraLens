@@ -14,11 +14,21 @@ import type {
   AzureCostByResourceGroup,
   AzureCostByTag,
   AzureCostForecast,
+  AzureActionGroupSummary,
   AzureCostTrend,
   AzureCrossSubscriptionQueryResult,
+  AzureDiagnosticSettingSummary,
+  AzureLogAnalyticsHistoryEntry,
+  AzureLogAnalyticsQueryTemplate,
+  AzureLogAnalyticsQueryWithMeta,
   AzureManagementGroupSummary,
+  AzureMetricAlertRuleSummary,
+  AzureMetricQueryResult,
   AzureProviderContextSnapshot,
   AzureReservationUtilization,
+  AzureResourceHealthSummary,
+  AzureScheduledQueryRuleSummary,
+  AzureServiceHealthEvent,
   AzureVmAction,
   AzureWebAppAction,
   AzureDnsRecordUpsertInput,
@@ -875,6 +885,80 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     wrap<AzureCostAnomaly[]>(async () => {
       const { getAzureCostAnomalies } = await import('./azure/cost')
       return getAzureCostAnomalies(subscriptionId)
+    })
+  )
+
+  // ── Azure Monitor / Log Analytics Extended ────────────────────────────────────
+  ipcMain.handle('azure:monitor:list-metric-alert-rules', async (_event, subscriptionId: string) =>
+    wrap<AzureMetricAlertRuleSummary[]>(async () => {
+      const { listAzureMetricAlertRules } = await import('./azure/monitor')
+      return listAzureMetricAlertRules(subscriptionId)
+    })
+  )
+  ipcMain.handle('azure:monitor:list-scheduled-query-rules', async (_event, subscriptionId: string) =>
+    wrap<AzureScheduledQueryRuleSummary[]>(async () => {
+      const { listAzureScheduledQueryRules } = await import('./azure/monitor')
+      return listAzureScheduledQueryRules(subscriptionId)
+    })
+  )
+  ipcMain.handle('azure:monitor:list-action-groups', async (_event, subscriptionId: string) =>
+    wrap<AzureActionGroupSummary[]>(async () => {
+      const { listAzureActionGroups } = await import('./azure/monitor')
+      return listAzureActionGroups(subscriptionId)
+    })
+  )
+  ipcMain.handle('azure:monitor:query-metrics', async (_event, resourceId: string, metricNames: string, timespan?: string, interval?: string, aggregation?: string) =>
+    wrap<AzureMetricQueryResult>(async () => {
+      const { queryAzureMetrics } = await import('./azure/monitor')
+      return queryAzureMetrics(resourceId, metricNames, timespan, interval, aggregation)
+    })
+  )
+  ipcMain.handle('azure:monitor:list-diagnostic-settings', async (_event, resourceId: string) =>
+    wrap<AzureDiagnosticSettingSummary[]>(async () => {
+      const { listAzureDiagnosticSettings } = await import('./azure/monitor')
+      return listAzureDiagnosticSettings(resourceId)
+    })
+  )
+  ipcMain.handle('azure:log-analytics:query-templates', async () =>
+    wrap<AzureLogAnalyticsQueryTemplate[]>(async () => {
+      const { getAzureLogAnalyticsQueryTemplates } = await import('./azure/monitor')
+      return getAzureLogAnalyticsQueryTemplates()
+    })
+  )
+  ipcMain.handle('azure:log-analytics:query-with-timeout', async (_event, workspaceId: string, query: string, timespan?: string, timeoutSeconds?: number) =>
+    wrap<AzureLogAnalyticsQueryWithMeta>(async () => {
+      const { queryAzureLogAnalyticsWithTimeout } = await import('./azure/monitor')
+      return queryAzureLogAnalyticsWithTimeout(workspaceId, query, timespan, timeoutSeconds)
+    })
+  )
+  ipcMain.handle('azure:log-analytics:export-csv', async (_event, tables: Array<{ name: string; columns: Array<{ name: string; type: string }>; rows: unknown[][] }>) =>
+    wrap<string>(async () => {
+      const { exportAzureLogAnalyticsResultCsv } = await import('./azure/monitor')
+      return exportAzureLogAnalyticsResultCsv(tables)
+    })
+  )
+  ipcMain.handle('azure:log-analytics:history', async (_event, workspaceId: string) =>
+    wrap<AzureLogAnalyticsHistoryEntry[]>(async () => {
+      const { getAzureLogAnalyticsQueryHistory } = await import('./azure/monitor')
+      return getAzureLogAnalyticsQueryHistory(workspaceId)
+    })
+  )
+  ipcMain.handle('azure:log-analytics:clear-history', async (_event, workspaceId?: string) =>
+    wrap<void>(async () => {
+      const { clearAzureLogAnalyticsQueryHistory } = await import('./azure/monitor')
+      clearAzureLogAnalyticsQueryHistory(workspaceId)
+    })
+  )
+  ipcMain.handle('azure:monitor:list-resource-health', async (_event, subscriptionId: string) =>
+    wrap<AzureResourceHealthSummary[]>(async () => {
+      const { listAzureResourceHealth } = await import('./azure/monitor')
+      return listAzureResourceHealth(subscriptionId)
+    })
+  )
+  ipcMain.handle('azure:monitor:list-service-health-events', async (_event, subscriptionId: string, eventType?: string) =>
+    wrap<AzureServiceHealthEvent[]>(async () => {
+      const { listAzureServiceHealthEvents } = await import('./azure/monitor')
+      return listAzureServiceHealthEvents(subscriptionId, eventType as 'ServiceIssue' | 'PlannedMaintenance' | 'HealthAdvisory' | 'SecurityAdvisory' | undefined)
     })
   )
 

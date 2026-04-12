@@ -31,3 +31,18 @@ export {
   getAzureReservationUtilization,
   getAzureCostAnomalies
 } from './cost'
+
+export {
+  listAzureMetricAlertRules,
+  listAzureScheduledQueryRules,
+  listAzureActionGroups,
+  queryAzureMetrics,
+  listAzureDiagnosticSettings,
+  getAzureLogAnalyticsQueryTemplates,
+  queryAzureLogAnalyticsWithTimeout,
+  exportAzureLogAnalyticsResultCsv,
+  getAzureLogAnalyticsQueryHistory,
+  clearAzureLogAnalyticsQueryHistory,
+  listAzureResourceHealth,
+  listAzureServiceHealthEvents
+} from './monitor'
