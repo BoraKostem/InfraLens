@@ -4572,8 +4572,25 @@ export function App() {
     setPendingTerminalCommand(null)
     setTerminalOpen(false)
     setSelectedPreviewModeIds((current) => ({ ...current, azure: 'azure-subscription' }))
-    setAzureContextBusy(true)
     setAzureContextError('')
+
+    // Optimistically apply the subscription from the cached context so the UI
+    // updates immediately instead of blocking on the IPC round-trip.
+    if (azureProviderContext) {
+      const matched = azureProviderContext.subscriptions.find((s) => s.subscriptionId === subscriptionId)
+      if (matched) {
+        applyAzureSnapshot({
+          ...azureProviderContext,
+          activeSubscriptionId: subscriptionId,
+          activeTenantId: matched.tenantId || azureProviderContext.activeTenantId,
+          activeLocation: ''
+        })
+        setNavOpen(true)
+      }
+    }
+
+    // Persist the selection and refresh the full context in the background.
+    setAzureContextBusy(true)
     try {
       applyAzureSnapshot(await setAzureActiveSubscription(subscriptionId))
       setNavOpen(true)
