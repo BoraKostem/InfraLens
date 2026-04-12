@@ -669,7 +669,7 @@ export function AzureOverviewConsole({
                 )}
               </article>
 
-              <article className="overview-account-card">
+              <article className="overview-account-card overview-account-card-cost">
                 <div className="panel-header minor">
                   <h3>Cost Summary</h3>
                   <span className="hero-path" style={{ margin: 0 }}>{data.cost?.timeframeLabel || 'Current month'}</span>
@@ -682,8 +682,8 @@ export function AzureOverviewConsole({
                       <div><span>Resource groups</span><strong>{data.cost.topResourceGroups.length}</strong></div>
                     </div>
                     {data.cost.topServices.length > 0 ? (
-                      <div className="overview-linked-account-list">
-                        {data.cost.topServices.slice(0, 5).map((entry) => (
+                      <div className="overview-linked-account-list overview-linked-account-list-scroll">
+                        {data.cost.topServices.map((entry) => (
                           <div key={entry.label} className="overview-linked-account-row">
                             <div>
                               <strong>{entry.label}</strong>

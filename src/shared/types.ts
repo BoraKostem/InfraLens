@@ -709,6 +709,22 @@ export type AzureAuthSessionState = {
   lastError: string
 }
 
+export type AzureManagementGroupSummary = {
+  id: string
+  name: string
+  displayName: string
+  tenantId: string
+  parentId: string
+  parentDisplayName: string
+  childSubscriptionIds: string[]
+  childGroupIds: string[]
+}
+
+export type AzureCrossSubscriptionQueryResult = {
+  totalRecords: number
+  data: Record<string, unknown>[]
+}
+
 export type AzureProviderContextSnapshot = {
   loadedAt: string
   auth: AzureAuthSessionState
@@ -723,6 +739,8 @@ export type AzureProviderContextSnapshot = {
   locations: AzureLocationSummary[]
   recentSubscriptionIds: string[]
   recentSubscriptions: AzureSubscriptionSummary[]
+  favoriteSubscriptionIds: string[]
+  managementGroups: AzureManagementGroupSummary[]
   providerRegistrations: AzureProviderRegistrationSummary[]
   diagnostics: AzureContextDiagnostic[]
 }
@@ -1466,6 +1484,131 @@ export type AzureCostOverview = {
   notes: string[]
 }
 
+// ── Azure Cost Management Extended Types ────────────────────────────────────────
+
+export type AzureCostTrendMonth = {
+  month: string
+  totalAmount: number
+  currency: string
+  topServices: { service: string; amount: number }[]
+}
+
+export type AzureCostTrend = {
+  subscriptionId: string
+  months: AzureCostTrendMonth[]
+  currency: string
+  message: string
+}
+
+export type AzureCostResourceGroupEntry = {
+  resourceGroup: string
+  amount: number
+  currency: string
+  sharePercent: number
+  topServices: { service: string; amount: number }[]
+}
+
+export type AzureCostByResourceGroup = {
+  subscriptionId: string
+  entries: AzureCostResourceGroupEntry[]
+  totalAmount: number
+  currency: string
+  message: string
+}
+
+export type AzureCostMeterEntry = {
+  meterCategory: string
+  meterSubCategory: string
+  amount: number
+  currency: string
+  sharePercent: number
+}
+
+export type AzureCostByMeterCategory = {
+  subscriptionId: string
+  entries: AzureCostMeterEntry[]
+  totalAmount: number
+  currency: string
+  message: string
+}
+
+export type AzureCostTagEntry = {
+  tagValue: string
+  amount: number
+  currency: string
+  sharePercent: number
+}
+
+export type AzureCostByTag = {
+  subscriptionId: string
+  tagKey: string
+  entries: AzureCostTagEntry[]
+  totalAmount: number
+  currency: string
+  message: string
+}
+
+export type AzureCostForecastEntry = {
+  date: string
+  amount: number
+  costType: 'actual' | 'forecast'
+  currency: string
+}
+
+export type AzureCostForecast = {
+  subscriptionId: string
+  actualTotal: number
+  forecastTotal: number
+  entries: AzureCostForecastEntry[]
+  currency: string
+  confidence: 'low' | 'medium' | 'high'
+  message: string
+}
+
+export type AzureBudgetSummary = {
+  name: string
+  id: string
+  amount: number
+  timeGrain: string
+  currency: string
+  startDate: string
+  endDate: string
+  currentSpend: number
+  forecastSpend: number
+  thresholdPercents: number[]
+  category: string
+  utilizationPercent: number
+}
+
+export type AzureReservationEntry = {
+  reservationId: string
+  reservationOrderId: string
+  skuName: string
+  avgUtilizationPercent: number
+  minUtilizationPercent: number
+  maxUtilizationPercent: number
+  reservedHours: number
+  usedHours: number
+  usageDate: string
+}
+
+export type AzureReservationUtilization = {
+  subscriptionId: string
+  entries: AzureReservationEntry[]
+  averageUtilization: number
+  message: string
+}
+
+export type AzureCostAnomaly = {
+  service: string
+  currentAmount: number
+  previousAmount: number
+  absoluteChange: number
+  percentChange: number
+  severity: 'info' | 'warning' | 'critical'
+  comparisonBasis: string
+}
+
 export type GcpProjectLabelSummary = {
   key: string
   value: string
@@ -1569,6 +1712,123 @@ export type GcpIamOverview = {
   serviceAccounts: GcpServiceAccountSummary[]
   capabilityHints: GcpIamCapabilityHint[]
   notes: string[]
+}
+
+// ── GCP IAM Extended Types (Console Feature Parity) ─────────────────────────────
+
+export type GcpServiceAccountIamBinding = {
+  role: string
+  members: string[]
+  conditionTitle: string
+  conditionExpression: string
+}
+
+export type GcpServiceAccountDetail = {
+  email: string
+  displayName: string
+  uniqueId: string
+  description: string
+  disabled: boolean
+  oauth2ClientId: string
+  projectId: string
+  iamBindings: GcpServiceAccountIamBinding[]
+  keys: {
+    keyId: string
+    keyType: string
+    keyOrigin: string
+    validAfterTime: string
+    validBeforeTime: string
+    disabled: boolean
+  }[]
+  keyCount: number
+  oldestKeyAgeDays: number
+}
+
+export type GcpServiceAccountKeyReportEntry = {
+  email: string
+  displayName: string
+  disabled: boolean
+  keys: {
+    keyId: string
+    validAfterTime: string
+    validBeforeTime: string
+    ageDays: number
+    disabled: boolean
+  }[]
+  keyCount: number
+  oldestKeyAgeDays: number
+}
+
+export type GcpServiceAccountKeyReport = {
+  projectId: string
+  generatedAt: string
+  entries: GcpServiceAccountKeyReportEntry[]
+  summary: {
+    totalAccounts: number
+    totalKeys: number
+    keysOlderThan90Days: number
+    keysOlderThan365Days: number
+    disabledAccounts: number
+  }
+}
+
+export type GcpIamAuditEntry = {
+  timestamp: string
+  severity: string
+  methodName: string
+  principalEmail: string
+  callerIp: string
+  resourceName: string
+  serviceName: string
+  statusCode: number
+  statusMessage: string
+}
+
+export type GcpWorkloadIdentityPoolSummary = {
+  name: string
+  displayName: string
+  description: string
+  state: string
+  disabled: boolean
+  expireTime: string
+}
+
+export type GcpWorkloadIdentityProviderSummary = {
+  name: string
+  displayName: string
+  description: string
+  state: string
+  disabled: boolean
+  providerType: string
+  attributeMapping: Record<string, string>
+  attributeCondition: string
+}
+
+export type GcpIamRecommendation = {
+  name: string
+  description: string
+  priority: string
+  recommenderSubtype: string
+  state: string
+  category: string
+  affectedMember: string
+  currentRole: string
+  recommendedRole: string
+  lastRefreshTime: string
+}
+
+export type GcpIamPolicyAnalysisAccessEntry = {
+  role: string
+  members: string[]
+  identities: string[]
+  resources: string[]
+  accesses: string[]
+  conditionTitle: string
+}
+
+export type GcpIamPolicyAnalysisResult = {
+  analysisResults: GcpIamPolicyAnalysisAccessEntry[]
+  fullyExplored: boolean
 }
 
 export type GcpComputeInstanceSummary = {
@@ -1943,6 +2203,106 @@ export type GcpBillingOverview = {
   lastUpdatedAt: string
 }
 
+// ── GCP Billing & Cost Analysis Extended Types ──────────────────────────────────
+
+export type GcpBillingAccountSummary = {
+  name: string
+  displayName: string
+  open: boolean
+  masterBillingAccount: string
+}
+
+export type GcpBillingCostTrendMonth = {
+  month: string
+  totalAmount: number
+  currency: string
+  topServices: { service: string; amount: number }[]
+}
+
+export type GcpBillingCostTrend = {
+  projectId: string
+  months: GcpBillingCostTrendMonth[]
+  currency: string
+  message: string
+}
+
+export type GcpBillingDailyCostEntry = {
+  date: string
+  amount: number
+  currency: string
+}
+
+export type GcpBillingDailyCostTrend = {
+  projectId: string
+  days: GcpBillingDailyCostEntry[]
+  currency: string
+  message: string
+}
+
+export type GcpBillingLabelCostEntry = {
+  labelValue: string
+  amount: number
+  currency: string
+  sharePercent: number
+}
+
+export type GcpBillingCostByLabel = {
+  projectId: string
+  labelKey: string
+  entries: GcpBillingLabelCostEntry[]
+  totalAmount: number
+  currency: string
+  message: string
+}
+
+export type GcpBillingSkuCostEntry = {
+  skuDescription: string
+  amount: number
+  currency: string
+  sharePercent: number
+}
+
+export type GcpBillingSkuBreakdown = {
+  projectId: string
+  serviceName: string
+  entries: GcpBillingSkuCostEntry[]
+  totalAmount: number
+  currency: string
+  message: string
+}
+
+export type GcpBillingBudgetSummary = {
+  name: string
+  displayName: string
+  budgetAmount: number
+  currency: string
+  scopeProjectIds: string[]
+  thresholdPercents: number[]
+  calendarPeriod: string
+}
+
+export type GcpBillingCostForecast = {
+  projectId: string
+  currentMonthSpend: number
+  forecastedMonthEnd: number
+  averageDailySpend: number
+  daysElapsed: number
+  daysRemaining: number
+  currency: string
+  confidence: 'low' | 'medium' | 'high'
+  message: string
+}
+
+export type GcpBillingCostAnomaly = {
+  service: string
+  currentAmount: number
+  previousAmount: number
+  absoluteChange: number
+  percentChange: number
+  severity: 'info' | 'warning' | 'critical'
+  comparisonBasis: string
+}
+
 export type GcpBigQueryDatasetSummary = {
   datasetId: string
   projectId: string
@@ -2037,6 +2397,101 @@ export type GcpMonitoringTimeSeriesResult = {
   metric: string
   resource: string
   points: GcpMonitoringTimeSeriesPoint[]
+}
+
+// ── GCP Monitoring Extended Types (Console Feature Parity) ──────────────────────
+
+export type GcpMonitoringNotificationChannelSummary = {
+  name: string
+  displayName: string
+  type: string
+  enabled: boolean
+  description: string
+  labels: Record<string, string>
+  verificationStatus: string
+  creationTime: string
+  mutationTime: string
+}
+
+export type GcpMonitoringGroupSummary = {
+  name: string
+  displayName: string
+  filter: string
+  parentName: string
+  isCluster: boolean
+}
+
+export type GcpMonitoringDashboardSummary = {
+  name: string
+  displayName: string
+  etag: string
+  widgetCount: number
+}
+
+export type GcpMonitoringDashboardDetail = {
+  name: string
+  displayName: string
+  etag: string
+  widgets: {
+    title: string
+    widgetType: string
+    metricTypes: string[]
+  }[]
+}
+
+export type GcpMonitoringAggregatedPoint = {
+  timestamp: string
+  value: number
+}
+
+export type GcpMonitoringAggregatedMetric = {
+  metricType: string
+  timeSeries: {
+    metricType: string
+    resourceType: string
+    resourceLabels: Record<string, string>
+    metricLabels: Record<string, string>
+    points: GcpMonitoringAggregatedPoint[]
+  }[]
+  alignmentPeriod: string
+  aggregation: string
+}
+
+export type GcpLogEntry = {
+  logName: string
+  timestamp: string
+  severity: string
+  insertId: string
+  resourceType: string
+  resourceLabels: Record<string, string>
+  textPayload: string
+  jsonPayloadSummary: string
+  httpMethod: string
+  httpStatus: number
+  httpUrl: string
+  trace: string
+  spanId: string
+}
+
+export type GcpLogEntriesResult = {
+  entries: GcpLogEntry[]
+  nextPageToken: string
+}
+
+export type GcpMonitoringServiceSummary = {
+  name: string
+  displayName: string
+  serviceType: string
+  telemetryResourceName: string
+}
+
+export type GcpMonitoringSloSummary = {
+  name: string
+  displayName: string
+  goal: number
+  rollingPeriodDays: number
+  calendarPeriod: string
+  sliType: string
 }
 
 export type GcpSccFindingSummary = {
@@ -7188,4 +7643,386 @@ export type AzureFirewallDetail = {
   summary: AzureFirewallSummary
   ipConfigurations: AzureFirewallIpConfiguration[]
   ruleCollections: AzureFirewallRuleCollection[]
+}
+
+/* ── Azure Monitor / Log Analytics Extended types ───────── */
+
+export type AzureMetricAlertRuleSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  description: string
+  severity: number
+  enabled: boolean
+  evaluationFrequency: string
+  windowSize: string
+  targetResourceType: string
+  targetResourceRegion: string
+  scopes: string[]
+  criteriaCount: number
+  actionGroupIds: string[]
+  lastUpdated: string
+}
+
+export type AzureScheduledQueryRuleSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  description: string
+  severity: number
+  enabled: boolean
+  evaluationFrequency: string
+  windowSize: string
+  scopes: string[]
+  criteriaCount: number
+  actionGroupIds: string[]
+  muteActionsDuration: string
+  autoMitigate: boolean
+  targetResourceTypes: string[]
+  kind: string
+  lastUpdated: string
+}
+
+export type AzureActionGroupSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  groupShortName: string
+  enabled: boolean
+  emailReceiverCount: number
+  smsReceiverCount: number
+  webhookReceiverCount: number
+  azureAppPushReceiverCount: number
+  automationRunbookReceiverCount: number
+  logicAppReceiverCount: number
+  azureFunctionReceiverCount: number
+  armRoleReceiverCount: number
+  totalReceiverCount: number
+}
+
+export type AzureMetricDataPoint = {
+  timestamp: string
+  average?: number
+  total?: number
+  maximum?: number
+  minimum?: number
+  count?: number
+}
+
+export type AzureMetricTimeSeries = {
+  metricName: string
+  displayName: string
+  unit: string
+  dataPoints: AzureMetricDataPoint[]
+}
+
+export type AzureMetricQueryResult = {
+  resourceId: string
+  timespan: string
+  interval: string
+  aggregation: string
+  metrics: AzureMetricTimeSeries[]
+}
+
+export type AzureDiagnosticSettingSummary = {
+  id: string
+  name: string
+  storageAccountId: string
+  workspaceId: string
+  eventHubAuthorizationRuleId: string
+  eventHubName: string
+  logAnalyticsDestinationType: string
+  enabledLogCategories: string[]
+  enabledMetricCategories: string[]
+  totalLogCategories: number
+  totalMetricCategories: number
+}
+
+export type AzureLogAnalyticsQueryTemplate = {
+  id: string
+  name: string
+  category: string
+  description: string
+  query: string
+  timespan: string
+}
+
+export type AzureLogAnalyticsQueryWithMeta = {
+  tables: Array<{
+    name: string
+    columns: Array<{ name: string; type: string }>
+    rows: unknown[][]
+  }>
+  statistics?: { query?: { executionTime?: number } }
+  error?: string
+  executionTimeMs: number
+  rowCount: number
+  truncated: boolean
+  visualizationHint: 'table' | 'timechart' | 'barchart' | 'piechart' | 'scalar'
+}
+
+export type AzureLogAnalyticsHistoryEntry = {
+  id: string
+  workspaceId: string
+  query: string
+  executedAt: string
+  success: boolean
+  executionTimeMs?: number
+  errorMessage?: string
+}
+
+export type AzureResourceHealthSummary = {
+  id: string
+  targetResourceId: string
+  resourceGroup: string
+  availabilityState: string
+  title: string
+  summary: string
+  reasonType: string
+  reasonChronicity: string
+  occurredTime: string
+  reportedTime: string
+  resolutionETA: string
+  category: string
+}
+
+export type AzureServiceHealthEvent = {
+  id: string
+  name: string
+  eventType: string
+  eventSource: string
+  status: string
+  title: string
+  summary: string
+  header: string
+  level: string
+  impactStartTime: string
+  impactMitigationTime: string
+  impactedServices: Array<{
+    serviceName: string
+    impactedRegions: string[]
+  }>
+  lastUpdateTime: string
+  isHIR: boolean
+  priority: number
+}
+
+/* ── Azure Network Topology types ──────────────────────── */
+
+export type AzureApplicationGatewaySummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  skuName: string
+  skuTier: string
+  skuCapacity: number
+  provisioningState: string
+  operationalState: string
+  httpListenerCount: number
+  requestRoutingRuleCount: number
+  backendPoolCount: number
+  backendSettingsCount: number
+  frontendIpCount: number
+  frontendPortCount: number
+  sslCertificateCount: number
+  probeCount: number
+  wafEnabled: boolean
+  zones: string[]
+}
+
+export type AzureVpnGatewaySummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  gatewayType: string
+  vpnType: string
+  vpnGatewayGeneration: string
+  skuName: string
+  skuTier: string
+  enableBgp: boolean
+  bgpAsn: number
+  activeActive: boolean
+  ipConfigurationCount: number
+  connectedVNetId: string
+  vpnClientAddressPrefixes: string[]
+  provisioningState: string
+  zones: string[]
+}
+
+export type AzureExpressRouteCircuitSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  skuName: string
+  skuTier: string
+  skuFamily: string
+  circuitProvisioningState: string
+  serviceProviderProvisioningState: string
+  serviceProviderName: string
+  peeringLocation: string
+  bandwidthInMbps: number
+  peeringCount: number
+  authorizationCount: number
+  allowClassicOperations: boolean
+  globalReachEnabled: boolean
+  provisioningState: string
+}
+
+export type AzurePrivateDnsZoneSummary = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  numberOfRecordSets: number
+  maxNumberOfRecordSets: number
+  numberOfVirtualNetworkLinks: number
+  maxNumberOfVirtualNetworkLinks: number
+  provisioningState: string
+}
+
+export type AzurePrivateDnsVNetLink = {
+  id: string
+  name: string
+  virtualNetworkId: string
+  registrationEnabled: boolean
+  provisioningState: string
+}
+
+export type AzureEffectiveRoute = {
+  source: string
+  state: string
+  addressPrefixes: string[]
+  nextHopType: string
+  nextHopIpAddress: string[]
+  disableBgpRoutePropagation: boolean
+}
+
+export type AzureEffectiveNsgRule = {
+  nsgId: string
+  name: string
+  protocol: string
+  sourcePortRange: string
+  destinationPortRange: string
+  sourceAddressPrefixes: string[]
+  destinationAddressPrefixes: string[]
+  access: 'Allow' | 'Deny'
+  priority: number
+  direction: 'Inbound' | 'Outbound'
+}
+
+export type AzureNetworkTopologyNode = {
+  id: string
+  name: string
+  type:
+    | 'vnet'
+    | 'subnet'
+    | 'nsg'
+    | 'publicIp'
+    | 'loadBalancer'
+    | 'applicationGateway'
+    | 'vpnGateway'
+    | 'firewall'
+    | 'privateEndpoint'
+    | 'natGateway'
+    | 'expressRoute'
+  resourceGroup: string
+  location: string
+  properties: Record<string, unknown>
+}
+
+export type AzureNetworkTopologyEdge = {
+  source: string
+  target: string
+  type:
+    | 'contains'
+    | 'peering'
+    | 'secures'
+    | 'routes'
+    | 'egress'
+    | 'frontend'
+    | 'deployed'
+    | 'gateway'
+    | 'assignedTo'
+    | 'privateLink'
+  label: string
+}
+
+export type AzureNetworkTopologySummary = {
+  vnetCount: number
+  subnetCount: number
+  nsgCount: number
+  publicIpCount: number
+  loadBalancerCount: number
+  applicationGatewayCount: number
+  vpnGatewayCount: number
+  firewallCount: number
+  privateEndpointCount: number
+  natGatewayCount: number
+  expressRouteCount: number
+  peeringCount: number
+  totalNodeCount: number
+  totalEdgeCount: number
+}
+
+export type AzureNetworkTopology = {
+  subscriptionId: string
+  location: string
+  nodes: AzureNetworkTopologyNode[]
+  edges: AzureNetworkTopologyEdge[]
+  summary: AzureNetworkTopologySummary
+}
+
+export type AzureVNetTopologySubnetDetail = {
+  id: string
+  name: string
+  addressPrefix: string
+  nsgId: string
+  nsgName: string
+  routeTableId: string
+  routeTableName: string
+  natGatewayId: string
+  delegations: string[]
+  serviceEndpoints: string[]
+  privateEndpointCount: number
+  connectedNicCount: number
+  connectedNics: Array<{
+    id: string
+    name: string
+    privateIp: string
+    attachedVmName: string
+  }>
+}
+
+export type AzureVNetTopologyPeering = {
+  id: string
+  name: string
+  peeringState: string
+  remoteVNetId: string
+  remoteVNetName: string
+  allowVirtualNetworkAccess: boolean
+  allowForwardedTraffic: boolean
+  allowGatewayTransit: boolean
+  useRemoteGateways: boolean
+}
+
+export type AzureVNetTopologyDetail = {
+  id: string
+  name: string
+  resourceGroup: string
+  location: string
+  addressPrefixes: string[]
+  dnsServers: string[]
+  enableDdosProtection: boolean
+  subnets: AzureVNetTopologySubnetDetail[]
+  peerings: AzureVNetTopologyPeering[]
+  hasGatewaySubnet: boolean
+  hasFirewallSubnet: boolean
+  totalNicCount: number
+  provisioningState: string
 }

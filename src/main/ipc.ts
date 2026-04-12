@@ -8,13 +8,66 @@ import type {
   AppSecuritySummary,
   AppSettings,
   AwsConnection,
+  AzureBudgetSummary,
+  AzureCostAnomaly,
+  AzureCostByMeterCategory,
+  AzureCostByResourceGroup,
+  AzureCostByTag,
+  AzureCostForecast,
+  AzureActionGroupSummary,
+  AzureApplicationGatewaySummary,
+  AzureCostTrend,
+  AzureCrossSubscriptionQueryResult,
+  AzureDiagnosticSettingSummary,
+  AzureEffectiveNsgRule,
+  AzureEffectiveRoute,
+  AzureExpressRouteCircuitSummary,
+  AzureLogAnalyticsHistoryEntry,
+  AzureLogAnalyticsQueryTemplate,
+  AzureLogAnalyticsQueryWithMeta,
+  AzureManagementGroupSummary,
+  AzureMetricAlertRuleSummary,
+  AzureMetricQueryResult,
+  AzureNetworkTopology,
+  AzurePrivateDnsVNetLink,
+  AzurePrivateDnsZoneSummary,
   AzureProviderContextSnapshot,
+  AzureReservationUtilization,
+  AzureResourceHealthSummary,
+  AzureScheduledQueryRuleSummary,
+  AzureServiceHealthEvent,
   AzureVmAction,
+  AzureVNetTopologyDetail,
+  AzureVpnGatewaySummary,
   AzureWebAppAction,
   AzureDnsRecordUpsertInput,
   CloudProviderId,
   GcpComputeInstanceAction,
-  GcpDnsRecordUpsertInput
+  GcpDnsRecordUpsertInput,
+  GcpBillingAccountSummary,
+  GcpBillingBudgetSummary,
+  GcpBillingCostAnomaly,
+  GcpBillingCostByLabel,
+  GcpBillingCostForecast,
+  GcpBillingCostTrend,
+  GcpBillingDailyCostTrend,
+  GcpBillingSkuBreakdown,
+  GcpLogEntriesResult,
+  GcpMonitoringAggregatedMetric,
+  GcpMonitoringDashboardDetail,
+  GcpMonitoringDashboardSummary,
+  GcpMonitoringGroupSummary,
+  GcpMonitoringNotificationChannelSummary,
+  GcpMonitoringServiceSummary,
+  GcpMonitoringSloSummary,
+  GcpIamAuditEntry,
+  GcpIamPolicyAnalysisResult,
+  GcpIamRecommendation,
+  GcpIamRoleSummary,
+  GcpServiceAccountDetail,
+  GcpServiceAccountKeyReport,
+  GcpWorkloadIdentityPoolSummary,
+  GcpWorkloadIdentityProviderSummary
 } from '@shared/types'
 import { getAppSettings, resetAppSettings, updateAppSettings } from './appSettings'
 import { importAwsConfigFile } from './aws/profiles'
@@ -31,11 +84,14 @@ import { getVaultEntryCounts } from './localVault'
 import { createHandlerWrapper, type OperationOptions } from './operations'
 import {
   getAzureProviderContext,
+  listAzureManagementGroups,
+  queryCrossSubscriptionResources,
   setAzureActiveLocation,
   setAzureActiveSubscription,
   setAzureActiveTenant,
   signOutAzureProvider,
-  startAzureDeviceCodeSignIn
+  startAzureDeviceCodeSignIn,
+  toggleAzureFavoriteSubscription
 } from './azureFoundation'
 import { checkForAppUpdates, downloadAppUpdate, getReleaseInfo, installAppUpdate } from './releaseCheck'
 import { listProviders } from './providerRegistry'
@@ -64,9 +120,15 @@ const wrap: <T>(
 ) => Promise<HandlerResult<T>> = createHandlerWrapper('ipc', { timeoutMs: 60000 })
 
 type GcpSdkModule = typeof import('./gcpSdk')
+type GcpIamModule = typeof import('./gcp/iam')
+type GcpBillingModule = typeof import('./gcp/billing')
+type GcpMonitoringModule = typeof import('./gcp/monitoring')
 type AzureSdkModule = typeof import('./azureSdk')
 
 let gcpSdkPromise: Promise<GcpSdkModule> | null = null
+let gcpIamPromise: Promise<GcpIamModule> | null = null
+let gcpBillingPromise: Promise<GcpBillingModule> | null = null
+let gcpMonitoringPromise: Promise<GcpMonitoringModule> | null = null
 let azureSdkPromise: Promise<AzureSdkModule> | null = null
 
 function loadGcpSdk(): Promise<GcpSdkModule> {
@@ -77,12 +139,65 @@ function loadGcpSdk(): Promise<GcpSdkModule> {
   return gcpSdkPromise
 }
 
+function loadGcpIam(): Promise<GcpIamModule> {
+  if (!gcpIamPromise) {
+    gcpIamPromise = import('./gcp/iam')
+  }
+
+  return gcpIamPromise
+}
+
+function loadGcpBilling(): Promise<GcpBillingModule> {
+  if (!gcpBillingPromise) {
+    gcpBillingPromise = import('./gcp/billing')
+  }
+
+  return gcpBillingPromise
+}
+
+function loadGcpMonitoring(): Promise<GcpMonitoringModule> {
+  if (!gcpMonitoringPromise) {
+    gcpMonitoringPromise = import('./gcp/monitoring')
+  }
+
+  return gcpMonitoringPromise
+}
+
 function loadAzureSdk(): Promise<AzureSdkModule> {
   if (!azureSdkPromise) {
     azureSdkPromise = import('./azureSdk')
   }
 
   return azureSdkPromise
+}
+
+// ── GCP Cached Wrapper ──────────────────────────────────────────────────────────
+// Wraps a GCP list/get operation with TTL-based cache + stale-while-revalidate.
+// TTL presets (ms) — must match gcp/cache.ts exports.
+const GCP_TTL = {
+  COMPUTE: 60_000,   // VMs, GKE, Cloud Run, SQL
+  NETWORK: 120_000,  // VPCs, subnets, firewalls, LBs, DNS
+  DATA: 60_000,      // Storage objects, Firestore, BigQuery
+  IAM: 300_000,      // Service accounts, roles, APIs
+  BILLING: 300_000,  // Billing & cost
+  MONITOR: 120_000   // Monitoring, SCC
+} as const
+let gcpCacheModule: typeof import('./gcp/cache') | null = null
+
+async function loadGcpCache(): Promise<typeof import('./gcp/cache')> {
+  if (!gcpCacheModule) {
+    gcpCacheModule = await import('./gcp/cache')
+  }
+  return gcpCacheModule
+}
+
+async function cachedGcp<T>(
+  cacheKey: string,
+  ttlMs: number,
+  fetcher: () => Promise<T>
+): Promise<T> {
+  const cache = await loadGcpCache()
+  return cache.getOrFetch(cacheKey, fetcher, ttlMs)
 }
 
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void {
@@ -138,13 +253,68 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('azure:context:set-location', async (_event, location: string) =>
     wrap<AzureProviderContextSnapshot>(async () => setAzureActiveLocation(location))
   )
+  ipcMain.handle('azure:auth:silent-refresh', async () =>
+    wrap(async () => {
+      const { silentTokenRefresh } = await import('./azure/auth')
+      const refreshed = await silentTokenRefresh()
+      return { refreshed }
+    })
+  )
+  ipcMain.handle('azure:auth:credential-status', async () =>
+    wrap(async () => {
+      const { getAzureCredentialStatus } = await import('./azure/auth')
+      return getAzureCredentialStatus()
+    })
+  )
+  ipcMain.handle('azure:context:toggle-favorite-subscription', async (_event, subscriptionId: string) =>
+    wrap<AzureProviderContextSnapshot>(async () => toggleAzureFavoriteSubscription(subscriptionId))
+  )
+  ipcMain.handle('azure:context:list-management-groups', async () =>
+    wrap<AzureManagementGroupSummary[]>(async () => listAzureManagementGroups())
+  )
+  ipcMain.handle('azure:context:cross-subscription-query', async (_event, subscriptionIds: string[], query: string) =>
+    wrap<AzureCrossSubscriptionQueryResult>(async () => queryCrossSubscriptionResources(subscriptionIds, query))
+  )
   ipcMain.handle('gcp:cli-context', async () => wrap(() => getGcpCliContext()))
+  ipcMain.handle('gcp:auth:status', async (_event, projectId: string) =>
+    wrap(async () => {
+      const { getCredentialStatus } = await import('./gcp/auth')
+      return getCredentialStatus(projectId)
+    })
+  )
+  ipcMain.handle('gcp:auth:refresh', async (_event, projectId: string) =>
+    wrap(async () => {
+      const { refreshCredentials } = await import('./gcp/auth')
+      refreshCredentials(projectId)
+      return { refreshed: true }
+    })
+  )
+  ipcMain.handle('gcp:auth:set-impersonation', async (_event, targetServiceAccount: string | null) =>
+    wrap(async () => {
+      const { setImpersonationTarget } = await import('./gcp/auth')
+      setImpersonationTarget(targetServiceAccount)
+      return { target: targetServiceAccount }
+    })
+  )
+  ipcMain.handle('gcp:cache:invalidate', async (_event, prefix: string) =>
+    wrap(async () => {
+      const cache = await loadGcpCache()
+      const count = prefix ? cache.invalidatePrefix(prefix) : (cache.clearAllCache(), 0)
+      return { invalidated: count }
+    })
+  )
+  ipcMain.handle('gcp:cache:stats', async () =>
+    wrap(async () => {
+      const cache = await loadGcpCache()
+      return cache.getCacheStats()
+    })
+  )
   ipcMain.handle('gcp:projects', async () => wrap(() => listGcpProjects()))
   ipcMain.handle('gcp:projects:get-overview', async (_event, projectId: string) =>
-    wrap(async () => (await loadGcpSdk()).getGcpProjectOverview(projectId))
+    wrap(() => cachedGcp(`${projectId}:project-overview`, GCP_TTL.IAM, async () => (await loadGcpSdk()).getGcpProjectOverview(projectId)))
   )
   ipcMain.handle('gcp:iam:get-overview', async (_event, projectId: string) =>
-    wrap(async () => (await loadGcpSdk()).getGcpIamOverview(projectId))
+    wrap(() => cachedGcp(`${projectId}:iam-overview`, GCP_TTL.IAM, async () => (await loadGcpSdk()).getGcpIamOverview(projectId)))
   )
   ipcMain.handle('gcp:iam:add-binding', async (_event, projectId: string, role: string, member: string) =>
     wrap(async () => (await loadGcpSdk()).addGcpIamBinding(projectId, role, member))
@@ -162,7 +332,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     wrap(async () => (await loadGcpSdk()).disableGcpServiceAccount(projectId, email, disable))
   )
   ipcMain.handle('gcp:iam:list-service-account-keys', async (_event, projectId: string, email: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpServiceAccountKeys(projectId, email))
+    wrap(() => cachedGcp(`${projectId}:sa-keys:${email}`, GCP_TTL.IAM, async () => (await loadGcpSdk()).listGcpServiceAccountKeys(projectId, email)))
   )
   ipcMain.handle('gcp:iam:create-service-account-key', async (_event, projectId: string, email: string) =>
     wrap(async () => (await loadGcpSdk()).createGcpServiceAccountKey(projectId, email))
@@ -171,7 +341,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     wrap(async () => (await loadGcpSdk()).deleteGcpServiceAccountKey(projectId, email, keyId))
   )
   ipcMain.handle('gcp:iam:list-roles', async (_event, projectId: string, scope: 'custom' | 'all') =>
-    wrap(async () => (await loadGcpSdk()).listGcpRoles(projectId, scope))
+    wrap(() => cachedGcp(`${projectId}:iam-roles:${scope}`, GCP_TTL.IAM, async () => (await loadGcpSdk()).listGcpRoles(projectId, scope)))
   )
   ipcMain.handle('gcp:iam:create-custom-role', async (_event, projectId: string, roleId: string, title: string, description: string, permissions: string[]) =>
     wrap(async () => (await loadGcpSdk()).createGcpCustomRole(projectId, roleId, title, description, permissions))
@@ -182,14 +352,53 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('gcp:iam:test-permissions', async (_event, projectId: string, permissions: string[]) =>
     wrap(async () => (await loadGcpSdk()).testGcpIamPermissions(projectId, permissions))
   )
+
+  // ── GCP IAM Extended (Console Feature Parity) ──────────────────────────────────
+  ipcMain.handle('gcp:iam:get-service-account-detail', async (_event, projectId: string, email: string) =>
+    wrap<GcpServiceAccountDetail>(() => cachedGcp(`${projectId}:sa-detail:${email}`, GCP_TTL.IAM, async () => (await loadGcpIam()).getGcpServiceAccountDetail(projectId, email)))
+  )
+  ipcMain.handle('gcp:iam:update-service-account', async (_event, projectId: string, email: string, displayName: string, description: string) =>
+    wrap(async () => (await loadGcpIam()).updateGcpServiceAccount(projectId, email, displayName, description))
+  )
+  ipcMain.handle('gcp:iam:add-service-account-iam-binding', async (_event, projectId: string, email: string, role: string, member: string) =>
+    wrap(async () => (await loadGcpIam()).addGcpServiceAccountIamBinding(projectId, email, role, member))
+  )
+  ipcMain.handle('gcp:iam:remove-service-account-iam-binding', async (_event, projectId: string, email: string, role: string, member: string) =>
+    wrap(async () => (await loadGcpIam()).removeGcpServiceAccountIamBinding(projectId, email, role, member))
+  )
+  ipcMain.handle('gcp:iam:update-custom-role', async (_event, projectId: string, roleName: string, title: string, description: string, stage: string, permissions: string[]) =>
+    wrap<GcpIamRoleSummary>(async () => (await loadGcpIam()).updateGcpCustomRole(projectId, roleName, title, description, stage, permissions))
+  )
+  ipcMain.handle('gcp:iam:undelete-custom-role', async (_event, projectId: string, roleName: string) =>
+    wrap<GcpIamRoleSummary>(async () => (await loadGcpIam()).undeleteGcpCustomRole(projectId, roleName))
+  )
+  ipcMain.handle('gcp:iam:list-audit-entries', async (_event, projectId: string, windowHours?: number) =>
+    wrap<GcpIamAuditEntry[]>(() => cachedGcp(`${projectId}:iam-audit:${windowHours ?? 24}`, GCP_TTL.IAM, async () => (await loadGcpIam()).listGcpIamAuditEntries(projectId, windowHours)))
+  )
+  ipcMain.handle('gcp:iam:generate-key-report', async (_event, projectId: string) =>
+    wrap<GcpServiceAccountKeyReport>(() => cachedGcp(`${projectId}:sa-key-report`, GCP_TTL.IAM, async () => (await loadGcpIam()).generateGcpServiceAccountKeyReport(projectId)))
+  )
+  ipcMain.handle('gcp:iam:list-workload-identity-pools', async (_event, projectId: string) =>
+    wrap<GcpWorkloadIdentityPoolSummary[]>(() => cachedGcp(`${projectId}:wi-pools`, GCP_TTL.IAM, async () => (await loadGcpIam()).listGcpWorkloadIdentityPools(projectId)))
+  )
+  ipcMain.handle('gcp:iam:list-workload-identity-providers', async (_event, projectId: string, poolId: string) =>
+    wrap<GcpWorkloadIdentityProviderSummary[]>(() => cachedGcp(`${projectId}:wi-providers:${poolId}`, GCP_TTL.IAM, async () => (await loadGcpIam()).listGcpWorkloadIdentityProviders(projectId, poolId)))
+  )
+  ipcMain.handle('gcp:iam:list-recommendations', async (_event, projectId: string) =>
+    wrap<GcpIamRecommendation[]>(() => cachedGcp(`${projectId}:iam-recommendations`, GCP_TTL.IAM, async () => (await loadGcpIam()).listGcpIamRecommendations(projectId)))
+  )
+  ipcMain.handle('gcp:iam:analyze-policy', async (_event, projectId: string, fullResourceName: string, permissions: string[], identity?: string) =>
+    wrap<GcpIamPolicyAnalysisResult>(async () => (await loadGcpIam()).analyzeGcpIamPolicy(projectId, fullResourceName, permissions, identity))
+  )
+
   ipcMain.handle('gcp:compute-engine:list', async (_event, projectId: string, location: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpComputeInstances(projectId, location))
+    wrap(() => cachedGcp(`${projectId}:compute:${location}`, GCP_TTL.COMPUTE, async () => (await loadGcpSdk()).listGcpComputeInstances(projectId, location)))
   )
   ipcMain.handle('gcp:compute-engine:get-detail', async (_event, projectId: string, zone: string, instanceName: string) =>
-    wrap(async () => (await loadGcpSdk()).getGcpComputeInstanceDetail(projectId, zone, instanceName))
+    wrap(() => cachedGcp(`${projectId}:compute-detail:${zone}:${instanceName}`, GCP_TTL.COMPUTE, async () => (await loadGcpSdk()).getGcpComputeInstanceDetail(projectId, zone, instanceName)))
   )
   ipcMain.handle('gcp:compute-engine:list-machine-types', async (_event, projectId: string, zone: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpComputeMachineTypes(projectId, zone))
+    wrap(() => cachedGcp(`${projectId}:machine-types:${zone}`, GCP_TTL.IAM, async () => (await loadGcpSdk()).listGcpComputeMachineTypes(projectId, zone)))
   )
   ipcMain.handle('gcp:compute-engine:action', async (_event, projectId: string, zone: string, instanceName: string, action: GcpComputeInstanceAction) =>
     wrap(async () => (await loadGcpSdk()).runGcpComputeInstanceAction(projectId, zone, instanceName, action))
@@ -207,30 +416,30 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     wrap(async () => (await loadGcpSdk()).getGcpComputeSerialOutput(projectId, zone, instanceName, port, start))
   )
   ipcMain.handle('gcp:vpc:list-networks', async (_event, projectId: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpNetworks(projectId))
+    wrap(() => cachedGcp(`${projectId}:networks`, GCP_TTL.NETWORK, async () => (await loadGcpSdk()).listGcpNetworks(projectId)))
   )
   ipcMain.handle('gcp:vpc:list-subnetworks', async (_event, projectId: string, location: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpSubnetworks(projectId, location))
+    wrap(() => cachedGcp(`${projectId}:subnets:${location}`, GCP_TTL.NETWORK, async () => (await loadGcpSdk()).listGcpSubnetworks(projectId, location)))
   )
   ipcMain.handle('gcp:vpc:list-firewall-rules', async (_event, projectId: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpFirewallRules(projectId))
+    wrap(() => cachedGcp(`${projectId}:firewall-rules`, GCP_TTL.NETWORK, async () => (await loadGcpSdk()).listGcpFirewallRules(projectId)))
   )
   ipcMain.handle('gcp:vpc:list-routers', async (_event, projectId: string, location: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpRouters(projectId, location))
+    wrap(() => cachedGcp(`${projectId}:routers:${location}`, GCP_TTL.NETWORK, async () => (await loadGcpSdk()).listGcpRouters(projectId, location)))
   )
   ipcMain.handle('gcp:vpc:list-global-addresses', async (_event, projectId: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpGlobalAddresses(projectId))
+    wrap(() => cachedGcp(`${projectId}:global-addresses`, GCP_TTL.NETWORK, async () => (await loadGcpSdk()).listGcpGlobalAddresses(projectId)))
   )
   ipcMain.handle('gcp:vpc:list-service-networking-connections', async (_event, projectId: string, networkNames: string[]) =>
-    wrap(async () => (await loadGcpSdk()).listGcpServiceNetworkingConnections(projectId, networkNames))
+    wrap(() => cachedGcp(`${projectId}:svc-net:${networkNames.join(',')}`, GCP_TTL.NETWORK, async () => (await loadGcpSdk()).listGcpServiceNetworkingConnections(projectId, networkNames)))
   )
 
   /* ── Cloud DNS ── */
   ipcMain.handle('gcp:cloud-dns:list-zones', async (_event, projectId: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpDnsManagedZones(projectId))
+    wrap(() => cachedGcp(`${projectId}:dns-zones`, GCP_TTL.NETWORK, async () => (await loadGcpSdk()).listGcpDnsManagedZones(projectId)))
   )
   ipcMain.handle('gcp:cloud-dns:list-records', async (_event, projectId: string, managedZone: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpDnsResourceRecordSets(projectId, managedZone))
+    wrap(() => cachedGcp(`${projectId}:dns-records:${managedZone}`, GCP_TTL.NETWORK, async () => (await loadGcpSdk()).listGcpDnsResourceRecordSets(projectId, managedZone)))
   )
   ipcMain.handle('gcp:cloud-dns:create-record', async (_event, projectId: string, managedZone: string, input: GcpDnsRecordUpsertInput) =>
     wrap(async () => (await loadGcpSdk()).createGcpDnsResourceRecordSet(projectId, managedZone, input))
@@ -244,58 +453,58 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
 
   // Memorystore (Redis)
   ipcMain.handle('gcp:memorystore:list-instances', async (_event, projectId: string, location: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpMemorystoreInstances(projectId, location))
+    wrap(() => cachedGcp(`${projectId}:memorystore:${location}`, GCP_TTL.COMPUTE, async () => (await loadGcpSdk()).listGcpMemorystoreInstances(projectId, location)))
   )
   ipcMain.handle('gcp:memorystore:get-instance-detail', async (_event, projectId: string, instanceName: string) =>
-    wrap(async () => (await loadGcpSdk()).getGcpMemorystoreInstanceDetail(projectId, instanceName))
+    wrap(() => cachedGcp(`${projectId}:memorystore-detail:${instanceName}`, GCP_TTL.COMPUTE, async () => (await loadGcpSdk()).getGcpMemorystoreInstanceDetail(projectId, instanceName)))
   )
 
   // Load Balancer + Cloud Armor
   ipcMain.handle('gcp:load-balancer:list-url-maps', async (_event, projectId: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpUrlMaps(projectId))
+    wrap(() => cachedGcp(`${projectId}:url-maps`, GCP_TTL.NETWORK, async () => (await loadGcpSdk()).listGcpUrlMaps(projectId)))
   )
   ipcMain.handle('gcp:load-balancer:get-url-map-detail', async (_event, projectId: string, urlMapName: string, region?: string) =>
-    wrap(async () => (await loadGcpSdk()).getGcpUrlMapDetail(projectId, urlMapName, region))
+    wrap(() => cachedGcp(`${projectId}:url-map-detail:${urlMapName}:${region ?? ''}`, GCP_TTL.NETWORK, async () => (await loadGcpSdk()).getGcpUrlMapDetail(projectId, urlMapName, region)))
   )
   ipcMain.handle('gcp:load-balancer:list-backend-services', async (_event, projectId: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpBackendServices(projectId))
+    wrap(() => cachedGcp(`${projectId}:backend-services`, GCP_TTL.NETWORK, async () => (await loadGcpSdk()).listGcpBackendServices(projectId)))
   )
   ipcMain.handle('gcp:load-balancer:list-forwarding-rules', async (_event, projectId: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpForwardingRules(projectId))
+    wrap(() => cachedGcp(`${projectId}:forwarding-rules`, GCP_TTL.NETWORK, async () => (await loadGcpSdk()).listGcpForwardingRules(projectId)))
   )
   ipcMain.handle('gcp:load-balancer:list-health-checks', async (_event, projectId: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpHealthChecks(projectId))
+    wrap(() => cachedGcp(`${projectId}:health-checks`, GCP_TTL.NETWORK, async () => (await loadGcpSdk()).listGcpHealthChecks(projectId)))
   )
   ipcMain.handle('gcp:cloud-armor:list-security-policies', async (_event, projectId: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpSecurityPolicies(projectId))
+    wrap(() => cachedGcp(`${projectId}:security-policies`, GCP_TTL.NETWORK, async () => (await loadGcpSdk()).listGcpSecurityPolicies(projectId)))
   )
   ipcMain.handle('gcp:cloud-armor:get-security-policy-detail', async (_event, projectId: string, policyName: string) =>
-    wrap(async () => (await loadGcpSdk()).getGcpSecurityPolicyDetail(projectId, policyName))
+    wrap(() => cachedGcp(`${projectId}:security-policy:${policyName}`, GCP_TTL.NETWORK, async () => (await loadGcpSdk()).getGcpSecurityPolicyDetail(projectId, policyName)))
   )
 
   ipcMain.handle('gcp:gke:list', async (_event, projectId: string, location: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpGkeClusters(projectId, location))
+    wrap(() => cachedGcp(`${projectId}:gke:${location}`, GCP_TTL.COMPUTE, async () => (await loadGcpSdk()).listGcpGkeClusters(projectId, location)))
   )
   ipcMain.handle('gcp:gke:get-detail', async (_event, projectId: string, location: string, clusterName: string) =>
-    wrap(async () => (await loadGcpSdk()).getGcpGkeClusterDetail(projectId, location, clusterName))
+    wrap(() => cachedGcp(`${projectId}:gke-detail:${location}:${clusterName}`, GCP_TTL.COMPUTE, async () => (await loadGcpSdk()).getGcpGkeClusterDetail(projectId, location, clusterName)))
   )
   ipcMain.handle('gcp:gke:list-node-pools', async (_event, projectId: string, location: string, clusterName: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpGkeNodePools(projectId, location, clusterName))
+    wrap(() => cachedGcp(`${projectId}:gke-nodepools:${location}:${clusterName}`, GCP_TTL.COMPUTE, async () => (await loadGcpSdk()).listGcpGkeNodePools(projectId, location, clusterName)))
   )
   ipcMain.handle('gcp:gke:get-credentials', async (_event, projectId: string, location: string, clusterName: string, contextName?: string, kubeconfigPath?: string) =>
     wrap(async () => (await loadGcpSdk()).getGcpGkeClusterCredentials(projectId, location, clusterName, contextName, kubeconfigPath))
   )
   ipcMain.handle('gcp:gke:list-operations', async (_event, projectId: string, location: string, clusterName: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpGkeOperations(projectId, location, clusterName))
+    wrap(() => cachedGcp(`${projectId}:gke-ops:${location}:${clusterName}`, GCP_TTL.COMPUTE, async () => (await loadGcpSdk()).listGcpGkeOperations(projectId, location, clusterName)))
   )
   ipcMain.handle('gcp:gke:update-node-pool-scaling', async (_event, projectId: string, location: string, clusterName: string, nodePoolName: string, minimum: number, desired: number, maximum: number) =>
     wrap(async () => (await loadGcpSdk()).updateGcpGkeNodePoolScaling(projectId, location, clusterName, nodePoolName, minimum, desired, maximum))
   )
   ipcMain.handle('gcp:cloud-storage:list', async (_event, projectId: string, location: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpStorageBuckets(projectId, location))
+    wrap(() => cachedGcp(`${projectId}:buckets:${location}`, GCP_TTL.DATA, async () => (await loadGcpSdk()).listGcpStorageBuckets(projectId, location)))
   )
   ipcMain.handle('gcp:cloud-storage:objects:list', async (_event, projectId: string, bucketName: string, prefix: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpStorageObjects(projectId, bucketName, prefix))
+    wrap(() => cachedGcp(`${projectId}:objects:${bucketName}:${prefix}`, GCP_TTL.DATA, async () => (await loadGcpSdk()).listGcpStorageObjects(projectId, bucketName, prefix)))
   )
   ipcMain.handle('gcp:cloud-storage:object:get-content', async (_event, projectId: string, bucketName: string, key: string) =>
     wrap(async () => (await loadGcpSdk()).getGcpStorageObjectContent(projectId, bucketName, key))
@@ -316,44 +525,70 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
     wrap(async () => (await loadGcpSdk()).listGcpLogEntries(projectId, location, query, windowHours))
   )
   ipcMain.handle('gcp:cloud-sql:list', async (_event, projectId: string, location: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpSqlInstances(projectId, location))
+    wrap(() => cachedGcp(`${projectId}:sql:${location}`, GCP_TTL.COMPUTE, async () => (await loadGcpSdk()).listGcpSqlInstances(projectId, location)))
   )
   ipcMain.handle('gcp:cloud-sql:get-detail', async (_event, projectId: string, instanceName: string) =>
-    wrap(async () => (await loadGcpSdk()).getGcpSqlInstanceDetail(projectId, instanceName))
+    wrap(() => cachedGcp(`${projectId}:sql-detail:${instanceName}`, GCP_TTL.COMPUTE, async () => (await loadGcpSdk()).getGcpSqlInstanceDetail(projectId, instanceName)))
   )
   ipcMain.handle('gcp:cloud-sql:databases:list', async (_event, projectId: string, instanceName: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpSqlDatabases(projectId, instanceName))
+    wrap(() => cachedGcp(`${projectId}:sql-dbs:${instanceName}`, GCP_TTL.COMPUTE, async () => (await loadGcpSdk()).listGcpSqlDatabases(projectId, instanceName)))
   )
   ipcMain.handle('gcp:cloud-sql:operations:list', async (_event, projectId: string, instanceName: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpSqlOperations(projectId, instanceName))
+    wrap(() => cachedGcp(`${projectId}:sql-ops:${instanceName}`, GCP_TTL.COMPUTE, async () => (await loadGcpSdk()).listGcpSqlOperations(projectId, instanceName)))
   )
   ipcMain.handle('gcp:billing:get-overview', async (_event, projectId: string, catalogProjectIds: string[]) =>
-    wrap(async () => (await loadGcpSdk()).getGcpBillingOverview(projectId, catalogProjectIds))
+    wrap(() => cachedGcp(`${projectId}:billing:${catalogProjectIds.join(',')}`, GCP_TTL.BILLING, async () => (await loadGcpSdk()).getGcpBillingOverview(projectId, catalogProjectIds)))
+  )
+
+  // ── GCP Billing & Cost Analysis Extended ─────────────────────────────────────
+  ipcMain.handle('gcp:billing:list-accounts', async (_event, projectId: string) =>
+    wrap<GcpBillingAccountSummary[]>(() => cachedGcp(`${projectId}:billing-accounts`, GCP_TTL.BILLING, async () => (await loadGcpBilling()).listGcpBillingAccounts(projectId)))
+  )
+  ipcMain.handle('gcp:billing:cost-trend', async (_event, projectId: string, months?: number, catalogProjectIds?: string[]) =>
+    wrap<GcpBillingCostTrend>(() => cachedGcp(`${projectId}:cost-trend:${months ?? 6}`, GCP_TTL.BILLING, async () => (await loadGcpBilling()).getGcpCostTrend(projectId, months, catalogProjectIds)))
+  )
+  ipcMain.handle('gcp:billing:daily-cost-trend', async (_event, projectId: string, days?: number, catalogProjectIds?: string[]) =>
+    wrap<GcpBillingDailyCostTrend>(() => cachedGcp(`${projectId}:daily-cost:${days ?? 30}`, GCP_TTL.BILLING, async () => (await loadGcpBilling()).getGcpDailyCostTrend(projectId, days, catalogProjectIds)))
+  )
+  ipcMain.handle('gcp:billing:cost-by-label', async (_event, projectId: string, labelKey: string, catalogProjectIds?: string[]) =>
+    wrap<GcpBillingCostByLabel>(async () => (await loadGcpBilling()).getGcpCostByLabel(projectId, labelKey, catalogProjectIds))
+  )
+  ipcMain.handle('gcp:billing:sku-breakdown', async (_event, projectId: string, serviceName: string, catalogProjectIds?: string[]) =>
+    wrap<GcpBillingSkuBreakdown>(async () => (await loadGcpBilling()).getGcpSkuCostBreakdown(projectId, serviceName, catalogProjectIds))
+  )
+  ipcMain.handle('gcp:billing:list-budgets', async (_event, projectId: string, billingAccountName: string) =>
+    wrap<GcpBillingBudgetSummary[]>(() => cachedGcp(`${projectId}:budgets:${billingAccountName}`, GCP_TTL.BILLING, async () => (await loadGcpBilling()).listGcpBillingBudgets(projectId, billingAccountName)))
+  )
+  ipcMain.handle('gcp:billing:cost-forecast', async (_event, projectId: string, catalogProjectIds?: string[]) =>
+    wrap<GcpBillingCostForecast>(() => cachedGcp(`${projectId}:cost-forecast`, GCP_TTL.BILLING, async () => (await loadGcpBilling()).getGcpCostForecast(projectId, catalogProjectIds)))
+  )
+  ipcMain.handle('gcp:billing:cost-anomalies', async (_event, projectId: string, catalogProjectIds?: string[]) =>
+    wrap<GcpBillingCostAnomaly[]>(() => cachedGcp(`${projectId}:cost-anomalies`, GCP_TTL.BILLING, async () => (await loadGcpBilling()).getGcpCostAnomalies(projectId, catalogProjectIds)))
   )
 
   // Pub/Sub
   ipcMain.handle('gcp:pubsub:list-topics', async (_event, projectId: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpPubSubTopics(projectId))
+    wrap(() => cachedGcp(`${projectId}:pubsub-topics`, GCP_TTL.DATA, async () => (await loadGcpSdk()).listGcpPubSubTopics(projectId)))
   )
   ipcMain.handle('gcp:pubsub:list-subscriptions', async (_event, projectId: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpPubSubSubscriptions(projectId))
+    wrap(() => cachedGcp(`${projectId}:pubsub-subs`, GCP_TTL.DATA, async () => (await loadGcpSdk()).listGcpPubSubSubscriptions(projectId)))
   )
   ipcMain.handle('gcp:pubsub:get-topic-detail', async (_event, projectId: string, topicId: string) =>
-    wrap(async () => (await loadGcpSdk()).getGcpPubSubTopicDetail(projectId, topicId))
+    wrap(() => cachedGcp(`${projectId}:pubsub-topic:${topicId}`, GCP_TTL.DATA, async () => (await loadGcpSdk()).getGcpPubSubTopicDetail(projectId, topicId)))
   )
   ipcMain.handle('gcp:pubsub:get-subscription-detail', async (_event, projectId: string, subscriptionId: string) =>
-    wrap(async () => (await loadGcpSdk()).getGcpPubSubSubscriptionDetail(projectId, subscriptionId))
+    wrap(() => cachedGcp(`${projectId}:pubsub-sub:${subscriptionId}`, GCP_TTL.DATA, async () => (await loadGcpSdk()).getGcpPubSubSubscriptionDetail(projectId, subscriptionId)))
   )
 
   // BigQuery
   ipcMain.handle('gcp:bigquery:list-datasets', async (_event, projectId: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpBigQueryDatasetsExported(projectId))
+    wrap(() => cachedGcp(`${projectId}:bq-datasets`, GCP_TTL.DATA, async () => (await loadGcpSdk()).listGcpBigQueryDatasetsExported(projectId)))
   )
   ipcMain.handle('gcp:bigquery:list-tables', async (_event, projectId: string, datasetId: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpBigQueryTables(projectId, datasetId))
+    wrap(() => cachedGcp(`${projectId}:bq-tables:${datasetId}`, GCP_TTL.DATA, async () => (await loadGcpSdk()).listGcpBigQueryTables(projectId, datasetId)))
   )
   ipcMain.handle('gcp:bigquery:get-table-detail', async (_event, projectId: string, datasetId: string, tableId: string) =>
-    wrap(async () => (await loadGcpSdk()).getGcpBigQueryTableDetail(projectId, datasetId, tableId))
+    wrap(() => cachedGcp(`${projectId}:bq-table:${datasetId}:${tableId}`, GCP_TTL.DATA, async () => (await loadGcpSdk()).getGcpBigQueryTableDetail(projectId, datasetId, tableId)))
   )
   ipcMain.handle('gcp:bigquery:run-query', async (_event, projectId: string, queryText: string, maxResults?: number) =>
     wrap(async () => (await loadGcpSdk()).runGcpBigQueryQuery(projectId, queryText, maxResults))
@@ -361,87 +596,128 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
 
   // Cloud Monitoring
   ipcMain.handle('gcp:monitoring:list-alert-policies', async (_event, projectId: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpMonitoringAlertPolicies(projectId))
+    wrap(() => cachedGcp(`${projectId}:monitoring-alerts`, GCP_TTL.MONITOR, async () => (await loadGcpSdk()).listGcpMonitoringAlertPolicies(projectId)))
   )
   ipcMain.handle('gcp:monitoring:list-uptime-checks', async (_event, projectId: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpMonitoringUptimeChecks(projectId))
+    wrap(() => cachedGcp(`${projectId}:monitoring-uptime`, GCP_TTL.MONITOR, async () => (await loadGcpSdk()).listGcpMonitoringUptimeChecks(projectId)))
   )
   ipcMain.handle('gcp:monitoring:list-metric-descriptors', async (_event, projectId: string, filter?: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpMonitoringMetricDescriptors(projectId, filter))
+    wrap(() => cachedGcp(`${projectId}:metric-descriptors:${filter ?? ''}`, GCP_TTL.MONITOR, async () => (await loadGcpSdk()).listGcpMonitoringMetricDescriptors(projectId, filter)))
   )
   ipcMain.handle('gcp:monitoring:query-time-series', async (_event, projectId: string, metricType: string, intervalMinutes: number) =>
     wrap(async () => (await loadGcpSdk()).queryGcpMonitoringTimeSeries(projectId, metricType, intervalMinutes))
   )
 
+  // ── GCP Monitoring Extended (Console Feature Parity) ─────────────────────────
+  ipcMain.handle('gcp:monitoring:toggle-alert-policy', async (_event, projectId: string, policyName: string, enabled: boolean) =>
+    wrap(async () => (await loadGcpMonitoring()).toggleGcpAlertPolicy(projectId, policyName, enabled))
+  )
+  ipcMain.handle('gcp:monitoring:delete-alert-policy', async (_event, projectId: string, policyName: string) =>
+    wrap(async () => (await loadGcpMonitoring()).deleteGcpAlertPolicy(projectId, policyName))
+  )
+  ipcMain.handle('gcp:monitoring:create-alert-policy', async (_event, projectId: string, displayName: string, metricType: string, threshold: number, comparison: string, durationSeconds: number, notificationChannelNames: string[]) =>
+    wrap(async () => (await loadGcpMonitoring()).createGcpAlertPolicy(projectId, displayName, metricType, threshold, comparison as 'COMPARISON_GT' | 'COMPARISON_LT' | 'COMPARISON_GE' | 'COMPARISON_LE', durationSeconds, notificationChannelNames))
+  )
+  ipcMain.handle('gcp:monitoring:list-notification-channels', async (_event, projectId: string) =>
+    wrap<GcpMonitoringNotificationChannelSummary[]>(() => cachedGcp(`${projectId}:notification-channels`, GCP_TTL.MONITOR, async () => (await loadGcpMonitoring()).listGcpNotificationChannels(projectId)))
+  )
+  ipcMain.handle('gcp:monitoring:create-uptime-check', async (_event, projectId: string, displayName: string, host: string, path: string, useSsl: boolean, periodSeconds: number) =>
+    wrap(async () => (await loadGcpMonitoring()).createGcpUptimeCheck(projectId, displayName, host, path, useSsl, periodSeconds))
+  )
+  ipcMain.handle('gcp:monitoring:delete-uptime-check', async (_event, projectId: string, uptimeCheckName: string) =>
+    wrap(async () => (await loadGcpMonitoring()).deleteGcpUptimeCheck(projectId, uptimeCheckName))
+  )
+  ipcMain.handle('gcp:monitoring:query-aggregated-metric', async (_event, projectId: string, metricType: string, intervalMinutes: number, alignmentPeriodSeconds: number, aggregation: string, resourceFilter?: string) =>
+    wrap<GcpMonitoringAggregatedMetric>(async () => (await loadGcpMonitoring()).queryGcpAggregatedMetric(projectId, metricType, intervalMinutes, alignmentPeriodSeconds, aggregation as 'ALIGN_MEAN' | 'ALIGN_MAX' | 'ALIGN_MIN' | 'ALIGN_SUM' | 'ALIGN_COUNT' | 'ALIGN_PERCENTILE_99', resourceFilter))
+  )
+  ipcMain.handle('gcp:monitoring:list-groups', async (_event, projectId: string) =>
+    wrap<GcpMonitoringGroupSummary[]>(() => cachedGcp(`${projectId}:monitoring-groups`, GCP_TTL.MONITOR, async () => (await loadGcpMonitoring()).listGcpMonitoringGroups(projectId)))
+  )
+  ipcMain.handle('gcp:monitoring:list-dashboards', async (_event, projectId: string) =>
+    wrap<GcpMonitoringDashboardSummary[]>(() => cachedGcp(`${projectId}:dashboards`, GCP_TTL.MONITOR, async () => (await loadGcpMonitoring()).listGcpMonitoringDashboards(projectId)))
+  )
+  ipcMain.handle('gcp:monitoring:get-dashboard', async (_event, projectId: string, dashboardName: string) =>
+    wrap<GcpMonitoringDashboardDetail>(() => cachedGcp(`${projectId}:dashboard:${dashboardName}`, GCP_TTL.MONITOR, async () => (await loadGcpMonitoring()).getGcpMonitoringDashboard(projectId, dashboardName)))
+  )
+  ipcMain.handle('gcp:monitoring:list-log-entries', async (_event, projectId: string, filter: string, orderBy?: string, pageSize?: number, pageToken?: string) =>
+    wrap<GcpLogEntriesResult>(async () => (await loadGcpMonitoring()).listGcpLogEntries(projectId, filter, orderBy as 'timestamp asc' | 'timestamp desc' | undefined, pageSize, pageToken))
+  )
+  ipcMain.handle('gcp:monitoring:list-services', async (_event, projectId: string) =>
+    wrap<GcpMonitoringServiceSummary[]>(() => cachedGcp(`${projectId}:monitoring-services`, GCP_TTL.MONITOR, async () => (await loadGcpMonitoring()).listGcpMonitoringServices(projectId)))
+  )
+  ipcMain.handle('gcp:monitoring:list-slos', async (_event, projectId: string, serviceName: string) =>
+    wrap<GcpMonitoringSloSummary[]>(() => cachedGcp(`${projectId}:slos:${serviceName}`, GCP_TTL.MONITOR, async () => (await loadGcpMonitoring()).listGcpMonitoringSlos(projectId, serviceName)))
+  )
+
   // Security Command Center
   ipcMain.handle('gcp:scc:list-findings', async (_event, projectId: string, location?: string, filter?: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpSccFindings(projectId, location, filter))
+    wrap(() => cachedGcp(`${projectId}:scc-findings:${location ?? ''}:${filter ?? ''}`, GCP_TTL.MONITOR, async () => (await loadGcpSdk()).listGcpSccFindings(projectId, location, filter)))
   )
   ipcMain.handle('gcp:scc:list-sources', async (_event, projectId: string, location?: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpSccSources(projectId, location))
+    wrap(() => cachedGcp(`${projectId}:scc-sources:${location ?? ''}`, GCP_TTL.MONITOR, async () => (await loadGcpSdk()).listGcpSccSources(projectId, location)))
   )
   ipcMain.handle('gcp:scc:get-finding-detail', async (_event, projectId: string, findingName: string, location?: string) =>
-    wrap(async () => (await loadGcpSdk()).getGcpSccFindingDetail(projectId, findingName, location))
+    wrap(() => cachedGcp(`${projectId}:scc-finding:${findingName}`, GCP_TTL.MONITOR, async () => (await loadGcpSdk()).getGcpSccFindingDetail(projectId, findingName, location)))
   )
   ipcMain.handle('gcp:scc:get-severity-breakdown', async (_event, projectId: string, location?: string) =>
-    wrap(async () => (await loadGcpSdk()).getGcpSccSeverityBreakdown(projectId, location))
+    wrap(() => cachedGcp(`${projectId}:scc-severity:${location ?? ''}`, GCP_TTL.MONITOR, async () => (await loadGcpSdk()).getGcpSccSeverityBreakdown(projectId, location)))
   )
 
   // Firestore
   ipcMain.handle('gcp:firestore:list-databases', async (_event, projectId: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpFirestoreDatabases(projectId))
+    wrap(() => cachedGcp(`${projectId}:firestore-dbs`, GCP_TTL.DATA, async () => (await loadGcpSdk()).listGcpFirestoreDatabases(projectId)))
   )
   ipcMain.handle('gcp:firestore:list-collections', async (_event, projectId: string, databaseId: string, parentDocumentPath?: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpFirestoreCollections(projectId, databaseId, parentDocumentPath))
+    wrap(() => cachedGcp(`${projectId}:firestore-cols:${databaseId}:${parentDocumentPath ?? ''}`, GCP_TTL.DATA, async () => (await loadGcpSdk()).listGcpFirestoreCollections(projectId, databaseId, parentDocumentPath)))
   )
   ipcMain.handle('gcp:firestore:list-documents', async (_event, projectId: string, databaseId: string, collectionId: string, pageSize?: number) =>
-    wrap(async () => (await loadGcpSdk()).listGcpFirestoreDocuments(projectId, databaseId, collectionId, pageSize))
+    wrap(() => cachedGcp(`${projectId}:firestore-docs:${databaseId}:${collectionId}`, GCP_TTL.DATA, async () => (await loadGcpSdk()).listGcpFirestoreDocuments(projectId, databaseId, collectionId, pageSize)))
   )
   ipcMain.handle('gcp:firestore:get-document-detail', async (_event, projectId: string, databaseId: string, documentPath: string) =>
-    wrap(async () => (await loadGcpSdk()).getGcpFirestoreDocumentDetail(projectId, databaseId, documentPath))
+    wrap(() => cachedGcp(`${projectId}:firestore-doc:${databaseId}:${documentPath}`, GCP_TTL.DATA, async () => (await loadGcpSdk()).getGcpFirestoreDocumentDetail(projectId, databaseId, documentPath)))
   )
 
   // ── Cloud Run ──
   ipcMain.handle('gcp:cloud-run:list-services', async (_event, projectId: string, location: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpCloudRunServices(projectId, location))
+    wrap(() => cachedGcp(`${projectId}:run-services:${location}`, GCP_TTL.COMPUTE, async () => (await loadGcpSdk()).listGcpCloudRunServices(projectId, location)))
   )
   ipcMain.handle('gcp:cloud-run:list-revisions', async (_event, projectId: string, location: string, serviceId: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpCloudRunRevisions(projectId, location, serviceId))
+    wrap(() => cachedGcp(`${projectId}:run-revisions:${location}:${serviceId}`, GCP_TTL.COMPUTE, async () => (await loadGcpSdk()).listGcpCloudRunRevisions(projectId, location, serviceId)))
   )
   ipcMain.handle('gcp:cloud-run:list-jobs', async (_event, projectId: string, location: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpCloudRunJobs(projectId, location))
+    wrap(() => cachedGcp(`${projectId}:run-jobs:${location}`, GCP_TTL.COMPUTE, async () => (await loadGcpSdk()).listGcpCloudRunJobs(projectId, location)))
   )
   ipcMain.handle('gcp:cloud-run:list-executions', async (_event, projectId: string, location: string, jobId: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpCloudRunExecutions(projectId, location, jobId))
+    wrap(() => cachedGcp(`${projectId}:run-execs:${location}:${jobId}`, GCP_TTL.COMPUTE, async () => (await loadGcpSdk()).listGcpCloudRunExecutions(projectId, location, jobId)))
   )
   ipcMain.handle('gcp:cloud-run:list-domain-mappings', async (_event, projectId: string, location: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpCloudRunDomainMappings(projectId, location))
+    wrap(() => cachedGcp(`${projectId}:run-domains:${location}`, GCP_TTL.COMPUTE, async () => (await loadGcpSdk()).listGcpCloudRunDomainMappings(projectId, location)))
   )
 
   // ── Firebase ──
   ipcMain.handle('gcp:firebase:get-project', async (_event, projectId: string) =>
-    wrap(async () => (await loadGcpSdk()).getGcpFirebaseProject(projectId))
+    wrap(() => cachedGcp(`${projectId}:firebase-project`, GCP_TTL.DATA, async () => (await loadGcpSdk()).getGcpFirebaseProject(projectId)))
   )
   ipcMain.handle('gcp:firebase:list-web-apps', async (_event, projectId: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpFirebaseWebApps(projectId))
+    wrap(() => cachedGcp(`${projectId}:firebase-web-apps`, GCP_TTL.DATA, async () => (await loadGcpSdk()).listGcpFirebaseWebApps(projectId)))
   )
   ipcMain.handle('gcp:firebase:list-android-apps', async (_event, projectId: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpFirebaseAndroidApps(projectId))
+    wrap(() => cachedGcp(`${projectId}:firebase-android-apps`, GCP_TTL.DATA, async () => (await loadGcpSdk()).listGcpFirebaseAndroidApps(projectId)))
   )
   ipcMain.handle('gcp:firebase:list-ios-apps', async (_event, projectId: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpFirebaseIosApps(projectId))
+    wrap(() => cachedGcp(`${projectId}:firebase-ios-apps`, GCP_TTL.DATA, async () => (await loadGcpSdk()).listGcpFirebaseIosApps(projectId)))
   )
   ipcMain.handle('gcp:firebase:list-hosting-sites', async (_event, projectId: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpFirebaseHostingSites(projectId))
+    wrap(() => cachedGcp(`${projectId}:firebase-hosting-sites`, GCP_TTL.DATA, async () => (await loadGcpSdk()).listGcpFirebaseHostingSites(projectId)))
   )
   ipcMain.handle('gcp:firebase:list-hosting-releases', async (_event, projectId: string, siteId: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpFirebaseHostingReleases(projectId, siteId))
+    wrap(() => cachedGcp(`${projectId}:firebase-releases:${siteId}`, GCP_TTL.DATA, async () => (await loadGcpSdk()).listGcpFirebaseHostingReleases(projectId, siteId)))
   )
   ipcMain.handle('gcp:firebase:list-hosting-domains', async (_event, projectId: string, siteId: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpFirebaseHostingDomains(projectId, siteId))
+    wrap(() => cachedGcp(`${projectId}:firebase-domains:${siteId}`, GCP_TTL.DATA, async () => (await loadGcpSdk()).listGcpFirebaseHostingDomains(projectId, siteId)))
   )
   ipcMain.handle('gcp:firebase:list-hosting-channels', async (_event, projectId: string, siteId: string) =>
-    wrap(async () => (await loadGcpSdk()).listGcpFirebaseHostingChannels(projectId, siteId))
+    wrap(() => cachedGcp(`${projectId}:firebase-channels:${siteId}`, GCP_TTL.DATA, async () => (await loadGcpSdk()).listGcpFirebaseHostingChannels(projectId, siteId)))
   )
 
   ipcMain.handle('azure:subscriptions:list', async () =>
@@ -570,6 +846,187 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('azure:cost:get-overview', async (_event, subscriptionId: string) =>
     wrap(async () => (await loadAzureSdk()).getAzureCostOverview(subscriptionId))
   )
+
+  // ── Azure Cost Management Extended ─────────────────────────────────────────────
+  ipcMain.handle('azure:cost:trend', async (_event, subscriptionId: string, months?: number) =>
+    wrap<AzureCostTrend>(async () => {
+      const { getAzureCostTrend } = await import('./azure/cost')
+      return getAzureCostTrend(subscriptionId, months)
+    })
+  )
+  ipcMain.handle('azure:cost:by-resource-group', async (_event, subscriptionId: string) =>
+    wrap<AzureCostByResourceGroup>(async () => {
+      const { getAzureCostByResourceGroup } = await import('./azure/cost')
+      return getAzureCostByResourceGroup(subscriptionId)
+    })
+  )
+  ipcMain.handle('azure:cost:by-meter-category', async (_event, subscriptionId: string) =>
+    wrap<AzureCostByMeterCategory>(async () => {
+      const { getAzureCostByMeterCategory } = await import('./azure/cost')
+      return getAzureCostByMeterCategory(subscriptionId)
+    })
+  )
+  ipcMain.handle('azure:cost:by-tag', async (_event, subscriptionId: string, tagKey: string) =>
+    wrap<AzureCostByTag>(async () => {
+      const { getAzureCostByTag } = await import('./azure/cost')
+      return getAzureCostByTag(subscriptionId, tagKey)
+    })
+  )
+  ipcMain.handle('azure:cost:forecast', async (_event, subscriptionId: string) =>
+    wrap<AzureCostForecast>(async () => {
+      const { getAzureCostForecast } = await import('./azure/cost')
+      return getAzureCostForecast(subscriptionId)
+    })
+  )
+  ipcMain.handle('azure:cost:list-budgets', async (_event, subscriptionId: string) =>
+    wrap<AzureBudgetSummary[]>(async () => {
+      const { listAzureBudgets } = await import('./azure/cost')
+      return listAzureBudgets(subscriptionId)
+    })
+  )
+  ipcMain.handle('azure:cost:reservation-utilization', async (_event, subscriptionId: string) =>
+    wrap<AzureReservationUtilization>(async () => {
+      const { getAzureReservationUtilization } = await import('./azure/cost')
+      return getAzureReservationUtilization(subscriptionId)
+    })
+  )
+  ipcMain.handle('azure:cost:anomalies', async (_event, subscriptionId: string) =>
+    wrap<AzureCostAnomaly[]>(async () => {
+      const { getAzureCostAnomalies } = await import('./azure/cost')
+      return getAzureCostAnomalies(subscriptionId)
+    })
+  )
+
+  // ── Azure Monitor / Log Analytics Extended ────────────────────────────────────
+  ipcMain.handle('azure:monitor:list-metric-alert-rules', async (_event, subscriptionId: string) =>
+    wrap<AzureMetricAlertRuleSummary[]>(async () => {
+      const { listAzureMetricAlertRules } = await import('./azure/monitor')
+      return listAzureMetricAlertRules(subscriptionId)
+    })
+  )
+  ipcMain.handle('azure:monitor:list-scheduled-query-rules', async (_event, subscriptionId: string) =>
+    wrap<AzureScheduledQueryRuleSummary[]>(async () => {
+      const { listAzureScheduledQueryRules } = await import('./azure/monitor')
+      return listAzureScheduledQueryRules(subscriptionId)
+    })
+  )
+  ipcMain.handle('azure:monitor:list-action-groups', async (_event, subscriptionId: string) =>
+    wrap<AzureActionGroupSummary[]>(async () => {
+      const { listAzureActionGroups } = await import('./azure/monitor')
+      return listAzureActionGroups(subscriptionId)
+    })
+  )
+  ipcMain.handle('azure:monitor:query-metrics', async (_event, resourceId: string, metricNames: string, timespan?: string, interval?: string, aggregation?: string) =>
+    wrap<AzureMetricQueryResult>(async () => {
+      const { queryAzureMetrics } = await import('./azure/monitor')
+      return queryAzureMetrics(resourceId, metricNames, timespan, interval, aggregation)
+    })
+  )
+  ipcMain.handle('azure:monitor:list-diagnostic-settings', async (_event, resourceId: string) =>
+    wrap<AzureDiagnosticSettingSummary[]>(async () => {
+      const { listAzureDiagnosticSettings } = await import('./azure/monitor')
+      return listAzureDiagnosticSettings(resourceId)
+    })
+  )
+  ipcMain.handle('azure:log-analytics:query-templates', async () =>
+    wrap<AzureLogAnalyticsQueryTemplate[]>(async () => {
+      const { getAzureLogAnalyticsQueryTemplates } = await import('./azure/monitor')
+      return getAzureLogAnalyticsQueryTemplates()
+    })
+  )
+  ipcMain.handle('azure:log-analytics:query-with-timeout', async (_event, workspaceId: string, query: string, timespan?: string, timeoutSeconds?: number) =>
+    wrap<AzureLogAnalyticsQueryWithMeta>(async () => {
+      const { queryAzureLogAnalyticsWithTimeout } = await import('./azure/monitor')
+      return queryAzureLogAnalyticsWithTimeout(workspaceId, query, timespan, timeoutSeconds)
+    })
+  )
+  ipcMain.handle('azure:log-analytics:export-csv', async (_event, tables: Array<{ name: string; columns: Array<{ name: string; type: string }>; rows: unknown[][] }>) =>
+    wrap<string>(async () => {
+      const { exportAzureLogAnalyticsResultCsv } = await import('./azure/monitor')
+      return exportAzureLogAnalyticsResultCsv(tables)
+    })
+  )
+  ipcMain.handle('azure:log-analytics:history', async (_event, workspaceId: string) =>
+    wrap<AzureLogAnalyticsHistoryEntry[]>(async () => {
+      const { getAzureLogAnalyticsQueryHistory } = await import('./azure/monitor')
+      return getAzureLogAnalyticsQueryHistory(workspaceId)
+    })
+  )
+  ipcMain.handle('azure:log-analytics:clear-history', async (_event, workspaceId?: string) =>
+    wrap<void>(async () => {
+      const { clearAzureLogAnalyticsQueryHistory } = await import('./azure/monitor')
+      clearAzureLogAnalyticsQueryHistory(workspaceId)
+    })
+  )
+  ipcMain.handle('azure:monitor:list-resource-health', async (_event, subscriptionId: string) =>
+    wrap<AzureResourceHealthSummary[]>(async () => {
+      const { listAzureResourceHealth } = await import('./azure/monitor')
+      return listAzureResourceHealth(subscriptionId)
+    })
+  )
+  ipcMain.handle('azure:monitor:list-service-health-events', async (_event, subscriptionId: string, eventType?: string) =>
+    wrap<AzureServiceHealthEvent[]>(async () => {
+      const { listAzureServiceHealthEvents } = await import('./azure/monitor')
+      return listAzureServiceHealthEvents(subscriptionId, eventType as 'ServiceIssue' | 'PlannedMaintenance' | 'HealthAdvisory' | 'SecurityAdvisory' | undefined)
+    })
+  )
+
+  // ── Azure Network Topology Extended ───────────────────────────────────────────
+  ipcMain.handle('azure:network:list-application-gateways', async (_event, subscriptionId: string, location?: string) =>
+    wrap<AzureApplicationGatewaySummary[]>(async () => {
+      const { listAzureApplicationGateways } = await import('./azure/network')
+      return listAzureApplicationGateways(subscriptionId, location)
+    })
+  )
+  ipcMain.handle('azure:network:list-vpn-gateways', async (_event, subscriptionId: string, location?: string) =>
+    wrap<AzureVpnGatewaySummary[]>(async () => {
+      const { listAzureVpnGateways } = await import('./azure/network')
+      return listAzureVpnGateways(subscriptionId, location)
+    })
+  )
+  ipcMain.handle('azure:network:list-express-route-circuits', async (_event, subscriptionId: string, location?: string) =>
+    wrap<AzureExpressRouteCircuitSummary[]>(async () => {
+      const { listAzureExpressRouteCircuits } = await import('./azure/network')
+      return listAzureExpressRouteCircuits(subscriptionId, location)
+    })
+  )
+  ipcMain.handle('azure:network:list-private-dns-zones', async (_event, subscriptionId: string) =>
+    wrap<AzurePrivateDnsZoneSummary[]>(async () => {
+      const { listAzurePrivateDnsZones } = await import('./azure/network')
+      return listAzurePrivateDnsZones(subscriptionId)
+    })
+  )
+  ipcMain.handle('azure:network:list-private-dns-vnet-links', async (_event, subscriptionId: string, resourceGroup: string, zoneName: string) =>
+    wrap<AzurePrivateDnsVNetLink[]>(async () => {
+      const { listAzurePrivateDnsVNetLinks } = await import('./azure/network')
+      return listAzurePrivateDnsVNetLinks(subscriptionId, resourceGroup, zoneName)
+    })
+  )
+  ipcMain.handle('azure:network:effective-routes', async (_event, subscriptionId: string, resourceGroup: string, nicName: string) =>
+    wrap<AzureEffectiveRoute[]>(async () => {
+      const { getAzureEffectiveRoutes } = await import('./azure/network')
+      return getAzureEffectiveRoutes(subscriptionId, resourceGroup, nicName)
+    })
+  )
+  ipcMain.handle('azure:network:effective-nsg-rules', async (_event, subscriptionId: string, resourceGroup: string, nicName: string) =>
+    wrap<AzureEffectiveNsgRule[]>(async () => {
+      const { getAzureEffectiveNsgRules } = await import('./azure/network')
+      return getAzureEffectiveNsgRules(subscriptionId, resourceGroup, nicName)
+    })
+  )
+  ipcMain.handle('azure:network:topology', async (_event, subscriptionId: string, location?: string) =>
+    wrap<AzureNetworkTopology>(async () => {
+      const { getAzureNetworkTopology } = await import('./azure/network')
+      return getAzureNetworkTopology(subscriptionId, location)
+    })
+  )
+  ipcMain.handle('azure:network:vnet-topology-detail', async (_event, subscriptionId: string, resourceGroup: string, vnetName: string) =>
+    wrap<AzureVNetTopologyDetail>(async () => {
+      const { getAzureVNetTopologyDetail } = await import('./azure/network')
+      return getAzureVNetTopologyDetail(subscriptionId, resourceGroup, vnetName)
+    })
+  )
+
   ipcMain.handle('azure:network:get-overview', async (_event, subscriptionId: string, location: string) =>
     wrap(async () => (await loadAzureSdk()).listAzureNetworkOverview(subscriptionId, location))
   )

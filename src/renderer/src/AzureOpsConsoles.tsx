@@ -832,29 +832,34 @@ export function AzureCostConsole({
             <div className="cw-query-layout">
               <div className="cw-query-main">
                 {activeTab === 'services' ? (
-                  <div className="cw-results-table">
-                    <div className="table-row table-head" style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.8fr 0.6fr 1fr', gap: '1rem', padding: '8px 12px' }}>
+                  <div className="cw-results-table cost-analysis-table">
+                    <div className="table-row table-head cost-analysis-table-row cost-analysis-table-head">
                       <div>Service</div><div>Amount</div><div>Share</div><div>Distribution</div>
                     </div>
                     {overview.topServices.map((entry) => (
-                      <button key={entry.label} type="button" className={`cw-result-row ${selectedService === entry.label ? 'active' : ''}`} style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.8fr 0.6fr 1fr', gap: '1rem', textAlign: 'left' }} onClick={() => setSelectedService(entry.label)}>
-                        <div><strong>{entry.label}</strong></div>
-                        <div>{formatCurrency(entry.amount, entry.currency)}</div>
-                        <div>{entry.sharePercent}%</div>
+                      <button
+                        key={entry.label}
+                        type="button"
+                        className={`cw-result-row cost-analysis-table-row ${selectedService === entry.label ? 'active' : ''}`}
+                        onClick={() => setSelectedService(entry.label)}
+                      >
+                        <div className="cost-analysis-name"><strong>{entry.label}</strong></div>
+                        <div className="cost-analysis-amount">{formatCurrency(entry.amount, entry.currency)}</div>
+                        <div className="cost-analysis-share">{entry.sharePercent}%</div>
                         <div className="cost-share-bar-track"><div className="cost-share-bar-fill" style={{ width: `${entry.sharePercent}%` }} /></div>
                       </button>
                     ))}
                   </div>
                 ) : (
-                  <div className="cw-results-table">
-                    <div className="table-row table-head" style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.8fr 0.6fr 1fr', gap: '1rem', padding: '8px 12px' }}>
+                  <div className="cw-results-table cost-analysis-table">
+                    <div className="table-row table-head cost-analysis-table-row cost-analysis-table-head">
                       <div>Resource group</div><div>Amount</div><div>Share</div><div>Distribution</div>
                     </div>
                     {selectedResourceGroups.map((entry) => (
-                      <div key={entry.label} className="cw-result-row" style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.8fr 0.6fr 1fr', gap: '1rem', textAlign: 'left' }}>
-                        <div><strong>{entry.label}</strong></div>
-                        <div>{formatCurrency(entry.amount, entry.currency)}</div>
-                        <div>{entry.sharePercent}%</div>
+                      <div key={entry.label} className="cw-result-row cost-analysis-table-row">
+                        <div className="cost-analysis-name"><strong>{entry.label}</strong></div>
+                        <div className="cost-analysis-amount">{formatCurrency(entry.amount, entry.currency)}</div>
+                        <div className="cost-analysis-share">{entry.sharePercent}%</div>
                         <div className="cost-share-bar-track"><div className="cost-share-bar-fill" style={{ width: `${entry.sharePercent}%` }} /></div>
                       </div>
                     ))}
