@@ -2167,34 +2167,35 @@ export async function getAzureCostOverview(subscriptionId: string): Promise<Azur
   const scope = `/subscriptions/${encodeURIComponent(subscriptionId.trim())}/providers/Microsoft.CostManagement/query`
   const apiVersion = '2023-03-01'
 
-  const [groupedResponse, dailyResponse] = await Promise.all([
-    fetchAzureArmJson<CostQueryResponse>(scope, apiVersion, {
-      method: 'POST',
-      body: JSON.stringify({
-        type: 'Usage',
-        timeframe: 'MonthToDate',
-        dataset: {
-          granularity: 'None',
-          aggregation: { totalCost: { name: 'Cost', function: 'Sum' } },
-          grouping: [
-            { type: 'Dimension', name: 'ServiceName' },
-            { type: 'Dimension', name: 'ResourceGroupName' }
-          ]
-        }
-      })
-    }),
-    fetchAzureArmJson<CostQueryResponse>(scope, apiVersion, {
-      method: 'POST',
-      body: JSON.stringify({
-        type: 'Usage',
-        timeframe: 'MonthToDate',
-        dataset: {
-          granularity: 'Daily',
-          aggregation: { totalCost: { name: 'Cost', function: 'Sum' } }
-        }
-      })
+  // Run sequentially to avoid hitting Azure Cost Management rate limits (429).
+  // The Cost Management query endpoint has aggressive per-subscription throttling
+  // and parallel POST requests frequently trigger rate-limiting.
+  const groupedResponse = await fetchAzureArmJson<CostQueryResponse>(scope, apiVersion, {
+    method: 'POST',
+    body: JSON.stringify({
+      type: 'Usage',
+      timeframe: 'MonthToDate',
+      dataset: {
+        granularity: 'None',
+        aggregation: { totalCost: { name: 'Cost', function: 'Sum' } },
+        grouping: [
+          { type: 'Dimension', name: 'ServiceName' },
+          { type: 'Dimension', name: 'ResourceGroupName' }
+        ]
+      }
     })
-  ])
+  })
+  const dailyResponse = await fetchAzureArmJson<CostQueryResponse>(scope, apiVersion, {
+    method: 'POST',
+    body: JSON.stringify({
+      type: 'Usage',
+      timeframe: 'MonthToDate',
+      dataset: {
+        granularity: 'Daily',
+        aggregation: { totalCost: { name: 'Cost', function: 'Sum' } }
+      }
+    })
+  })
 
   /* ---- grouped (service x resource-group) breakdown ---- */
   const columnNames = (groupedResponse.properties?.columns ?? []).map((column) => column.name?.trim() || '')

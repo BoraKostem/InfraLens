@@ -617,36 +617,36 @@ export async function getAzureCostAnomalies(
 
     const scope = buildCostQueryScope(subId)
 
-    const [currentResponse, previousResponse] = await Promise.all([
-      fetchAzureArmJson<CostQueryResponse>(scope, COST_API_VERSION, {
-        method: 'POST',
-        body: JSON.stringify({
-          type: 'Usage',
-          timeframe: 'MonthToDate',
-          dataset: {
-            granularity: 'None',
-            aggregation: { totalCost: { name: 'Cost', function: 'Sum' } },
-            grouping: [{ type: 'Dimension', name: 'ServiceName' }]
-          }
-        })
-      }),
-      fetchAzureArmJson<CostQueryResponse>(scope, COST_API_VERSION, {
-        method: 'POST',
-        body: JSON.stringify({
-          type: 'Usage',
-          timeframe: 'Custom',
-          timePeriod: {
-            from: previousMonthStart.toISOString().split('T')[0],
-            to: previousCutoff.toISOString().split('T')[0]
-          },
-          dataset: {
-            granularity: 'None',
-            aggregation: { totalCost: { name: 'Cost', function: 'Sum' } },
-            grouping: [{ type: 'Dimension', name: 'ServiceName' }]
-          }
-        })
+    // Run sequentially — Azure Cost Management has aggressive per-subscription
+    // throttling and parallel POST requests frequently trigger 429 rate limits.
+    const currentResponse = await fetchAzureArmJson<CostQueryResponse>(scope, COST_API_VERSION, {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'Usage',
+        timeframe: 'MonthToDate',
+        dataset: {
+          granularity: 'None',
+          aggregation: { totalCost: { name: 'Cost', function: 'Sum' } },
+          grouping: [{ type: 'Dimension', name: 'ServiceName' }]
+        }
       })
-    ])
+    })
+    const previousResponse = await fetchAzureArmJson<CostQueryResponse>(scope, COST_API_VERSION, {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'Usage',
+        timeframe: 'Custom',
+        timePeriod: {
+          from: previousMonthStart.toISOString().split('T')[0],
+          to: previousCutoff.toISOString().split('T')[0]
+        },
+        dataset: {
+          granularity: 'None',
+          aggregation: { totalCost: { name: 'Cost', function: 'Sum' } },
+          grouping: [{ type: 'Dimension', name: 'ServiceName' }]
+        }
+      })
+    })
 
     // Parse current month
     const current = parseCostRows(currentResponse)
