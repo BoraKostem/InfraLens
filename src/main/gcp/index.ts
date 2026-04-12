@@ -60,3 +60,19 @@ export {
   getGcpCostForecast,
   getGcpCostAnomalies
 } from './billing'
+
+export {
+  toggleGcpAlertPolicy,
+  deleteGcpAlertPolicy,
+  createGcpAlertPolicy,
+  listGcpNotificationChannels,
+  createGcpUptimeCheck,
+  deleteGcpUptimeCheck,
+  queryGcpAggregatedMetric,
+  listGcpMonitoringGroups,
+  listGcpMonitoringDashboards,
+  getGcpMonitoringDashboard,
+  listGcpLogEntries,
+  listGcpMonitoringServices,
+  listGcpMonitoringSlos
+} from './monitoring'

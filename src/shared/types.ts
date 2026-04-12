@@ -2274,6 +2274,101 @@ export type GcpMonitoringTimeSeriesResult = {
   points: GcpMonitoringTimeSeriesPoint[]
 }
 
+// ── GCP Monitoring Extended Types (Console Feature Parity) ──────────────────────
+
+export type GcpMonitoringNotificationChannelSummary = {
+  name: string
+  displayName: string
+  type: string
+  enabled: boolean
+  description: string
+  labels: Record<string, string>
+  verificationStatus: string
+  creationTime: string
+  mutationTime: string
+}
+
+export type GcpMonitoringGroupSummary = {
+  name: string
+  displayName: string
+  filter: string
+  parentName: string
+  isCluster: boolean
+}
+
+export type GcpMonitoringDashboardSummary = {
+  name: string
+  displayName: string
+  etag: string
+  widgetCount: number
+}
+
+export type GcpMonitoringDashboardDetail = {
+  name: string
+  displayName: string
+  etag: string
+  widgets: {
+    title: string
+    widgetType: string
+    metricTypes: string[]
+  }[]
+}
+
+export type GcpMonitoringAggregatedPoint = {
+  timestamp: string
+  value: number
+}
+
+export type GcpMonitoringAggregatedMetric = {
+  metricType: string
+  timeSeries: {
+    metricType: string
+    resourceType: string
+    resourceLabels: Record<string, string>
+    metricLabels: Record<string, string>
+    points: GcpMonitoringAggregatedPoint[]
+  }[]
+  alignmentPeriod: string
+  aggregation: string
+}
+
+export type GcpLogEntry = {
+  logName: string
+  timestamp: string
+  severity: string
+  insertId: string
+  resourceType: string
+  resourceLabels: Record<string, string>
+  textPayload: string
+  jsonPayloadSummary: string
+  httpMethod: string
+  httpStatus: number
+  httpUrl: string
+  trace: string
+  spanId: string
+}
+
+export type GcpLogEntriesResult = {
+  entries: GcpLogEntry[]
+  nextPageToken: string
+}
+
+export type GcpMonitoringServiceSummary = {
+  name: string
+  displayName: string
+  serviceType: string
+  telemetryResourceName: string
+}
+
+export type GcpMonitoringSloSummary = {
+  name: string
+  displayName: string
+  goal: number
+  rollingPeriodDays: number
+  calendarPeriod: string
+  sliType: string
+}
+
 export type GcpSccFindingSummary = {
   name: string
   category: string

@@ -25,6 +25,14 @@ import type {
   GcpBillingCostTrend,
   GcpBillingDailyCostTrend,
   GcpBillingSkuBreakdown,
+  GcpLogEntriesResult,
+  GcpMonitoringAggregatedMetric,
+  GcpMonitoringDashboardDetail,
+  GcpMonitoringDashboardSummary,
+  GcpMonitoringGroupSummary,
+  GcpMonitoringNotificationChannelSummary,
+  GcpMonitoringServiceSummary,
+  GcpMonitoringSloSummary,
   GcpIamAuditEntry,
   GcpIamPolicyAnalysisResult,
   GcpIamRecommendation,
@@ -87,11 +95,13 @@ const wrap: <T>(
 type GcpSdkModule = typeof import('./gcpSdk')
 type GcpIamModule = typeof import('./gcp/iam')
 type GcpBillingModule = typeof import('./gcp/billing')
+type GcpMonitoringModule = typeof import('./gcp/monitoring')
 type AzureSdkModule = typeof import('./azureSdk')
 
 let gcpSdkPromise: Promise<GcpSdkModule> | null = null
 let gcpIamPromise: Promise<GcpIamModule> | null = null
 let gcpBillingPromise: Promise<GcpBillingModule> | null = null
+let gcpMonitoringPromise: Promise<GcpMonitoringModule> | null = null
 let azureSdkPromise: Promise<AzureSdkModule> | null = null
 
 function loadGcpSdk(): Promise<GcpSdkModule> {
@@ -116,6 +126,14 @@ function loadGcpBilling(): Promise<GcpBillingModule> {
   }
 
   return gcpBillingPromise
+}
+
+function loadGcpMonitoring(): Promise<GcpMonitoringModule> {
+  if (!gcpMonitoringPromise) {
+    gcpMonitoringPromise = import('./gcp/monitoring')
+  }
+
+  return gcpMonitoringPromise
 }
 
 function loadAzureSdk(): Promise<AzureSdkModule> {
@@ -561,6 +579,47 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   )
   ipcMain.handle('gcp:monitoring:query-time-series', async (_event, projectId: string, metricType: string, intervalMinutes: number) =>
     wrap(async () => (await loadGcpSdk()).queryGcpMonitoringTimeSeries(projectId, metricType, intervalMinutes))
+  )
+
+  // ── GCP Monitoring Extended (Console Feature Parity) ─────────────────────────
+  ipcMain.handle('gcp:monitoring:toggle-alert-policy', async (_event, projectId: string, policyName: string, enabled: boolean) =>
+    wrap(async () => (await loadGcpMonitoring()).toggleGcpAlertPolicy(projectId, policyName, enabled))
+  )
+  ipcMain.handle('gcp:monitoring:delete-alert-policy', async (_event, projectId: string, policyName: string) =>
+    wrap(async () => (await loadGcpMonitoring()).deleteGcpAlertPolicy(projectId, policyName))
+  )
+  ipcMain.handle('gcp:monitoring:create-alert-policy', async (_event, projectId: string, displayName: string, metricType: string, threshold: number, comparison: string, durationSeconds: number, notificationChannelNames: string[]) =>
+    wrap(async () => (await loadGcpMonitoring()).createGcpAlertPolicy(projectId, displayName, metricType, threshold, comparison as 'COMPARISON_GT' | 'COMPARISON_LT' | 'COMPARISON_GE' | 'COMPARISON_LE', durationSeconds, notificationChannelNames))
+  )
+  ipcMain.handle('gcp:monitoring:list-notification-channels', async (_event, projectId: string) =>
+    wrap<GcpMonitoringNotificationChannelSummary[]>(() => cachedGcp(`${projectId}:notification-channels`, GCP_TTL.MONITOR, async () => (await loadGcpMonitoring()).listGcpNotificationChannels(projectId)))
+  )
+  ipcMain.handle('gcp:monitoring:create-uptime-check', async (_event, projectId: string, displayName: string, host: string, path: string, useSsl: boolean, periodSeconds: number) =>
+    wrap(async () => (await loadGcpMonitoring()).createGcpUptimeCheck(projectId, displayName, host, path, useSsl, periodSeconds))
+  )
+  ipcMain.handle('gcp:monitoring:delete-uptime-check', async (_event, projectId: string, uptimeCheckName: string) =>
+    wrap(async () => (await loadGcpMonitoring()).deleteGcpUptimeCheck(projectId, uptimeCheckName))
+  )
+  ipcMain.handle('gcp:monitoring:query-aggregated-metric', async (_event, projectId: string, metricType: string, intervalMinutes: number, alignmentPeriodSeconds: number, aggregation: string, resourceFilter?: string) =>
+    wrap<GcpMonitoringAggregatedMetric>(async () => (await loadGcpMonitoring()).queryGcpAggregatedMetric(projectId, metricType, intervalMinutes, alignmentPeriodSeconds, aggregation as 'ALIGN_MEAN' | 'ALIGN_MAX' | 'ALIGN_MIN' | 'ALIGN_SUM' | 'ALIGN_COUNT' | 'ALIGN_PERCENTILE_99', resourceFilter))
+  )
+  ipcMain.handle('gcp:monitoring:list-groups', async (_event, projectId: string) =>
+    wrap<GcpMonitoringGroupSummary[]>(() => cachedGcp(`${projectId}:monitoring-groups`, GCP_TTL.MONITOR, async () => (await loadGcpMonitoring()).listGcpMonitoringGroups(projectId)))
+  )
+  ipcMain.handle('gcp:monitoring:list-dashboards', async (_event, projectId: string) =>
+    wrap<GcpMonitoringDashboardSummary[]>(() => cachedGcp(`${projectId}:dashboards`, GCP_TTL.MONITOR, async () => (await loadGcpMonitoring()).listGcpMonitoringDashboards(projectId)))
+  )
+  ipcMain.handle('gcp:monitoring:get-dashboard', async (_event, projectId: string, dashboardName: string) =>
+    wrap<GcpMonitoringDashboardDetail>(() => cachedGcp(`${projectId}:dashboard:${dashboardName}`, GCP_TTL.MONITOR, async () => (await loadGcpMonitoring()).getGcpMonitoringDashboard(projectId, dashboardName)))
+  )
+  ipcMain.handle('gcp:monitoring:list-log-entries', async (_event, projectId: string, filter: string, orderBy?: string, pageSize?: number, pageToken?: string) =>
+    wrap<GcpLogEntriesResult>(async () => (await loadGcpMonitoring()).listGcpLogEntries(projectId, filter, orderBy as 'timestamp asc' | 'timestamp desc' | undefined, pageSize, pageToken))
+  )
+  ipcMain.handle('gcp:monitoring:list-services', async (_event, projectId: string) =>
+    wrap<GcpMonitoringServiceSummary[]>(() => cachedGcp(`${projectId}:monitoring-services`, GCP_TTL.MONITOR, async () => (await loadGcpMonitoring()).listGcpMonitoringServices(projectId)))
+  )
+  ipcMain.handle('gcp:monitoring:list-slos', async (_event, projectId: string, serviceName: string) =>
+    wrap<GcpMonitoringSloSummary[]>(() => cachedGcp(`${projectId}:slos:${serviceName}`, GCP_TTL.MONITOR, async () => (await loadGcpMonitoring()).listGcpMonitoringSlos(projectId, serviceName)))
   )
 
   // Security Command Center
