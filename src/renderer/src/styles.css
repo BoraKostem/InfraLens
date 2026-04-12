@@ -1150,6 +1150,50 @@ textarea {
   color: #79b8ff;
 }
 
+.azure-overview-console .overview-account-grid {
+  align-items: stretch;
+  grid-auto-rows: 1fr;
+}
+
+.azure-overview-console .overview-account-card {
+  height: 340px;
+  min-height: 340px;
+  max-height: 340px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.azure-overview-console .overview-account-card .panel-header.minor {
+  flex: 0 0 auto;
+  margin-top: 0;
+}
+
+.azure-overview-console .overview-account-card .overview-account-kv {
+  flex: 0 0 auto;
+}
+
+.azure-overview-console .overview-account-card-cost .overview-linked-account-list-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: 0.85rem;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.azure-overview-console .overview-account-card-cost .overview-linked-account-list-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.azure-overview-console .overview-account-card-cost .overview-linked-account-list-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(121, 184, 255, 0.22);
+}
+
+.azure-overview-console .overview-account-card-cost .overview-linked-account-list-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 .azure-overview-console .overview-meta-pill,
 .azure-overview-console .overview-account-card,
 .azure-overview-console .overview-hint-card,
@@ -4012,6 +4056,17 @@ button.overview-tile.clickable.active strong {
 
   .overview-account-kv {
     grid-template-columns: 1fr;
+  }
+
+  .azure-overview-console .overview-account-card {
+    height: auto;
+    min-height: 0;
+    max-height: none;
+  }
+
+  .azure-overview-console .overview-account-card-cost .overview-linked-account-list-scroll {
+    overflow-y: visible;
+    padding-right: 0;
   }
 
   .overview-ownership-header,
