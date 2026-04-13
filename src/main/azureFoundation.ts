@@ -1263,10 +1263,14 @@ export async function setAzureActiveSubscription(subscriptionId: string): Promis
   const currentStore = readAzureFoundationStore()
   const nextRecentSubscriptions = mergeRecentSubscriptions(currentStore.recentSubscriptions, matchedSubscription ? [matchedSubscription] : [], normalizedSubscriptionId)
 
+  // Preserve the current location when re-selecting the same subscription or
+  // when the user already picked a location.  Only clear it when the
+  // subscription actually changes (locations may differ between subscriptions).
+  const locationChanged = currentStore.activeSubscriptionId !== normalizedSubscriptionId
   updateAzureFoundationStore({
     activeTenantId: matchedSubscription?.tenantId ?? currentStore.activeTenantId,
     activeSubscriptionId: normalizedSubscriptionId,
-    activeLocation: '',
+    activeLocation: locationChanged ? '' : currentStore.activeLocation,
     recentSubscriptionIds: mergeRecentSubscriptionIds(currentStore.recentSubscriptionIds, normalizedSubscriptionId),
     recentSubscriptions: nextRecentSubscriptions.map((entry) => ({
       subscriptionId: entry.subscriptionId,

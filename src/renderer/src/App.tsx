@@ -3050,7 +3050,7 @@ function buildAzureDraftFromProviderSnapshot(
     subscriptionId: snapshot.activeSubscriptionId.trim() || baseDraft.subscriptionId,
     subscriptionLabel: activeSubscription?.displayName || baseDraft.subscriptionLabel,
     tenantId: snapshot.activeTenantId.trim() || baseDraft.tenantId,
-    location: snapshot.activeLocation.trim() || baseDraft.location || availableLocations[0] || '',
+    location: snapshot.activeLocation.trim() || current?.location.trim() || baseDraft.location || availableLocations[0] || '',
     availableLocations,
     credentialHint: baseDraft.credentialHint || snapshot.activeAccountLabel.trim()
   }
@@ -4579,11 +4579,12 @@ export function App() {
     if (azureProviderContext) {
       const matched = azureProviderContext.subscriptions.find((s) => s.subscriptionId === subscriptionId)
       if (matched) {
+        const keepLocation = azureProviderContext.activeSubscriptionId === subscriptionId
         applyAzureSnapshot({
           ...azureProviderContext,
           activeSubscriptionId: subscriptionId,
           activeTenantId: matched.tenantId || azureProviderContext.activeTenantId,
-          activeLocation: ''
+          activeLocation: keepLocation ? azureProviderContext.activeLocation : ''
         })
         setNavOpen(true)
       }
