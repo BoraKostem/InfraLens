@@ -577,9 +577,12 @@ export async function getAzureTerraformDriftReport(
   // Extract subscription ID from any Azure resource ID in the inventory
   const subscriptionId = extractSubscriptionIdFromInventory(azureResources)
 
-  // Load all live data in parallel if we have a subscription
+  // Load all live data in parallel if we have a subscription.
+  // Pass empty location so we fetch resources across all regions — Terraform
+  // state can reference resources in any location, and filtering by the
+  // sidebar location would hide resources deployed to a different region.
   const { data: live } = subscriptionId
-    ? await loadAzureLiveData(subscriptionId, context.location)
+    ? await loadAzureLiveData(subscriptionId, '')
     : { data: {} as AzureLiveData }
 
   // Second-wave fetch: Event Hubs need per-namespace calls
@@ -849,7 +852,13 @@ export async function getAzureTerraformDriftReport(
         }
         const differences: TerraformDriftDifference[] = []
         compareValues(differences, 'version', 'version', str(item.values.version), liveServer.version)
-        compareValues(differences, 'sku_name', 'SKU name', str(item.values.sku_name), liveServer.skuName)
+        // Terraform stores SKU as "GP_Standard_D2s_v3" (tier prefix + compute),
+        // but Azure API returns just "Standard_D2s_v3". Strip the tier prefix
+        // (B_, GP_, MO_) before comparing to avoid false drift.
+        const tfSku = str(item.values.sku_name)
+        const normalizedTfSku = tfSku.replace(/^(B_|GP_|MO_)/i, '')
+        const normalizedLiveSku = (liveServer.skuName || '').replace(/^(B_|GP_|MO_)/i, '')
+        compareValues(differences, 'sku_name', 'SKU name', normalizedTfSku, normalizedLiveSku)
         const tfStorageMb = num(item.values.storage_mb)
         if (tfStorageMb !== null) {
           const tfStorageSizeGb = Math.floor(tfStorageMb / 1024)
