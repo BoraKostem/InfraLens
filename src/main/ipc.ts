@@ -120,7 +120,7 @@ const wrap: <T>(
   options?: OperationOptions
 ) => Promise<HandlerResult<T>> = createHandlerWrapper('ipc', { timeoutMs: 60000 })
 
-type GcpSdkModule = typeof import('./gcpSdk')
+type GcpSdkModule = typeof import('./gcp')
 type GcpIamModule = typeof import('./gcp/iam')
 type GcpBillingModule = typeof import('./gcp/billing')
 type GcpMonitoringModule = typeof import('./gcp/monitoring')
@@ -140,7 +140,7 @@ let azureLbLogsPromise: Promise<AzureLbLogsModule> | null = null
 
 function loadGcpSdk(): Promise<GcpSdkModule> {
   if (!gcpSdkPromise) {
-    gcpSdkPromise = import('./gcpSdk')
+    gcpSdkPromise = import('./gcp')
   }
 
   return gcpSdkPromise
