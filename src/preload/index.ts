@@ -603,6 +603,8 @@ const awsLensApi = {
     ipcRenderer.invoke('overview:account-context', connection),
   getComplianceReport: (connection: AwsConnection) =>
     ipcRenderer.invoke('compliance:report', connection),
+  getSecurityScoreReport: (connection: AwsConnection, weights?: unknown) =>
+    ipcRenderer.invoke('security-score:report', connection, weights),
   updateComplianceFindingWorkflow: (
     connection: AwsConnection,
     findingId: string,

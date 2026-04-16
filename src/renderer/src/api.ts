@@ -219,6 +219,8 @@ import type {
   ComplianceFindingWorkflow,
   ComplianceFindingWorkflowUpdate,
   ComplianceReport,
+  SecurityScoreReport,
+  SecurityScoreWeights,
   EnterpriseAccessMode,
   EnterpriseAuditEvent,
   EnterpriseAuditExportResult,
@@ -403,6 +405,7 @@ export type CacheTag =
   | 'compare'
   | 'overview'
   | 'compliance-center'
+  | 'security-score'
   | 'ec2'
   | 'cloudwatch'
   | 's3'
@@ -507,6 +510,7 @@ const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
   getOverviewAccountContext: 'overview',
   getComplianceReport: 'compliance-center',
   updateComplianceFindingWorkflow: 'compliance-center',
+  getSecurityScoreReport: 'security-score',
   getRelationshipMap: 'overview',
   getCostBreakdown: 'overview',
   searchByTag: 'overview',
@@ -2864,6 +2868,15 @@ export async function getOverviewStatistics(connection: AwsConnection): Promise<
 
 export async function getComplianceReport(connection: AwsConnection): Promise<ComplianceReport> {
   return unwrap((await awsBridge().getComplianceReport(connection)) as Wrapped<ComplianceReport>)
+}
+
+export async function getSecurityScoreReport(
+  connection: AwsConnection,
+  weights?: Partial<SecurityScoreWeights>
+): Promise<SecurityScoreReport> {
+  return unwrap(
+    (await awsBridge().getSecurityScoreReport(connection, weights)) as Wrapped<SecurityScoreReport>
+  )
 }
 
 export async function updateComplianceFindingWorkflow(

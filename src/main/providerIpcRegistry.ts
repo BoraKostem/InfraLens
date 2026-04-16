@@ -11,6 +11,7 @@ import { registerFoundationIpcHandlers } from './foundationIpc'
 import { registerOverviewIpcHandlers } from './overviewIpc'
 import { getProvider, listProviders } from './providerRegistry'
 import { registerSecurityIpcHandlers } from './securityIpc'
+import { registerSecurityScoreIpcHandlers } from './securityScoreIpc'
 import { registerServiceIpcHandlers } from './serviceIpc'
 import { registerSgIpcHandlers } from './sgIpc'
 import { registerTerminalIpcHandlers } from './terminalIpc'
@@ -50,6 +51,7 @@ function registerAwsProviderHandlers(context: ProviderIpcRegistrationContext): v
   registerFoundationIpcHandlers()
   registerOverviewIpcHandlers()
   registerSecurityIpcHandlers()
+  registerSecurityScoreIpcHandlers()
   registerServiceIpcHandlers()
   registerSgIpcHandlers()
   registerTerminalIpcHandlers()

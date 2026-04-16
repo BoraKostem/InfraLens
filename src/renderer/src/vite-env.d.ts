@@ -371,6 +371,7 @@ declare global {
       getOverviewStatistics: (connection: AwsConnection) => Promise<unknown>
       getOverviewAccountContext: (connection: AwsConnection) => Promise<unknown>
       getComplianceReport: (connection: AwsConnection) => Promise<unknown>
+      getSecurityScoreReport: (connection: AwsConnection, weights?: unknown) => Promise<unknown>
       updateComplianceFindingWorkflow: (connection: AwsConnection, findingId: string, update: unknown) => Promise<unknown>
       getRelationshipMap: (connection: AwsConnection) => Promise<unknown>
       searchByTag: (connection: AwsConnection, tagKey: string, tagValue?: string) => Promise<unknown>

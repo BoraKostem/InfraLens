@@ -4999,6 +4999,35 @@ export type ComplianceReport = {
   warnings: string[]
 }
 
+/* ── Security Posture Dashboard ──────────────────────────── */
+
+export type SecurityScoreDomain = 'iam' | 'network' | 'encryption' | 'logging' | 'compliance'
+
+export type SecurityScoreWeights = Record<SecurityScoreDomain, number>
+
+export type SecurityDomainResult = {
+  domain: SecurityScoreDomain
+  score: number
+  maxScore: number
+  checks: SecurityCheck[]
+}
+
+export type SecurityCheck = {
+  id: string
+  label: string
+  passed: boolean
+  severity: ComplianceSeverity
+  detail: string
+}
+
+export type SecurityScoreReport = {
+  generatedAt: string
+  overallScore: number
+  domainResults: SecurityDomainResult[]
+  weights: SecurityScoreWeights
+  warnings: string[]
+}
+
 export type TaggedResource = {
   resourceId: string
   resourceType: string
