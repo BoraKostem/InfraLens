@@ -29,7 +29,8 @@ export {
   getAzureCostForecast,
   listAzureBudgets,
   getAzureReservationUtilization,
-  getAzureCostAnomalies
+  getAzureCostAnomalies,
+  getAzureCostOverview
 } from './cost'
 
 export {
@@ -44,7 +45,8 @@ export {
   getAzureLogAnalyticsQueryHistory,
   clearAzureLogAnalyticsQueryHistory,
   listAzureResourceHealth,
-  listAzureServiceHealthEvents
+  listAzureServiceHealthEvents,
+  listAzureMonitorActivity
 } from './monitor'
 
 export {
@@ -56,5 +58,174 @@ export {
   getAzureEffectiveRoutes,
   getAzureEffectiveNsgRules,
   getAzureNetworkTopology,
-  getAzureVNetTopologyDetail
+  getAzureVNetTopologyDetail,
+  listAzureNetworkOverview,
+  listAzureVNetSubnets,
+  listAzureNsgRules,
+  listAzureVNetPeerings,
+  listAzureRouteTables,
+  listAzureNatGateways,
+  listAzurePrivateEndpoints
 } from './network'
+
+export {
+  extractResourceGroup,
+  extractResourceName,
+  extractPowerState,
+  extractProvisioningState,
+  normalizeLocationList,
+  normalizeRegion,
+  inferScopeKind,
+  toFacetCounts,
+  guessContentTypeFromKey,
+  streamToBuffer,
+  listSubscriptionLocations,
+  isWindowsBatchFile,
+  getAzureStorageAccountKey,
+  getAzureBlobServiceClient,
+  getEnvironmentHealthReport
+} from './shared'
+
+export {
+  listAzureSubscriptions
+} from './subscriptions'
+
+export {
+  listAzureResourceGroups,
+  listAzureResourceGroupResources
+} from './resourceGroups'
+
+export {
+  getAzureRbacOverview,
+  listAzureRoleDefinitions,
+  listAzureRoleAssignments,
+  createAzureRoleAssignment,
+  deleteAzureRoleAssignment
+} from './rbac'
+
+export {
+  listAzureVirtualMachines,
+  describeAzureVirtualMachine,
+  runAzureVmAction
+} from './virtualMachines'
+
+export {
+  listAzureAksClusters,
+  describeAzureAksCluster,
+  listAzureAksNodePools,
+  updateAzureAksNodePoolScaling,
+  toggleAzureAksNodePoolAutoscaling,
+  addAksToKubeconfig
+} from './aks'
+
+export {
+  listAzureVmss,
+  listAzureVmssInstances,
+  updateAzureVmssCapacity,
+  runAzureVmssInstanceAction
+} from './vmss'
+
+export {
+  listAzureStorageAccounts,
+  listAzureStorageContainers,
+  listAzureStorageBlobs,
+  getAzureStorageBlobContent,
+  putAzureStorageBlobContent,
+  uploadAzureStorageBlob,
+  downloadAzureStorageBlobToPath,
+  deleteAzureStorageBlob,
+  createAzureStorageContainer,
+  openAzureStorageBlob,
+  openAzureStorageBlobInVSCode,
+  generateAzureStorageBlobSasUrl,
+  listAzureStorageFileShares,
+  listAzureStorageQueues,
+  listAzureStorageTables
+} from './storageAccounts'
+
+export {
+  listAzureSqlEstate,
+  describeAzureSqlServer
+} from './sqlServer'
+
+export {
+  listAzurePostgreSqlEstate,
+  describeAzurePostgreSqlServer
+} from './postgresql'
+
+export {
+  listAzureManagedDisks,
+  listAzureDiskSnapshots
+} from './managedDisks'
+
+export {
+  listAzureMySqlEstate,
+  describeAzureMySqlServer
+} from './mysql'
+
+export {
+  listAzureCosmosDbEstate,
+  describeAzureCosmosDbAccount
+} from './cosmosDb'
+
+export {
+  listAzureAppInsightsComponents
+} from './appInsights'
+
+export {
+  listAzureKeyVaults,
+  describeAzureKeyVault,
+  listAzureKeyVaultSecrets,
+  listAzureKeyVaultKeys
+} from './keyVault'
+
+export {
+  listAzureEventHubNamespaces,
+  listAzureEventHubs,
+  listAzureEventHubConsumerGroups
+} from './eventHubs'
+
+export {
+  listAzureAppServicePlans,
+  listAzureWebApps,
+  describeAzureWebApp,
+  listAzureWebAppSlots,
+  listAzureWebAppDeployments,
+  listAzureFunctionApps,
+  listAzureFunctions,
+  getAzureWebAppConfiguration,
+  runAzureWebAppAction
+} from './appService'
+
+export {
+  listAzureLogAnalyticsWorkspaces,
+  queryAzureLogAnalytics,
+  listAzureLogAnalyticsSavedSearches,
+  listAzureLogAnalyticsLinkedServices
+} from './logAnalytics'
+
+export {
+  listAzureEventGridTopics,
+  listAzureEventGridSystemTopics,
+  listAzureEventGridEventSubscriptions,
+  listAzureEventGridDomains,
+  listAzureEventGridDomainTopics
+} from './eventGrid'
+
+export {
+  listAzureDnsZones,
+  listAzureDnsRecordSets,
+  upsertAzureDnsRecord,
+  deleteAzureDnsRecord,
+  createAzureDnsZone
+} from './dns'
+
+export {
+  listAzureFirewalls,
+  describeAzureFirewall
+} from './firewall'
+
+export {
+  listAzureLoadBalancers,
+  describeAzureLoadBalancer
+} from './loadBalancers'

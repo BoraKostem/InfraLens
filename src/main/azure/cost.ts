@@ -22,7 +22,10 @@ import type {
   AzureBudgetSummary,
   AzureReservationUtilization,
   AzureReservationEntry,
-  AzureCostAnomaly
+  AzureCostAnomaly,
+  AzureCostOverview,
+  AzureCostBreakdownEntry,
+  AzureCostDailyEntry
 } from '@shared/types'
 
 // ── Constants ───────────────────────────────────────────────────────────────────
@@ -695,5 +698,121 @@ export async function getAzureCostAnomalies(
     return anomalies.sort((a, b) => b.absoluteChange - a.absoluteChange)
   } catch (error) {
     throw classifyAzureError(`detecting cost anomalies for subscription "${subId}"`, error)
+  }
+}
+
+// ── Cost Overview (extracted from azureSdk.ts) ─────────────────────────────────
+
+export async function getAzureCostOverview(subscriptionId: string): Promise<AzureCostOverview> {
+  type CostQueryResponse = {
+    properties?: {
+      columns?: Array<{ name?: string }>
+      rows?: Array<Array<string | number | null>>
+    }
+  }
+
+  const scope = `/subscriptions/${encodeURIComponent(subscriptionId.trim())}/providers/Microsoft.CostManagement/query`
+  const apiVersion = '2023-03-01'
+
+  // Run sequentially to avoid hitting Azure Cost Management rate limits (429).
+  // The Cost Management query endpoint has aggressive per-subscription throttling
+  // and parallel POST requests frequently trigger rate-limiting.
+  const groupedResponse = await fetchAzureArmJson<CostQueryResponse>(scope, apiVersion, {
+    method: 'POST',
+    body: JSON.stringify({
+      type: 'Usage',
+      timeframe: 'MonthToDate',
+      dataset: {
+        granularity: 'None',
+        aggregation: { totalCost: { name: 'Cost', function: 'Sum' } },
+        grouping: [
+          { type: 'Dimension', name: 'ServiceName' },
+          { type: 'Dimension', name: 'ResourceGroupName' }
+        ]
+      }
+    })
+  })
+  const dailyResponse = await fetchAzureArmJson<CostQueryResponse>(scope, apiVersion, {
+    method: 'POST',
+    body: JSON.stringify({
+      type: 'Usage',
+      timeframe: 'MonthToDate',
+      dataset: {
+        granularity: 'Daily',
+        aggregation: { totalCost: { name: 'Cost', function: 'Sum' } }
+      }
+    })
+  })
+
+  /* ---- grouped (service x resource-group) breakdown ---- */
+  const columnNames = (groupedResponse.properties?.columns ?? []).map((column) => column.name?.trim() || '')
+  const costIndex = columnNames.findIndex((name) => name === 'Cost')
+  const serviceIndex = columnNames.findIndex((name) => name === 'ServiceName')
+  const resourceGroupIndex = columnNames.findIndex((name) => name === 'ResourceGroupName')
+  const currencyIndex = columnNames.findIndex((name) => name === 'Currency')
+  const rows = groupedResponse.properties?.rows ?? []
+
+  const totalAmount = rows.reduce((sum, row) => sum + Number(row[costIndex] ?? 0), 0)
+  const currency = String(rows[0]?.[currencyIndex] ?? 'USD')
+  const serviceTotals = new Map<string, number>()
+  const resourceGroupTotals = new Map<string, number>()
+
+  for (const row of rows) {
+    const cost = Number(row[costIndex] ?? 0)
+    const service = String(row[serviceIndex] ?? 'Unknown service')
+    const resourceGroup = String(row[resourceGroupIndex] ?? 'Unassigned')
+    serviceTotals.set(service, (serviceTotals.get(service) ?? 0) + cost)
+    resourceGroupTotals.set(resourceGroup, (resourceGroupTotals.get(resourceGroup) ?? 0) + cost)
+  }
+
+  const toBreakdown = (entries: Map<string, number>): AzureCostBreakdownEntry[] => [...entries.entries()]
+    .map(([label, amount]) => ({
+      label,
+      amount,
+      currency,
+      sharePercent: totalAmount > 0 ? Number(((amount / totalAmount) * 100).toFixed(1)) : 0
+    }))
+    .sort((left, right) => right.amount - left.amount || left.label.localeCompare(right.label))
+    .slice(0, 10)
+
+  /* ---- daily cost trend ---- */
+  const dailyColumns = (dailyResponse.properties?.columns ?? []).map((column) => column.name?.trim() || '')
+  const dailyCostIndex = dailyColumns.findIndex((name) => name === 'Cost')
+  const dailyDateIndex = dailyColumns.findIndex((name) => name === 'UsageDate')
+  const dailyCurrencyIndex = dailyColumns.findIndex((name) => name === 'Currency')
+  const dailyRows = dailyResponse.properties?.rows ?? []
+
+  const dailyCosts: AzureCostDailyEntry[] = dailyRows
+    .map((row) => {
+      const raw = String(row[dailyDateIndex] ?? '')
+      const dateStr = raw.length === 8
+        ? `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`
+        : raw
+      return {
+        date: dateStr,
+        amount: Number(Number(row[dailyCostIndex] ?? 0).toFixed(2)),
+        currency: String(row[dailyCurrencyIndex] ?? currency)
+      }
+    })
+    .sort((a, b) => a.date.localeCompare(b.date))
+
+  const daysWithSpend = dailyCosts.filter((d) => d.amount > 0).length
+  const dailyAverage = daysWithSpend > 0 ? Number((totalAmount / daysWithSpend).toFixed(2)) : 0
+  const topServices = toBreakdown(serviceTotals)
+
+  return {
+    subscriptionId,
+    timeframeLabel: 'Month to date',
+    totalAmount: Number(totalAmount.toFixed(2)),
+    currency,
+    dailyAverage,
+    topServiceName: topServices[0]?.label ?? '',
+    topServiceAmount: topServices[0]?.amount ?? 0,
+    serviceCount: serviceTotals.size,
+    resourceGroupCount: resourceGroupTotals.size,
+    topServices,
+    topResourceGroups: toBreakdown(resourceGroupTotals),
+    dailyCosts,
+    notes: rows.length === 0 ? ['No subscription cost rows were returned for the current month-to-date window.'] : []
   }
 }

@@ -34,7 +34,7 @@ import {
   listAzureWebApps,
   listAzureCosmosDbEstate,
   listAzureDnsZones
-} from './azureSdk'
+} from './azure'
 import { getProject } from './terraform'
 import { logWarn } from './observability'
 import { createTraceContext, withAudit } from './terraformAudit'

@@ -124,7 +124,7 @@ type GcpSdkModule = typeof import('./gcp')
 type GcpIamModule = typeof import('./gcp/iam')
 type GcpBillingModule = typeof import('./gcp/billing')
 type GcpMonitoringModule = typeof import('./gcp/monitoring')
-type AzureSdkModule = typeof import('./azureSdk')
+type AzureSdkModule = typeof import('./azure')
 type AwsLbLogsModule = typeof import('./aws/loadBalancerLogs')
 type GcpLbLogsModule = typeof import('./gcp/loadBalancerLogs')
 type AzureLbLogsModule = typeof import('./azure/loadBalancerLogs')
@@ -172,7 +172,7 @@ function loadGcpMonitoring(): Promise<GcpMonitoringModule> {
 
 function loadAzureSdk(): Promise<AzureSdkModule> {
   if (!azureSdkPromise) {
-    azureSdkPromise = import('./azureSdk')
+    azureSdkPromise = import('./azure')
   }
 
   return azureSdkPromise

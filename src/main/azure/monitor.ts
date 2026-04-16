@@ -20,6 +20,7 @@ import {
   addAzureLogAnalyticsHistoryEntry,
   clearAzureLogAnalyticsHistory
 } from './monitorStore'
+import { toFacetCounts } from './shared'
 import type {
   AzureMetricAlertRuleSummary,
   AzureScheduledQueryRuleSummary,
@@ -32,7 +33,10 @@ import type {
   AzureLogAnalyticsQueryWithMeta,
   AzureLogAnalyticsHistoryEntry,
   AzureResourceHealthSummary,
-  AzureServiceHealthEvent
+  AzureServiceHealthEvent,
+  AzureMonitorActivityResult,
+  AzureMonitorActivityEvent,
+  AzureMonitorFacetCount
 } from '@shared/types'
 
 // ── Constants ───────────────────────────────────────────────────────────────────
@@ -921,5 +925,88 @@ export async function listAzureServiceHealthEvents(
     })
   } catch (error) {
     throw classifyAzureError('listing service health events', error)
+  }
+}
+
+// ── Monitor Activity (extracted from azureSdk.ts) ──────────────────────────────
+
+export async function listAzureMonitorActivity(subscriptionId: string, location: string, query: string, windowHours = 24): Promise<AzureMonitorActivityResult> {
+  const endTime = new Date()
+  const startTime = new Date(endTime.getTime() - windowHours * 60 * 60 * 1000)
+  const encodedFilter = encodeURIComponent(`eventTimestamp ge '${startTime.toISOString()}' and eventTimestamp le '${endTime.toISOString()}'`)
+  const response = await fetchAzureArmCollection<{
+    eventDataId?: string
+    eventTimestamp?: string
+    level?: string
+    resourceGroupName?: string
+    resourceProviderName?: { value?: string; localizedValue?: string }
+    operationName?: { value?: string; localizedValue?: string }
+    resourceId?: string
+    caller?: string
+    correlationId?: string
+    status?: { value?: string; localizedValue?: string }
+    subStatus?: { value?: string; localizedValue?: string }
+    resourceRegion?: string
+  }>(`/subscriptions/${subscriptionId.trim()}/providers/Microsoft.Insights/eventtypes/management/values?$filter=${encodedFilter}`, '2015-04-01')
+
+  const normalizedLocation = location.trim().toLowerCase()
+  const normalizedQuery = query.trim().toLowerCase()
+  const events = response
+    .map((event) => ({
+      id: event.eventDataId?.trim() || `${event.correlationId?.trim() || 'event'}:${event.eventTimestamp || ''}`,
+      timestamp: event.eventTimestamp?.trim() || '',
+      level: event.level?.trim() || '',
+      status: event.status?.localizedValue?.trim() || event.status?.value?.trim() || '',
+      resourceGroup: event.resourceGroupName?.trim() || '',
+      resourceType: event.resourceProviderName?.localizedValue?.trim() || event.resourceProviderName?.value?.trim() || '',
+      operationName: event.operationName?.localizedValue?.trim() || event.operationName?.value?.trim() || '',
+      resourceId: event.resourceId?.trim() || '',
+      caller: event.caller?.trim() || '',
+      correlationId: event.correlationId?.trim() || '',
+      summary: event.subStatus?.localizedValue?.trim() || event.subStatus?.value?.trim() || ''
+    } satisfies AzureMonitorActivityEvent))
+    .filter((event, index, all) => all.findIndex((candidate) => candidate.id === event.id) === index)
+    .filter((event) => {
+      if (normalizedLocation) {
+        const regionSource = (response.find((candidate) => (candidate.eventDataId?.trim() || `${candidate.correlationId?.trim() || 'event'}:${candidate.eventTimestamp || ''}`) === event.id)?.resourceRegion ?? '').trim().toLowerCase()
+        if (regionSource && regionSource !== normalizedLocation) {
+          return false
+        }
+      }
+
+      if (!normalizedQuery) {
+        return true
+      }
+
+      const haystack = [
+        event.level,
+        event.status,
+        event.resourceGroup,
+        event.resourceType,
+        event.operationName,
+        event.resourceId,
+        event.caller,
+        event.summary
+      ].join(' ').toLowerCase()
+
+      // Support pipe-separated multi-term queries: split on "|", extract
+      // meaningful search terms from each segment, and require ALL to match.
+      const segments = normalizedQuery.split('|').map(s => s.trim()).filter(Boolean)
+      const terms = segments.map(segment => {
+        const whereMatch = segment.match(/^where\s+\w+\s*==\s*["']?(.+?)["']?\s*$/i)
+        if (whereMatch) return whereMatch[1].trim().toLowerCase()
+        return segment
+      })
+      return terms.every(term => haystack.includes(term))
+    })
+    .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
+    .slice(0, 100)
+
+  return {
+    query: query.trim(),
+    events,
+    statusCounts: toFacetCounts(events.map((event) => event.status)),
+    resourceTypeCounts: toFacetCounts(events.map((event) => event.resourceType)),
+    notes: events.length === 0 ? ['No Azure Monitor activity events matched the current query window.'] : []
   }
 }
