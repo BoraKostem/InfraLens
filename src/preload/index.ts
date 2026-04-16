@@ -605,6 +605,12 @@ const awsLensApi = {
     ipcRenderer.invoke('compliance:report', connection),
   getSecurityScoreReport: (connection: AwsConnection, weights?: unknown) =>
     ipcRenderer.invoke('security-score:report', connection, weights),
+  getGuardDutyReport: (connection: AwsConnection) =>
+    ipcRenderer.invoke('guardduty:report', connection),
+  archiveGuardDutyFindings: (connection: AwsConnection, findingIds: string[]) =>
+    ipcRenderer.invoke('guardduty:archive-findings', connection, findingIds),
+  unarchiveGuardDutyFindings: (connection: AwsConnection, findingIds: string[]) =>
+    ipcRenderer.invoke('guardduty:unarchive-findings', connection, findingIds),
   updateComplianceFindingWorkflow: (
     connection: AwsConnection,
     findingId: string,

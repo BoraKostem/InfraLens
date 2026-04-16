@@ -221,6 +221,7 @@ import type {
   ComplianceReport,
   SecurityScoreReport,
   SecurityScoreWeights,
+  GuardDutyReport,
   EnterpriseAccessMode,
   EnterpriseAuditEvent,
   EnterpriseAuditExportResult,
@@ -406,6 +407,7 @@ export type CacheTag =
   | 'overview'
   | 'compliance-center'
   | 'security-score'
+  | 'guardduty'
   | 'ec2'
   | 'cloudwatch'
   | 's3'
@@ -511,6 +513,9 @@ const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
   getComplianceReport: 'compliance-center',
   updateComplianceFindingWorkflow: 'compliance-center',
   getSecurityScoreReport: 'security-score',
+  getGuardDutyReport: 'guardduty',
+  archiveGuardDutyFindings: 'guardduty',
+  unarchiveGuardDutyFindings: 'guardduty',
   getRelationshipMap: 'overview',
   getCostBreakdown: 'overview',
   searchByTag: 'overview',
@@ -2876,6 +2881,28 @@ export async function getSecurityScoreReport(
 ): Promise<SecurityScoreReport> {
   return unwrap(
     (await awsBridge().getSecurityScoreReport(connection, weights)) as Wrapped<SecurityScoreReport>
+  )
+}
+
+export async function getGuardDutyReport(connection: AwsConnection): Promise<GuardDutyReport> {
+  return unwrap((await awsBridge().getGuardDutyReport(connection)) as Wrapped<GuardDutyReport>)
+}
+
+export async function archiveGuardDutyFindings(
+  connection: AwsConnection,
+  findingIds: string[]
+): Promise<void> {
+  return unwrap(
+    (await awsBridge().archiveGuardDutyFindings(connection, findingIds)) as Wrapped<void>
+  )
+}
+
+export async function unarchiveGuardDutyFindings(
+  connection: AwsConnection,
+  findingIds: string[]
+): Promise<void> {
+  return unwrap(
+    (await awsBridge().unarchiveGuardDutyFindings(connection, findingIds)) as Wrapped<void>
   )
 }
 

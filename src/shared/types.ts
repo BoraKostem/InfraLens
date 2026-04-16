@@ -5028,6 +5028,44 @@ export type SecurityScoreReport = {
   warnings: string[]
 }
 
+/* ── GuardDuty ───────────────────────────────────────────── */
+
+export type GuardDutySeverity = 'critical' | 'high' | 'medium' | 'low'
+
+export type GuardDutyFinding = {
+  id: string
+  title: string
+  description: string
+  severity: GuardDutySeverity
+  type: string
+  category: string
+  resourceType: string
+  resourceId: string
+  region: string
+  count: number
+  firstSeenAt: string
+  lastSeenAt: string
+  archived: boolean
+}
+
+export type GuardDutySeverityCounts = Record<GuardDutySeverity, number>
+
+export type GuardDutyDetectorSummary = {
+  detectorId: string
+  status: string
+  createdAt: string
+}
+
+export type GuardDutyReport = {
+  generatedAt: string
+  detector: GuardDutyDetectorSummary | null
+  findings: GuardDutyFinding[]
+  severityCounts: GuardDutySeverityCounts
+  topTargetedResources: Array<{ resourceId: string; findingCount: number }>
+  categoryBreakdown: Record<string, number>
+  warnings: string[]
+}
+
 export type TaggedResource = {
   resourceId: string
   resourceType: string

@@ -6,6 +6,7 @@ import { registerCompareIpcHandlers } from './compareIpc'
 import { registerComplianceIpcHandlers } from './complianceIpc'
 import { registerEc2IpcHandlers } from './ec2Ipc'
 import { registerEcrIpcHandlers } from './ecrIpc'
+import { registerGuardDutyIpcHandlers } from './guarddutyIpc'
 import { registerEksIpcHandlers } from './eksIpc'
 import { registerFoundationIpcHandlers } from './foundationIpc'
 import { registerOverviewIpcHandlers } from './overviewIpc'
@@ -49,6 +50,7 @@ function registerAwsProviderHandlers(context: ProviderIpcRegistrationContext): v
   registerEcrIpcHandlers()
   registerEksIpcHandlers(context.getWindow)
   registerFoundationIpcHandlers()
+  registerGuardDutyIpcHandlers()
   registerOverviewIpcHandlers()
   registerSecurityIpcHandlers()
   registerSecurityScoreIpcHandlers()
