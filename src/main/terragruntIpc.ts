@@ -1,7 +1,9 @@
+import path from 'node:path'
 import { ipcMain } from 'electron'
 
 import { createHandlerWrapper, type OperationOptions } from './operations'
 import { detectTerragruntCli, getCachedTerragruntCliInfo } from './terragrunt'
+import { scanForTerragrunt } from './terragruntDiscovery'
 
 type HandlerResult<T> = { ok: true; data: T } | { ok: false; error: string }
 const wrap: <T>(
@@ -18,4 +20,7 @@ export function registerTerragruntIpcHandlers(): void {
 
   ipcMain.handle('terragrunt:cli:detect', async () => wrap(() => detectTerragruntCli()))
   ipcMain.handle('terragrunt:cli:info', async () => wrap(() => getCachedTerragruntCliInfo()))
+  ipcMain.handle('terragrunt:discovery:scan', async (_event, rootPath: string) =>
+    wrap(() => scanForTerragrunt(path.resolve(rootPath)))
+  )
 }

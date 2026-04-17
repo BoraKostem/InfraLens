@@ -59,3 +59,13 @@ export type TerragruntProjectInfo =
   | { kind: 'terragrunt-stack'; stack: TerragruntStack }
 
 export type TerraformProjectKind = 'terraform' | 'terragrunt-unit' | 'terragrunt-stack'
+
+export type TerragruntDiscoveryClassification = 'stack' | 'unit' | 'none'
+
+export type TerragruntDiscoveryResult = {
+  rootPath: string
+  classification: TerragruntDiscoveryClassification
+  stackRoot: string
+  units: TerragruntUnit[]
+  errors: string[]
+}

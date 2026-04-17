@@ -6299,6 +6299,8 @@ export type TerraformCliKind = 'terraform' | 'opentofu'
 export type {
   TerragruntCliInfo,
   TerragruntDependency,
+  TerragruntDiscoveryClassification,
+  TerragruntDiscoveryResult,
   TerragruntGeneratedFile,
   TerragruntIncludeRef,
   TerragruntProjectInfo,

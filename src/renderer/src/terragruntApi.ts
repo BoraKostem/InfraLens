@@ -1,4 +1,4 @@
-import type { TerragruntCliInfo } from '@shared/types'
+import type { TerragruntCliInfo, TerragruntDiscoveryResult } from '@shared/types'
 import { makeBridgeCall } from './bridgeUtils'
 
 function getTerragruntBridge() {
@@ -12,3 +12,4 @@ const call = makeBridgeCall(getTerragruntBridge)
 
 export const detectTerragruntCli = call<[], TerragruntCliInfo>('detectCli')
 export const getTerragruntCliInfo = call<[], TerragruntCliInfo>('getCliInfo')
+export const scanTerragruntDiscovery = call<[rootPath: string], TerragruntDiscoveryResult>('scanDiscovery')
