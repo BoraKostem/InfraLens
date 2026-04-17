@@ -70,6 +70,7 @@ import type {
   GcpSccSourceSummary,
   GcpSccFindingDetail,
   GcpSccSeverityBreakdown,
+  GcpSccPostureReport,
   GcpFirestoreDatabaseSummary,
   GcpFirestoreCollectionSummary,
   GcpFirestoreDocumentSummary,
@@ -113,6 +114,13 @@ import type {
   AzureRbacOverview,
   AzureRoleAssignmentSummary,
   AzureRoleDefinitionSummary,
+  AzureDefenderAlert,
+  AzureDefenderComplianceStandard,
+  AzureDefenderAttackPath,
+  AzureDefenderRecommendation,
+  AzureDefenderReport,
+  AzureDefenderSecureScore,
+  AzureDefenderSecureScoreControl,
   AzureSqlEstateOverview,
   AzureSqlServerDetail,
   AzurePostgreSqlEstateOverview,
@@ -219,6 +227,14 @@ import type {
   ComplianceFindingWorkflow,
   ComplianceFindingWorkflowUpdate,
   ComplianceReport,
+  SecurityScoreReport,
+  SecurityScoreWeights,
+  SecuritySnapshot,
+  SecuritySnapshotInput,
+  SecurityThresholds,
+  SecurityTrendRange,
+  SecurityTrendReport,
+  GuardDutyReport,
   EnterpriseAccessMode,
   EnterpriseAuditEvent,
   EnterpriseAuditExportResult,
@@ -403,6 +419,8 @@ export type CacheTag =
   | 'compare'
   | 'overview'
   | 'compliance-center'
+  | 'security-score'
+  | 'guardduty'
   | 'ec2'
   | 'cloudwatch'
   | 's3'
@@ -507,6 +525,10 @@ const CACHE_TAG_BY_METHOD: Partial<Record<keyof AwsLensBridge, CacheTag>> = {
   getOverviewAccountContext: 'overview',
   getComplianceReport: 'compliance-center',
   updateComplianceFindingWorkflow: 'compliance-center',
+  getSecurityScoreReport: 'security-score',
+  getGuardDutyReport: 'guardduty',
+  archiveGuardDutyFindings: 'guardduty',
+  unarchiveGuardDutyFindings: 'guardduty',
   getRelationshipMap: 'overview',
   getCostBreakdown: 'overview',
   searchByTag: 'overview',
@@ -1767,6 +1789,9 @@ export async function getGcpSccFindingDetail(projectId: string, findingName: str
 export async function getGcpSccSeverityBreakdown(projectId: string, location?: string): Promise<GcpSccSeverityBreakdown> {
   return unwrap((await rawAwsBridge().getGcpSccSeverityBreakdown(projectId, location)) as Wrapped<GcpSccSeverityBreakdown>)
 }
+export async function getGcpSccPostureReport(projectId: string, location?: string): Promise<GcpSccPostureReport> {
+  return unwrap((await rawAwsBridge().getGcpSccPostureReport(projectId, location)) as Wrapped<GcpSccPostureReport>)
+}
 
 // Firestore
 export async function listGcpFirestoreDatabases(projectId: string): Promise<GcpFirestoreDatabaseSummary[]> {
@@ -1908,6 +1933,56 @@ export async function createAzureRoleAssignment(subscriptionId: string, principa
 
 export async function deleteAzureRoleAssignment(assignmentId: string): Promise<void> {
   return unwrap((await rawAwsBridge().deleteAzureRoleAssignment(assignmentId)) as Wrapped<void>)
+}
+
+export async function getAzureDefenderSecureScore(subscriptionId: string): Promise<AzureDefenderSecureScore | null> {
+  return unwrap(
+    (await rawAwsBridge().getAzureDefenderSecureScore(subscriptionId)) as Wrapped<AzureDefenderSecureScore | null>
+  )
+}
+
+export async function listAzureDefenderSecureScoreControls(
+  subscriptionId: string
+): Promise<AzureDefenderSecureScoreControl[]> {
+  return unwrap(
+    (await rawAwsBridge().listAzureDefenderSecureScoreControls(subscriptionId)) as Wrapped<AzureDefenderSecureScoreControl[]>
+  )
+}
+
+export async function listAzureDefenderRecommendations(
+  subscriptionId: string
+): Promise<AzureDefenderRecommendation[]> {
+  return unwrap(
+    (await rawAwsBridge().listAzureDefenderRecommendations(subscriptionId)) as Wrapped<AzureDefenderRecommendation[]>
+  )
+}
+
+export async function listAzureDefenderAlerts(subscriptionId: string): Promise<AzureDefenderAlert[]> {
+  return unwrap(
+    (await rawAwsBridge().listAzureDefenderAlerts(subscriptionId)) as Wrapped<AzureDefenderAlert[]>
+  )
+}
+
+export async function listAzureDefenderComplianceStandards(
+  subscriptionId: string
+): Promise<AzureDefenderComplianceStandard[]> {
+  return unwrap(
+    (await rawAwsBridge().listAzureDefenderComplianceStandards(subscriptionId)) as Wrapped<AzureDefenderComplianceStandard[]>
+  )
+}
+
+export async function listAzureDefenderAttackPaths(
+  subscriptionId: string
+): Promise<AzureDefenderAttackPath[]> {
+  return unwrap(
+    (await rawAwsBridge().listAzureDefenderAttackPaths(subscriptionId)) as Wrapped<AzureDefenderAttackPath[]>
+  )
+}
+
+export async function getAzureDefenderReport(subscriptionId: string): Promise<AzureDefenderReport> {
+  return unwrap(
+    (await rawAwsBridge().getAzureDefenderReport(subscriptionId)) as Wrapped<AzureDefenderReport>
+  )
 }
 
 export async function listAzureVirtualMachines(subscriptionId: string, location: string): Promise<AzureVirtualMachineSummary[]> {
@@ -2864,6 +2939,73 @@ export async function getOverviewStatistics(connection: AwsConnection): Promise<
 
 export async function getComplianceReport(connection: AwsConnection): Promise<ComplianceReport> {
   return unwrap((await awsBridge().getComplianceReport(connection)) as Wrapped<ComplianceReport>)
+}
+
+export async function getSecurityScoreReport(
+  connection: AwsConnection,
+  weights?: Partial<SecurityScoreWeights>
+): Promise<SecurityScoreReport> {
+  return unwrap(
+    (await awsBridge().getSecurityScoreReport(connection, weights)) as Wrapped<SecurityScoreReport>
+  )
+}
+
+export async function recordSecuritySnapshot(input: SecuritySnapshotInput): Promise<SecuritySnapshot> {
+  return unwrap(
+    (await awsBridge().recordSecuritySnapshot(input)) as Wrapped<SecuritySnapshot>
+  )
+}
+
+export async function listSecuritySnapshots(scope: string, range: SecurityTrendRange): Promise<SecuritySnapshot[]> {
+  return unwrap(
+    (await awsBridge().listSecuritySnapshots(scope, range)) as Wrapped<SecuritySnapshot[]>
+  )
+}
+
+export async function buildSecurityTrendReport(scope: string, range: SecurityTrendRange): Promise<SecurityTrendReport> {
+  return unwrap(
+    (await awsBridge().buildSecurityTrendReport(scope, range)) as Wrapped<SecurityTrendReport>
+  )
+}
+
+export async function getSecurityThresholds(): Promise<SecurityThresholds> {
+  return unwrap(
+    (await awsBridge().getSecurityThresholds()) as Wrapped<SecurityThresholds>
+  )
+}
+
+export async function updateSecurityThresholds(update: Partial<SecurityThresholds>): Promise<SecurityThresholds> {
+  return unwrap(
+    (await awsBridge().updateSecurityThresholds(update)) as Wrapped<SecurityThresholds>
+  )
+}
+
+export async function listSecurityScopes(): Promise<Array<{ scope: string; scopeLabel: string; snapshotCount: number }>> {
+  return unwrap(
+    (await awsBridge().listSecurityScopes()) as Wrapped<Array<{ scope: string; scopeLabel: string; snapshotCount: number }>>
+  )
+}
+
+export async function getGuardDutyReport(connection: AwsConnection): Promise<GuardDutyReport> {
+  return unwrap((await awsBridge().getGuardDutyReport(connection)) as Wrapped<GuardDutyReport>)
+}
+
+export async function archiveGuardDutyFindings(
+  connection: AwsConnection,
+  findingIds: string[]
+): Promise<void> {
+  return unwrap(
+    (await awsBridge().archiveGuardDutyFindings(connection, findingIds)) as Wrapped<void>
+  )
+}
+
+export async function unarchiveGuardDutyFindings(
+  connection: AwsConnection,
+  findingIds: string[]
+): Promise<void> {
+  return unwrap(
+    (await awsBridge().unarchiveGuardDutyFindings(connection, findingIds)) as Wrapped<void>
+  )
 }
 
 export async function updateComplianceFindingWorkflow(

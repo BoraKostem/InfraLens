@@ -250,6 +250,7 @@ const awsLensApi = {
   listGcpSccSources: (projectId: string, location?: string) => ipcRenderer.invoke('gcp:scc:list-sources', projectId, location),
   getGcpSccFindingDetail: (projectId: string, findingName: string, location?: string) => ipcRenderer.invoke('gcp:scc:get-finding-detail', projectId, findingName, location),
   getGcpSccSeverityBreakdown: (projectId: string, location?: string) => ipcRenderer.invoke('gcp:scc:get-severity-breakdown', projectId, location),
+  getGcpSccPostureReport: (projectId: string, location?: string) => ipcRenderer.invoke('gcp:scc:get-posture-report', projectId, location),
 
   // Firestore
   listGcpFirestoreDatabases: (projectId: string) => ipcRenderer.invoke('gcp:firestore:list-databases', projectId),
@@ -285,6 +286,20 @@ const awsLensApi = {
   createAzureRoleAssignment: (subscriptionId: string, principalId: string, roleDefinitionId: string, scope: string) =>
     ipcRenderer.invoke('azure:rbac:create-assignment', subscriptionId, principalId, roleDefinitionId, scope),
   deleteAzureRoleAssignment: (assignmentId: string) => ipcRenderer.invoke('azure:rbac:delete-assignment', assignmentId),
+  getAzureDefenderSecureScore: (subscriptionId: string) =>
+    ipcRenderer.invoke('azure:defender:get-secure-score', subscriptionId),
+  listAzureDefenderSecureScoreControls: (subscriptionId: string) =>
+    ipcRenderer.invoke('azure:defender:list-secure-score-controls', subscriptionId),
+  listAzureDefenderRecommendations: (subscriptionId: string) =>
+    ipcRenderer.invoke('azure:defender:list-recommendations', subscriptionId),
+  listAzureDefenderAlerts: (subscriptionId: string) =>
+    ipcRenderer.invoke('azure:defender:list-alerts', subscriptionId),
+  listAzureDefenderComplianceStandards: (subscriptionId: string) =>
+    ipcRenderer.invoke('azure:defender:list-compliance-standards', subscriptionId),
+  listAzureDefenderAttackPaths: (subscriptionId: string) =>
+    ipcRenderer.invoke('azure:defender:list-attack-paths', subscriptionId),
+  getAzureDefenderReport: (subscriptionId: string) =>
+    ipcRenderer.invoke('azure:defender:get-report', subscriptionId),
   listAzureVirtualMachines: (subscriptionId: string, location: string) => ipcRenderer.invoke('azure:virtual-machines:list', subscriptionId, location),
   describeAzureVirtualMachine: (subscriptionId: string, resourceGroup: string, vmName: string) =>
     ipcRenderer.invoke('azure:virtual-machines:describe', subscriptionId, resourceGroup, vmName),
@@ -603,6 +618,26 @@ const awsLensApi = {
     ipcRenderer.invoke('overview:account-context', connection),
   getComplianceReport: (connection: AwsConnection) =>
     ipcRenderer.invoke('compliance:report', connection),
+  getSecurityScoreReport: (connection: AwsConnection, weights?: unknown) =>
+    ipcRenderer.invoke('security-score:report', connection, weights),
+  recordSecuritySnapshot: (input: unknown) =>
+    ipcRenderer.invoke('security-trends:record-snapshot', input),
+  listSecuritySnapshots: (scope: string, range: string) =>
+    ipcRenderer.invoke('security-trends:list-snapshots', scope, range),
+  buildSecurityTrendReport: (scope: string, range: string) =>
+    ipcRenderer.invoke('security-trends:build-report', scope, range),
+  getSecurityThresholds: () =>
+    ipcRenderer.invoke('security-trends:get-thresholds'),
+  updateSecurityThresholds: (update: unknown) =>
+    ipcRenderer.invoke('security-trends:update-thresholds', update),
+  listSecurityScopes: () =>
+    ipcRenderer.invoke('security-trends:list-scopes'),
+  getGuardDutyReport: (connection: AwsConnection) =>
+    ipcRenderer.invoke('guardduty:report', connection),
+  archiveGuardDutyFindings: (connection: AwsConnection, findingIds: string[]) =>
+    ipcRenderer.invoke('guardduty:archive-findings', connection, findingIds),
+  unarchiveGuardDutyFindings: (connection: AwsConnection, findingIds: string[]) =>
+    ipcRenderer.invoke('guardduty:unarchive-findings', connection, findingIds),
   updateComplianceFindingWorkflow: (
     connection: AwsConnection,
     findingId: string,

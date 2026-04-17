@@ -9,7 +9,19 @@
  * Depends on: gcp/client.ts (requestGcp, paginationGuard, classifyGcpError)
  */
 
-import { classifyGcpError, paginationGuard, requestGcp } from './client'
+import { classifyGcpError, outputIndicatesApiDisabled, paginationGuard, requestGcp } from './client'
+import {
+  buildDefaultGcpSpendTelemetry,
+  buildGcpBillingCapabilityHints,
+  buildGcpBillingProjectRecord,
+  buildGcpSdkError,
+  computeGcpBillingOwnershipHints,
+  getGcpBillingAccountMetadata,
+  getGcpProjectBillingInfo,
+  getGcpProjectMetadata,
+  loadGcpBillingSpendTelemetry,
+  type GcpBillingProjectRecord
+} from './shared'
 import type {
   GcpBillingAccountSummary,
   GcpBillingCostTrend,
@@ -18,6 +30,8 @@ import type {
   GcpBillingDailyCostEntry,
   GcpBillingCostByLabel,
   GcpBillingLabelCostEntry,
+  GcpBillingLinkedProjectSummary,
+  GcpBillingOverview,
   GcpBillingSkuBreakdown,
   GcpBillingSkuCostEntry,
   GcpBillingBudgetSummary,
@@ -827,5 +841,134 @@ export async function getGcpCostAnomalies(
     return anomalies.sort((a, b) => b.absoluteChange - a.absoluteChange)
   } catch (error) {
     throw classifyGcpError(`detecting cost anomalies for project "${pid}"`, error, BQ_API)
+  }
+}
+
+// ── Extracted from gcpSdk.ts ────────────────────────────────────────────────────
+// Project-level billing overview moved here as part of the gcpSdk.ts
+// decomposition.
+
+export async function getGcpBillingOverview(projectId: string, catalogProjectIds: string[] = []): Promise<GcpBillingOverview> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) {
+    return {
+      projectId: '',
+      projectNumber: '',
+      projectName: '',
+      billingEnabled: false,
+      billingAccountName: '',
+      billingAccountDisplayName: '',
+      billingAccountOpen: false,
+      accessibleProjectCount: 0,
+      linkedProjects: [],
+      capabilityHints: [],
+      ownershipHints: [],
+      spendTelemetry: buildDefaultGcpSpendTelemetry('missing-export', 'Select a project to load GCP billing telemetry.'),
+      notes: [],
+      projectLabelCount: 0,
+      linkedProjectLabelCoveragePercent: 0,
+      visibility: 'project-only',
+      lastUpdatedAt: new Date().toISOString()
+    }
+  }
+
+  try {
+    const currentBillingInfo = await getGcpProjectBillingInfo(normalizedProjectId)
+    const currentMetadata = await getGcpProjectMetadata(normalizedProjectId).catch(() => null)
+    const currentRecord = buildGcpBillingProjectRecord(normalizedProjectId, currentMetadata, currentBillingInfo)
+    const uniqueCandidateIds = [...new Set([normalizedProjectId, ...catalogProjectIds.map((value) => value.trim()).filter(Boolean)])].slice(0, 24)
+    let linkedProjects: GcpBillingProjectRecord[] = [currentRecord]
+    let billingAccountDisplayName = ''
+    let billingAccountOpen = false
+    let visibility: GcpBillingOverview['visibility'] = 'project-only'
+
+    if (currentBillingInfo.billingAccountName) {
+      visibility = 'billing-account-only'
+
+      try {
+        const accountMetadata = await getGcpBillingAccountMetadata(normalizedProjectId, currentBillingInfo.billingAccountName)
+        billingAccountDisplayName = accountMetadata.displayName
+        billingAccountOpen = accountMetadata.open
+      } catch (error) {
+        if (outputIndicatesApiDisabled(error instanceof Error ? error.message : String(error))) {
+          throw buildGcpSdkError(`loading billing account metadata for project "${normalizedProjectId}"`, error, 'cloudbilling.googleapis.com')
+        }
+      }
+
+      const candidateRecords = await Promise.all(uniqueCandidateIds.map(async (candidateProjectId) => {
+        try {
+          const billingInfo = candidateProjectId === normalizedProjectId
+            ? currentBillingInfo
+            : await getGcpProjectBillingInfo(candidateProjectId)
+
+          if (billingInfo.billingAccountName !== currentBillingInfo.billingAccountName || !billingInfo.billingEnabled) {
+            return null
+          }
+
+          const metadata = candidateProjectId === normalizedProjectId
+            ? currentMetadata
+            : await getGcpProjectMetadata(candidateProjectId).catch(() => null)
+
+          return buildGcpBillingProjectRecord(candidateProjectId, metadata, billingInfo)
+        } catch {
+          return null
+        }
+      }))
+
+      linkedProjects = candidateRecords.filter((entry): entry is GcpBillingProjectRecord => entry !== null)
+      if (linkedProjects.length > 0) {
+        visibility = 'full'
+      }
+    }
+
+    const ownershipHints = computeGcpBillingOwnershipHints(linkedProjects)
+    const spendTelemetryProjectIds = linkedProjects.length > 0
+      ? linkedProjects.map((entry) => entry.projectId)
+      : [normalizedProjectId]
+    const spendTelemetry = await loadGcpBillingSpendTelemetry(normalizedProjectId, spendTelemetryProjectIds, currentRecord.billingEnabled)
+    const linkedProjectLabelCoveragePercent = linkedProjects.length === 0
+      ? 0
+      : (linkedProjects.filter((entry) => entry.labelCount > 0).length / linkedProjects.length) * 100
+    const overview: GcpBillingOverview = {
+      projectId: currentRecord.projectId,
+      projectNumber: currentRecord.projectNumber,
+      projectName: currentRecord.name,
+      billingEnabled: currentRecord.billingEnabled,
+      billingAccountName: currentRecord.billingAccountName,
+      billingAccountDisplayName,
+      billingAccountOpen,
+      accessibleProjectCount: uniqueCandidateIds.length,
+      linkedProjects: linkedProjects
+        .map((entry) => ({
+          projectId: entry.projectId,
+          name: entry.name,
+          projectNumber: entry.projectNumber,
+          lifecycleState: entry.lifecycleState,
+          labelCount: entry.labelCount,
+          billingEnabled: entry.billingEnabled
+        } satisfies GcpBillingLinkedProjectSummary))
+        .sort((left, right) => left.projectId.localeCompare(right.projectId)),
+      capabilityHints: [],
+      ownershipHints,
+      spendTelemetry,
+      notes: [
+        'Linked-project analysis is limited to projects visible in the current catalog and under the current credentials.',
+        spendTelemetry.message
+      ],
+      projectLabelCount: currentRecord.labelCount,
+      linkedProjectLabelCoveragePercent,
+      visibility,
+      lastUpdatedAt: new Date().toISOString()
+    }
+
+    overview.capabilityHints = buildGcpBillingCapabilityHints(overview, normalizedProjectId)
+    return overview
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    const serviceName = detail.toLowerCase().includes('cloud resource manager')
+      ? 'cloudresourcemanager.googleapis.com'
+      : 'cloudbilling.googleapis.com'
+
+    throw buildGcpSdkError(`loading Billing overview for project "${normalizedProjectId}"`, error, serviceName)
   }
 }

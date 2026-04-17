@@ -14,6 +14,7 @@ import {
   fetchAzureArmCollection,
   mapWithConcurrency
 } from './client'
+import { listAzureLoadBalancers } from './loadBalancers'
 import type {
   AzureApplicationGatewaySummary,
   AzureVpnGatewaySummary,
@@ -25,7 +26,19 @@ import type {
   AzureNetworkTopology,
   AzureNetworkTopologyNode,
   AzureNetworkTopologyEdge,
-  AzureVNetTopologyDetail
+  AzureVNetTopologyDetail,
+  AzureVNetSummary,
+  AzureSubnetSummary,
+  AzureNsgSummary,
+  AzureNsgRuleSummary,
+  AzurePublicIpSummary,
+  AzureNetworkInterfaceSummary,
+  AzureNetworkOverview,
+  AzureVNetPeeringSummary,
+  AzureRouteTableSummary,
+  AzureRouteSummary,
+  AzureNatGatewaySummary,
+  AzurePrivateEndpointSummary
 } from '@shared/types'
 
 // ── Constants ───────────────────────────────────────────────────────────────────
@@ -992,4 +1005,300 @@ function extractPrivateIp(nic: Record<string, unknown>): string {
     return asString(toRecord(toRecord(ipConfigs[0]).properties).privateIPAddress)
   }
   return ''
+}
+
+// ── Network Overview helpers (extracted from azureSdk.ts) ──────────────────────
+
+function mapVNet(raw: Record<string, unknown>): AzureVNetSummary {
+  const props = (raw.properties ?? {}) as Record<string, unknown>
+  const addressSpace = (props.addressSpace ?? {}) as Record<string, unknown>
+  const subnets = (props.subnets ?? []) as unknown[]
+  const peerings = (props.virtualNetworkPeerings ?? []) as unknown[]
+  const dhcpOptions = (props.dhcpOptions ?? {}) as Record<string, unknown>
+  const tags = (raw.tags ?? {}) as Record<string, unknown>
+
+  return {
+    id: String(raw.id ?? ''),
+    name: String(raw.name ?? ''),
+    resourceGroup: extractResourceGroup(String(raw.id ?? '')),
+    location: String(raw.location ?? ''),
+    addressPrefixes: (addressSpace.addressPrefixes ?? []) as string[],
+    subnetCount: subnets.length,
+    provisioningState: String(props.provisioningState ?? ''),
+    enableDdosProtection: Boolean(props.enableDdosProtection),
+    dnsServers: ((dhcpOptions.dnsServers ?? []) as string[]),
+    peeringCount: peerings.length,
+    tagCount: Object.keys(tags).length
+  }
+}
+
+function mapSubnet(raw: Record<string, unknown>): AzureSubnetSummary {
+  const props = (raw.properties ?? {}) as Record<string, unknown>
+  const nsg = (props.networkSecurityGroup ?? null) as Record<string, unknown> | null
+  const routeTable = (props.routeTable ?? null) as Record<string, unknown> | null
+  const delegations = (props.delegations ?? []) as Array<Record<string, unknown>>
+  const privateEndpoints = (props.privateEndpoints ?? []) as unknown[]
+  const natGateway = (props.natGateway ?? null) as Record<string, unknown> | null
+
+  return {
+    id: String(raw.id ?? ''),
+    name: String(raw.name ?? ''),
+    addressPrefix: String(props.addressPrefix ?? ''),
+    provisioningState: String(props.provisioningState ?? ''),
+    nsgName: nsg ? extractResourceName(String(nsg.id ?? '')) : '',
+    routeTableName: routeTable ? extractResourceName(String(routeTable.id ?? '')) : '',
+    delegations: delegations.map((d) => {
+      const dProps = (d.properties ?? {}) as Record<string, unknown>
+      return String(dProps.serviceName ?? d.name ?? '')
+    }),
+    privateEndpointCount: privateEndpoints.length,
+    natGatewayName: natGateway ? extractResourceName(String(natGateway.id ?? '')) : ''
+  }
+}
+
+function mapNsg(raw: Record<string, unknown>): AzureNsgSummary {
+  const props = (raw.properties ?? {}) as Record<string, unknown>
+  const rules = (props.securityRules ?? []) as unknown[]
+  const defaultRules = (props.defaultSecurityRules ?? []) as unknown[]
+  const associatedSubnets = (props.subnets ?? []) as unknown[]
+  const associatedNics = (props.networkInterfaces ?? []) as unknown[]
+
+  return {
+    id: String(raw.id ?? ''),
+    name: String(raw.name ?? ''),
+    resourceGroup: extractResourceGroup(String(raw.id ?? '')),
+    location: String(raw.location ?? ''),
+    securityRuleCount: rules.length,
+    defaultRuleCount: defaultRules.length,
+    associatedSubnetCount: associatedSubnets.length,
+    associatedNicCount: associatedNics.length,
+    provisioningState: String(props.provisioningState ?? '')
+  }
+}
+
+function mapNsgRule(raw: Record<string, unknown>): AzureNsgRuleSummary {
+  const props = (raw.properties ?? {}) as Record<string, unknown>
+
+  return {
+    name: String(raw.name ?? ''),
+    priority: Number(props.priority ?? 0),
+    direction: String(props.direction ?? 'Inbound') as 'Inbound' | 'Outbound',
+    access: String(props.access ?? 'Allow') as 'Allow' | 'Deny',
+    protocol: String(props.protocol ?? '*'),
+    sourceAddressPrefix: String(props.sourceAddressPrefix ?? '*'),
+    sourcePortRange: String(props.sourcePortRange ?? '*'),
+    destinationAddressPrefix: String(props.destinationAddressPrefix ?? '*'),
+    destinationPortRange: String(props.destinationPortRange ?? '*')
+  }
+}
+
+function mapPublicIp(raw: Record<string, unknown>): AzurePublicIpSummary {
+  const props = (raw.properties ?? {}) as Record<string, unknown>
+  const ipConfig = (props.ipConfiguration ?? null) as Record<string, unknown> | null
+  const dnsSettings = (props.dnsSettings ?? null) as Record<string, unknown> | null
+  const sku = (raw.sku ?? {}) as Record<string, unknown>
+
+  return {
+    id: String(raw.id ?? ''),
+    name: String(raw.name ?? ''),
+    resourceGroup: extractResourceGroup(String(raw.id ?? '')),
+    location: String(raw.location ?? ''),
+    ipAddress: String(props.ipAddress ?? ''),
+    allocationMethod: String(props.publicIPAllocationMethod ?? ''),
+    sku: String(sku.name ?? ''),
+    associatedResourceName: ipConfig ? extractResourceName(String(ipConfig.id ?? '')) : '',
+    provisioningState: String(props.provisioningState ?? ''),
+    dnsLabel: dnsSettings ? String((dnsSettings as Record<string, unknown>).domainNameLabel ?? '') : '',
+    fqdn: dnsSettings ? String((dnsSettings as Record<string, unknown>).fqdn ?? '') : ''
+  }
+}
+
+function mapNetworkInterface(raw: Record<string, unknown>): AzureNetworkInterfaceSummary {
+  const props = (raw.properties ?? {}) as Record<string, unknown>
+  const ipConfigs = (props.ipConfigurations ?? []) as Array<Record<string, unknown>>
+  const nsg = (props.networkSecurityGroup ?? null) as Record<string, unknown> | null
+  const vmRef = (props.virtualMachine ?? null) as Record<string, unknown> | null
+
+  const primaryConfig = ipConfigs[0] ?? {}
+  const primaryProps = ((primaryConfig as Record<string, unknown>).properties ?? {}) as Record<string, unknown>
+  const subnetRef = (primaryProps.subnet ?? null) as Record<string, unknown> | null
+  const publicIpRef = (primaryProps.publicIPAddress ?? null) as Record<string, unknown> | null
+
+  const subnetId = subnetRef ? String(subnetRef.id ?? '') : ''
+  const subnetSegments = subnetId.split('/')
+  const subnetName = subnetSegments.at(-1) ?? ''
+  const vnetName = subnetSegments.length >= 3 ? subnetSegments[subnetSegments.indexOf('virtualNetworks') + 1] ?? '' : ''
+
+  return {
+    id: String(raw.id ?? ''),
+    name: String(raw.name ?? ''),
+    resourceGroup: extractResourceGroup(String(raw.id ?? '')),
+    location: String(raw.location ?? ''),
+    privateIp: String(primaryProps.privateIPAddress ?? ''),
+    publicIp: publicIpRef ? extractResourceName(String(publicIpRef.id ?? '')) : '',
+    subnetName,
+    vnetName,
+    nsgName: nsg ? extractResourceName(String(nsg.id ?? '')) : '',
+    macAddress: String(props.macAddress ?? ''),
+    attachedVmName: vmRef ? extractResourceName(String(vmRef.id ?? '')) : '',
+    provisioningState: String(props.provisioningState ?? ''),
+    enableAcceleratedNetworking: Boolean(props.enableAcceleratedNetworking)
+  }
+}
+
+// ── Network Overview exports (extracted from azureSdk.ts) ──────────────────────
+
+export async function listAzureVNetPeerings(subscriptionId: string, resourceGroup: string, vnetName: string): Promise<AzureVNetPeeringSummary[]> {
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/resourceGroups/${enc(resourceGroup)}/providers/Microsoft.Network/virtualNetworks/${enc(vnetName)}/virtualNetworkPeerings`,
+    '2023-11-01'
+  )
+  return raw.map((p) => {
+    const props = (p.properties ?? {}) as Record<string, unknown>
+    const remoteVNet = (props.remoteVirtualNetwork as Record<string, unknown>) ?? {}
+    return {
+      id: String(p.id ?? ''),
+      name: String(p.name ?? ''),
+      peeringState: String(props.peeringState ?? ''),
+      remoteVNetId: String(remoteVNet.id ?? ''),
+      remoteVNetName: extractResourceName(String(remoteVNet.id ?? '')),
+      allowVirtualNetworkAccess: Boolean(props.allowVirtualNetworkAccess),
+      allowForwardedTraffic: Boolean(props.allowForwardedTraffic),
+      allowGatewayTransit: Boolean(props.allowGatewayTransit),
+      useRemoteGateways: Boolean(props.useRemoteGateways),
+      provisioningState: String(props.provisioningState ?? '')
+    }
+  })
+}
+
+export async function listAzureRouteTables(subscriptionId: string, location: string): Promise<AzureRouteTableSummary[]> {
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/providers/Microsoft.Network/routeTables`,
+    '2023-11-01'
+  )
+  const all: AzureRouteTableSummary[] = raw.map((rt) => {
+    const props = (rt.properties ?? {}) as Record<string, unknown>
+    const routes = Array.isArray(props.routes) ? (props.routes as Record<string, unknown>[]) : []
+    const subnets = Array.isArray(props.subnets) ? props.subnets : []
+    return {
+      id: String(rt.id ?? ''),
+      name: String(rt.name ?? ''),
+      resourceGroup: extractResourceGroup(String(rt.id ?? '')),
+      location: String(rt.location ?? ''),
+      disableBgpRoutePropagation: Boolean(props.disableBgpRoutePropagation),
+      routes: routes.map((r) => {
+        const rp = (r.properties ?? {}) as Record<string, unknown>
+        return {
+          name: String(r.name ?? ''),
+          addressPrefix: String(rp.addressPrefix ?? ''),
+          nextHopType: String(rp.nextHopType ?? ''),
+          nextHopIpAddress: String(rp.nextHopIpAddress ?? ''),
+          provisioningState: String(rp.provisioningState ?? '')
+        } satisfies AzureRouteSummary
+      }),
+      provisioningState: String(props.provisioningState ?? ''),
+      subnetCount: subnets.length
+    }
+  })
+  const loc = location.trim().toLowerCase().replace(/\s/g, '')
+  return loc ? all.filter((rt) => rt.location.toLowerCase().replace(/\s/g, '') === loc) : all
+}
+
+export async function listAzureNatGateways(subscriptionId: string, location: string): Promise<AzureNatGatewaySummary[]> {
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/providers/Microsoft.Network/natGateways`,
+    '2023-11-01'
+  )
+  const all: AzureNatGatewaySummary[] = raw.map((ng) => {
+    const props = (ng.properties ?? {}) as Record<string, unknown>
+    return {
+      id: String(ng.id ?? ''),
+      name: String(ng.name ?? ''),
+      resourceGroup: extractResourceGroup(String(ng.id ?? '')),
+      location: String(ng.location ?? ''),
+      skuName: String((ng.sku as Record<string, unknown>)?.name ?? ''),
+      idleTimeoutInMinutes: Number(props.idleTimeoutInMinutes ?? 0),
+      publicIpCount: Array.isArray(props.publicIpAddresses) ? props.publicIpAddresses.length : 0,
+      subnetCount: Array.isArray(props.subnets) ? props.subnets.length : 0,
+      provisioningState: String(props.provisioningState ?? ''),
+      zones: Array.isArray(ng.zones) ? (ng.zones as string[]) : []
+    }
+  })
+  const loc = location.trim().toLowerCase().replace(/\s/g, '')
+  return loc ? all.filter((ng) => ng.location.toLowerCase().replace(/\s/g, '') === loc) : all
+}
+
+export async function listAzurePrivateEndpoints(subscriptionId: string, location: string): Promise<AzurePrivateEndpointSummary[]> {
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(
+    `/subscriptions/${enc(subscriptionId)}/providers/Microsoft.Network/privateEndpoints`,
+    '2023-11-01'
+  )
+  const all: AzurePrivateEndpointSummary[] = raw.map((pe) => {
+    const props = (pe.properties ?? {}) as Record<string, unknown>
+    const plsConns = Array.isArray(props.privateLinkServiceConnections) ? (props.privateLinkServiceConnections as Record<string, unknown>[]) : []
+    const firstConn = plsConns[0] ?? {}
+    const connProps = (firstConn.properties ?? {}) as Record<string, unknown>
+    const customDns = Array.isArray(props.customDnsConfigs) ? (props.customDnsConfigs as Record<string, unknown>[]) : []
+    return {
+      id: String(pe.id ?? ''),
+      name: String(pe.name ?? ''),
+      resourceGroup: extractResourceGroup(String(pe.id ?? '')),
+      location: String(pe.location ?? ''),
+      privateLinkServiceId: String(connProps.privateLinkServiceId ?? ''),
+      groupIds: Array.isArray(connProps.groupIds) ? (connProps.groupIds as string[]) : [],
+      provisioningState: String(props.provisioningState ?? ''),
+      customDnsConfigs: customDns.map((c) => ({
+        fqdn: String(c.fqdn ?? ''),
+        ipAddresses: Array.isArray(c.ipAddresses) ? (c.ipAddresses as string[]) : []
+      }))
+    }
+  })
+  const loc = location.trim().toLowerCase().replace(/\s/g, '')
+  return loc ? all.filter((pe) => pe.location.toLowerCase().replace(/\s/g, '') === loc) : all
+}
+
+export async function listAzureNetworkOverview(subscriptionId: string, location: string): Promise<AzureNetworkOverview> {
+  const basePath = `/subscriptions/${encodeURIComponent(subscriptionId)}/providers/Microsoft.Network`
+  const apiVersion = '2023-11-01'
+
+  const [rawVnets, rawNsgs, rawPublicIps, rawNics, routeTables, natGateways, loadBalancers, privateEndpoints] = await Promise.all([
+    fetchAzureArmCollection<Record<string, unknown>>(`${basePath}/virtualNetworks`, apiVersion),
+    fetchAzureArmCollection<Record<string, unknown>>(`${basePath}/networkSecurityGroups`, apiVersion),
+    fetchAzureArmCollection<Record<string, unknown>>(`${basePath}/publicIPAddresses`, apiVersion),
+    fetchAzureArmCollection<Record<string, unknown>>(`${basePath}/networkInterfaces`, apiVersion),
+    listAzureRouteTables(subscriptionId, location),
+    listAzureNatGateways(subscriptionId, location),
+    listAzureLoadBalancers(subscriptionId, location),
+    listAzurePrivateEndpoints(subscriptionId, location)
+  ])
+
+  const locationFilter = location.trim().toLowerCase()
+  const filterByLocation = <T extends Record<string, unknown>>(items: T[]): T[] =>
+    locationFilter ? items.filter((item) => String(item.location ?? '').toLowerCase() === locationFilter) : items
+
+  return {
+    vnets: filterByLocation(rawVnets).map(mapVNet),
+    nsgs: filterByLocation(rawNsgs).map(mapNsg),
+    publicIps: filterByLocation(rawPublicIps).map(mapPublicIp),
+    networkInterfaces: filterByLocation(rawNics).map(mapNetworkInterface),
+    routeTables,
+    natGateways,
+    loadBalancers,
+    privateEndpoints
+  }
+}
+
+export async function listAzureVNetSubnets(subscriptionId: string, resourceGroup: string, vnetName: string): Promise<AzureSubnetSummary[]> {
+  const path = `/subscriptions/${encodeURIComponent(subscriptionId)}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.Network/virtualNetworks/${encodeURIComponent(vnetName)}/subnets`
+  const raw = await fetchAzureArmCollection<Record<string, unknown>>(path, '2023-11-01')
+  return raw.map(mapSubnet)
+}
+
+export async function listAzureNsgRules(subscriptionId: string, resourceGroup: string, nsgName: string): Promise<AzureNsgRuleSummary[]> {
+  const path = `/subscriptions/${encodeURIComponent(subscriptionId)}/resourceGroups/${encodeURIComponent(resourceGroup)}/providers/Microsoft.Network/networkSecurityGroups/${encodeURIComponent(nsgName)}`
+  const detail = await fetchAzureArmJson<Record<string, unknown>>(path, '2023-11-01')
+  const props = (detail.properties ?? {}) as Record<string, unknown>
+  const customRules = ((props.securityRules ?? []) as Array<Record<string, unknown>>).map(mapNsgRule)
+  const defaultRules = ((props.defaultSecurityRules ?? []) as Array<Record<string, unknown>>).map(mapNsgRule)
+  return [...customRules.sort((a, b) => a.priority - b.priority), ...defaultRules.sort((a, b) => a.priority - b.priority)]
 }

@@ -788,6 +788,98 @@ export type AzureRbacOverview = {
   notes: string[]
 }
 
+/* ── Azure Defender for Cloud ────────────────────────────── */
+
+export type AzureDefenderAlertSeverity = 'high' | 'medium' | 'low' | 'informational'
+
+export type AzureDefenderAssessmentStatus = 'healthy' | 'unhealthy' | 'notApplicable'
+
+export type AzureDefenderSecureScore = {
+  name: string
+  displayName: string
+  currentScore: number
+  maxScore: number
+  percentage: number
+  weight: number
+}
+
+export type AzureDefenderSecureScoreControl = {
+  id: string
+  name: string
+  displayName: string
+  currentScore: number
+  maxScore: number
+  percentage: number
+  healthyResourceCount: number
+  unhealthyResourceCount: number
+  notApplicableResourceCount: number
+  category: string
+}
+
+export type AzureDefenderRecommendation = {
+  id: string
+  name: string
+  displayName: string
+  description: string
+  severity: AzureDefenderAlertSeverity
+  status: AzureDefenderAssessmentStatus
+  category: string
+  resourceId: string
+  remediation: string
+}
+
+export type AzureDefenderAlert = {
+  id: string
+  name: string
+  alertDisplayName: string
+  description: string
+  severity: AzureDefenderAlertSeverity
+  status: string
+  intent: string
+  timeGenerated: string
+  resourceId: string
+  compromisedEntity: string
+  vendor: string
+}
+
+export type AzureDefenderComplianceStandard = {
+  id: string
+  name: string
+  displayName: string
+  state: string
+  passedControls: number
+  failedControls: number
+  skippedControls: number
+  unsupportedControls: number
+  compliancePercentage: number
+}
+
+export type AzureDefenderAttackPath = {
+  id: string
+  name: string
+  displayName: string
+  description: string
+  riskLevel: AzureDefenderAlertSeverity
+  riskCategories: string[]
+  entryPoint: string
+  targetResourceId: string
+  stepCount: number
+}
+
+export type AzureDefenderReport = {
+  generatedAt: string
+  subscriptionId: string
+  secureScore: AzureDefenderSecureScore | null
+  secureScoreControls: AzureDefenderSecureScoreControl[]
+  recommendations: AzureDefenderRecommendation[]
+  alerts: AzureDefenderAlert[]
+  complianceStandards: AzureDefenderComplianceStandard[]
+  attackPaths: AzureDefenderAttackPath[]
+  recommendationsByCategory: Record<string, number>
+  alertsBySeverity: Record<AzureDefenderAlertSeverity, number>
+  warnings: string[]
+}
+
 export type AzureRoleDefinitionSummary = {
   id: string
   roleName: string
@@ -2559,6 +2651,26 @@ export type GcpSccSeverityBreakdown = {
   unspecified: number
 }
 
+export type GcpSccFindingClass = 'vulnerability' | 'misconfiguration' | 'threat' | 'observation' | 'other'
+
+export type GcpSccHealthAnalytics = {
+  totalFindings: number
+  activeFindings: number
+  byClass: Record<GcpSccFindingClass, number>
+  bySeverity: GcpSccSeverityBreakdown
+  topCategories: Array<{ category: string; count: number }>
+  topResources: Array<{ resourceName: string; count: number }>
+}
+
+export type GcpSccPostureReport = {
+  generatedAt: string
+  projectId: string
+  healthAnalytics: GcpSccHealthAnalytics
+  findingsByClass: Record<GcpSccFindingClass, GcpSccFindingSummary[]>
+  sources: GcpSccSourceSummary[]
+  warnings: string[]
+}
+
 export type GcpFirestoreDatabaseSummary = {
   name: string
   uid: string
@@ -3831,6 +3943,10 @@ export type ServiceId =
   | 'azure-firewall'
   | 'azure-load-balancers'
   | 'azure-dns'
+  | 'security-posture-dashboard'
+  | 'guard-duty'
+  | 'azure-defender'
+  | 'security-trends'
 
 export type GovernanceTagKey = 'Owner' | 'Environment' | 'Project' | 'CostCenter'
 
@@ -4996,6 +5112,132 @@ export type ComplianceReport = {
   findings: ComplianceFinding[]
   policyPacks: CompliancePolicyPack[]
   summary: ComplianceSummary
+  warnings: string[]
+}
+
+/* ── Security Posture Dashboard ──────────────────────────── */
+
+export type SecurityScoreDomain = 'iam' | 'network' | 'encryption' | 'logging' | 'compliance'
+
+export type SecurityScoreWeights = Record<SecurityScoreDomain, number>
+
+export type SecurityDomainResult = {
+  domain: SecurityScoreDomain
+  score: number
+  maxScore: number
+  checks: SecurityCheck[]
+}
+
+export type SecurityCheck = {
+  id: string
+  label: string
+  passed: boolean
+  severity: ComplianceSeverity
+  detail: string
+}
+
+export type SecurityScoreReport = {
+  generatedAt: string
+  overallScore: number
+  domainResults: SecurityDomainResult[]
+  weights: SecurityScoreWeights
+  warnings: string[]
+}
+
+/* ── Security Trends (v2.8.0) ──────────────────────────── */
+
+export type SecurityTrendRange = '7d' | '30d' | '90d' | '1y'
+
+export type SecuritySnapshot = {
+  id: string
+  capturedAt: string  // ISO date (YYYY-MM-DD)
+  scope: string  // profile::region or subscription ID — identifies which account the snapshot belongs to
+  scopeLabel: string  // human-readable label
+  overallScore: number
+  domainScores: Record<SecurityScoreDomain, number>
+  findingCounts: {
+    high: number
+    medium: number
+    low: number
+    total: number
+  }
+  complianceBenchmarkPassRate: number  // 0-100
+  newFindings: number
+  remediatedFindings: number
+}
+
+export type SecurityThresholds = {
+  minOverallScore: number  // alert when overall score drops below this
+  maxHighFindings: number  // alert when high findings exceed this
+  maxTotalFindings: number
+  scoreDropPct: number  // alert when score drops by > this % in 7 days
+}
+
+export type SecurityAlertKind = 'score-drop' | 'high-findings' | 'total-findings' | 'threshold-breach'
+
+export type SecurityAlert = {
+  id: string
+  kind: SecurityAlertKind
+  severity: 'high' | 'medium' | 'low'
+  message: string
+  detail: string
+  triggeredAt: string
+  scope: string
+  scopeLabel: string
+}
+
+export type SecurityTrendReport = {
+  range: SecurityTrendRange
+  scope: string
+  snapshots: SecuritySnapshot[]
+  alerts: SecurityAlert[]
+  thresholds: SecurityThresholds
+  summary: {
+    currentScore: number
+    previousScore: number
+    scoreDelta: number
+    trendDirection: 'up' | 'down' | 'stable'
+    snapshotCount: number
+  }
+}
+
+export type SecuritySnapshotInput = Omit<SecuritySnapshot, 'id' | 'capturedAt'>
+
+/* ── GuardDuty ───────────────────────────────────────────── */
+
+export type GuardDutySeverity = 'critical' | 'high' | 'medium' | 'low'
+
+export type GuardDutyFinding = {
+  id: string
+  title: string
+  description: string
+  severity: GuardDutySeverity
+  type: string
+  category: string
+  resourceType: string
+  resourceId: string
+  region: string
+  count: number
+  firstSeenAt: string
+  lastSeenAt: string
+  archived: boolean
+}
+
+export type GuardDutySeverityCounts = Record<GuardDutySeverity, number>
+
+export type GuardDutyDetectorSummary = {
+  detectorId: string
+  status: string
+  createdAt: string
+}
+
+export type GuardDutyReport = {
+  generatedAt: string
+  detector: GuardDutyDetectorSummary | null
+  findings: GuardDutyFinding[]
+  severityCounts: GuardDutySeverityCounts
+  topTargetedResources: Array<{ resourceId: string; findingCount: number }>
+  categoryBreakdown: Record<string, number>
   warnings: string[]
 }
 

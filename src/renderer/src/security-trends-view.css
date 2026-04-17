@@ -1,0 +1,83 @@
+/* Security Trends view — extends shared .iam-shell-* + .panel + .svc-table patterns */
+
+.stv-console {
+  min-width: 0;
+}
+
+/* ── Chart containers ──────────────────────────────── */
+
+.stv-chart {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+}
+
+/* ── Alerts list ───────────────────────────────────── */
+
+.stv-alert-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stv-alert-row {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(145, 176, 207, 0.1);
+  background: rgba(9, 14, 22, 0.55);
+}
+
+.stv-alert-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stv-alert-body strong {
+  color: #edf4fb;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.stv-alert-body small {
+  color: #a6bbcf;
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
+/* ── Thresholds editor ─────────────────────────────── */
+
+.stv-threshold-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.stv-threshold-body .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stv-threshold-body input[type='number'] {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(145, 176, 207, 0.16);
+  background: rgba(9, 14, 22, 0.7);
+  color: #edf4fb;
+  font-size: 0.88rem;
+}
+
+.stv-threshold-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(145, 176, 207, 0.1);
+}

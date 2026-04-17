@@ -52,7 +52,7 @@ import {
   listGcpStorageBuckets,
   listGcpCloudRunServices,
   listGcpDnsManagedZones
-} from './gcpSdk'
+} from './gcp'
 
 type GcpTerraformContext = { projectId: string; location: string }
 type GcpLiveData = {

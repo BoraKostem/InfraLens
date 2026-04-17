@@ -1,0 +1,199 @@
+/* Azure Defender console — extends shared .iam-shell-* and .svc-table patterns */
+
+.adf-console {
+  min-width: 0;
+}
+
+.adf-hero-score-card {
+  grid-column: span 2;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 16px;
+  min-height: 124px;
+}
+
+.adf-hero-score-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.adf-hero-score-copy span {
+  color: #8fa3ba;
+  font-size: 0.64rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.adf-hero-score-copy strong {
+  color: #edf4fb;
+  font-family: 'Space Grotesk', 'Segoe UI', sans-serif;
+  letter-spacing: -0.03em;
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.adf-hero-score-copy small {
+  color: rgba(238, 240, 244, 0.7);
+  font-size: 0.75rem;
+}
+
+/* ── Filter row ─────────────────────────────────────── */
+
+.adf-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+  margin-top: 8px;
+}
+
+.adf-filter-row .field {
+  min-width: 150px;
+}
+
+/* ── Bar cell inside tables ─────────────────────────── */
+
+.adf-bar-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 180px;
+}
+
+/* ── Expanded detail row ────────────────────────────── */
+
+.adf-detail-cell {
+  background: rgba(9, 14, 22, 0.5) !important;
+  padding: 12px 18px !important;
+}
+
+.adf-detail-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: #dce8f5;
+}
+
+.adf-detail-content code {
+  background: rgba(145, 176, 207, 0.08);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, 'SF Mono', monospace;
+  font-size: 0.72rem;
+  word-break: break-all;
+}
+
+.adf-detail-label {
+  display: inline-block;
+  color: #8fa3ba;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-right: 8px;
+  min-width: 96px;
+}
+
+/* ── Compliance grid ─────────────────────────────────── */
+
+.adf-compliance-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.adf-compliance-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(145, 176, 207, 0.14);
+  background: linear-gradient(180deg, rgba(17, 25, 37, 0.94), rgba(10, 16, 26, 0.96));
+}
+
+.adf-compliance-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.adf-compliance-head strong {
+  color: #edf4fb;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.adf-compliance-ring {
+  display: flex;
+  justify-content: center;
+}
+
+.adf-compliance-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.78rem;
+}
+
+.adf-compliance-stats > div {
+  display: flex;
+  justify-content: space-between;
+}
+
+.adf-compliance-stats span {
+  font-weight: 600;
+}
+
+.adf-compliance-stats strong {
+  color: #edf4fb;
+  font-family: 'Space Grotesk', 'Segoe UI', sans-serif;
+}
+
+/* ── Attack path cards ───────────────────────────────── */
+
+.adf-attack-path-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.adf-attack-path-card {
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(145, 176, 207, 0.14);
+  background: linear-gradient(180deg, rgba(17, 25, 37, 0.94), rgba(10, 16, 26, 0.96));
+}
+
+.adf-attack-path-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.adf-attack-path-head strong {
+  color: #edf4fb;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.adf-attack-path-desc {
+  margin: 6px 0 10px;
+  color: #a6bbcf;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.adf-attack-path-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.78rem;
+  color: #dce8f5;
+}

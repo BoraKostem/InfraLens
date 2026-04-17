@@ -1,0 +1,132 @@
+/* GuardDuty console — extends shared .iam-shell-* and .svc-table patterns */
+
+.gd-console {
+  min-width: 0;
+}
+
+.gd-findings-header {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.gd-findings-header h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.gd-findings-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.gd-findings-toolbar .field {
+  min-width: 160px;
+}
+
+.gd-findings-table {
+  font-size: 0.82rem;
+}
+
+.gd-finding-title-btn {
+  background: transparent;
+  border: 0;
+  color: #9cc2ff;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-align: left;
+}
+
+.gd-finding-title-btn:hover {
+  text-decoration: underline;
+}
+
+.gd-muted-cell {
+  color: #8fa3ba;
+  font-size: 0.78rem;
+}
+
+.gd-resource-cell {
+  font-family: ui-monospace, 'SF Mono', monospace;
+  font-size: 0.74rem;
+  color: #a6bbcf;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Expanded detail row ─────────────────────────────── */
+
+.gd-detail-row td {
+  background: rgba(9, 14, 22, 0.5);
+  padding: 12px 18px;
+}
+
+.gd-detail-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: #dce8f5;
+}
+
+.gd-detail-content code {
+  background: rgba(145, 176, 207, 0.08);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, 'SF Mono', monospace;
+  font-size: 0.75rem;
+}
+
+.gd-detail-label {
+  display: inline-block;
+  color: #8fa3ba;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-right: 8px;
+}
+
+.gd-detail-separator {
+  color: rgba(145, 176, 207, 0.3);
+  margin: 0 8px;
+}
+
+/* ── Categories bar list ─────────────────────────────── */
+
+.gd-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gd-bar-row {
+  display: grid;
+  grid-template-columns: 200px 1fr 48px;
+  align-items: center;
+  gap: 12px;
+}
+
+.gd-bar-label {
+  color: #a6bbcf;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.gd-bar-count {
+  font-family: 'Space Grotesk', 'Segoe UI', sans-serif;
+  text-align: right;
+  color: #edf4fb;
+  font-size: 0.9rem;
+}
+
+/* ── Table scroller wrapper ───────────────────────────── */
+
+.table-scroller {
+  overflow-x: auto;
+}

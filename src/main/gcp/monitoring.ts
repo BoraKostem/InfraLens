@@ -8,13 +8,19 @@
  */
 
 import { classifyGcpError, paginationGuard, requestGcp } from './client'
+import { buildGcpSdkError } from './shared'
 import type {
+  GcpMonitoringAlertPolicySummary,
+  GcpMonitoringMetricDescriptorSummary,
   GcpMonitoringNotificationChannelSummary,
   GcpMonitoringGroupSummary,
   GcpMonitoringDashboardSummary,
   GcpMonitoringDashboardDetail,
   GcpMonitoringAggregatedMetric,
   GcpMonitoringAggregatedPoint,
+  GcpMonitoringTimeSeriesPoint,
+  GcpMonitoringTimeSeriesResult,
+  GcpMonitoringUptimeCheckSummary,
   GcpLogEntry,
   GcpLogEntriesResult,
   GcpMonitoringServiceSummary,
@@ -733,5 +739,222 @@ export async function listGcpMonitoringSlos(
     return slos.sort((a, b) => a.displayName.localeCompare(b.displayName))
   } catch (error) {
     throw classifyGcpError(`listing SLOs for service "${serviceName}"`, error, MONITORING_API)
+  }
+}
+
+// ── Extracted from gcpSdk.ts ────────────────────────────────────────────────────
+// Core Cloud Monitoring surface (alert policies, uptime checks, metric
+// descriptors, time-series queries) moved here as part of the gcpSdk.ts
+// decomposition.
+
+function buildMonitoringApiUrl(pathname: string, query: Record<string, number | string | undefined> = {}): string {
+  const url = new URL(`https://monitoring.googleapis.com/v3/${pathname.replace(/^\/+/, '')}`)
+
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === '') {
+      continue
+    }
+
+    url.searchParams.set(key, String(value))
+  }
+
+  return url.toString()
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.map((entry) => asString(entry)).filter((entry) => entry.length > 0)
+}
+
+export async function listGcpMonitoringAlertPolicies(projectId: string): Promise<GcpMonitoringAlertPolicySummary[]> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) return []
+
+  try {
+    const policies: GcpMonitoringAlertPolicySummary[] = []
+    let pageToken = ''
+
+    const canPage = paginationGuard()
+    do {
+      const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+        url: buildMonitoringApiUrl(`projects/${encodeURIComponent(normalizedProjectId)}/alertPolicies`, {
+          pageSize: 500,
+          pageToken: pageToken || undefined
+        })
+      })
+
+      for (const entry of Array.isArray(response.alertPolicies) ? response.alertPolicies : []) {
+        const record = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {}
+        const name = asString(record.name)
+        if (!name) continue
+
+        const conditions = Array.isArray(record.conditions) ? record.conditions : []
+        const channels = Array.isArray(record.notificationChannels) ? record.notificationChannels : []
+
+        policies.push({
+          name,
+          displayName: asString(record.displayName),
+          enabled: asBoolean(record.enabled),
+          conditionCount: conditions.length,
+          notificationChannelCount: channels.length,
+          combiner: asString(record.combiner),
+          creationTime: asString((record.creationRecord && typeof record.creationRecord === 'object' ? record.creationRecord as Record<string, unknown> : {}).mutateTime),
+          mutationTime: asString((record.mutationRecord && typeof record.mutationRecord === 'object' ? record.mutationRecord as Record<string, unknown> : {}).mutateTime)
+        })
+      }
+
+      pageToken = asString(response.nextPageToken)
+    } while (pageToken && canPage())
+
+    return policies
+  } catch (error) {
+    throw buildGcpSdkError(`listing Cloud Monitoring alert policies for project "${normalizedProjectId}"`, error, 'monitoring.googleapis.com')
+  }
+}
+
+export async function listGcpMonitoringUptimeChecks(projectId: string): Promise<GcpMonitoringUptimeCheckSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) return []
+
+  try {
+    const checks: GcpMonitoringUptimeCheckSummary[] = []
+    let pageToken = ''
+
+    const canPage = paginationGuard()
+    do {
+      const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+        url: buildMonitoringApiUrl(`projects/${encodeURIComponent(normalizedProjectId)}/uptimeCheckConfigs`, {
+          pageSize: 500,
+          pageToken: pageToken || undefined
+        })
+      })
+
+      for (const entry of Array.isArray(response.uptimeCheckConfigs) ? response.uptimeCheckConfigs : []) {
+        const record = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {}
+        const name = asString(record.name)
+        if (!name) continue
+
+        const monitoredResource = record.monitoredResource && typeof record.monitoredResource === 'object'
+          ? asString((record.monitoredResource as Record<string, unknown>).type)
+          : ''
+        const httpCheck = record.httpCheck && typeof record.httpCheck === 'object' ? record.httpCheck as Record<string, unknown> : null
+        const tcpCheck = record.tcpCheck && typeof record.tcpCheck === 'object' ? record.tcpCheck : null
+        const protocol = httpCheck ? (asBoolean(httpCheck.useSsl) ? 'HTTPS' : 'HTTP') : tcpCheck ? 'TCP' : 'UNKNOWN'
+
+        checks.push({
+          name,
+          displayName: asString(record.displayName),
+          monitoredResource,
+          protocol,
+          period: asString(record.period),
+          timeout: asString(record.timeout),
+          selectedRegions: asStringArray(record.selectedRegions),
+          isInternal: asBoolean(record.isInternal)
+        })
+      }
+
+      pageToken = asString(response.nextPageToken)
+    } while (pageToken && canPage())
+
+    return checks
+  } catch (error) {
+    throw buildGcpSdkError(`listing Cloud Monitoring uptime checks for project "${normalizedProjectId}"`, error, 'monitoring.googleapis.com')
+  }
+}
+
+export async function listGcpMonitoringMetricDescriptors(projectId: string, filter?: string): Promise<GcpMonitoringMetricDescriptorSummary[]> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) return []
+
+  try {
+    const descriptors: GcpMonitoringMetricDescriptorSummary[] = []
+    let pageToken = ''
+
+    const canPage = paginationGuard()
+    do {
+      const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+        url: buildMonitoringApiUrl(`projects/${encodeURIComponent(normalizedProjectId)}/metricDescriptors`, {
+          pageSize: 500,
+          filter: filter || undefined,
+          pageToken: pageToken || undefined
+        })
+      })
+
+      for (const entry of Array.isArray(response.metricDescriptors) ? response.metricDescriptors : []) {
+        const record = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {}
+        const type = asString(record.type)
+        if (!type) continue
+
+        descriptors.push({
+          type,
+          displayName: asString(record.displayName),
+          description: asString(record.description),
+          metricKind: asString(record.metricKind),
+          valueType: asString(record.valueType),
+          unit: asString(record.unit),
+          launchStage: asString(record.launchStage)
+        })
+      }
+
+      pageToken = asString(response.nextPageToken)
+    } while (pageToken && canPage())
+
+    return descriptors
+  } catch (error) {
+    throw buildGcpSdkError(`listing Cloud Monitoring metric descriptors for project "${normalizedProjectId}"`, error, 'monitoring.googleapis.com')
+  }
+}
+
+export async function queryGcpMonitoringTimeSeries(
+  projectId: string,
+  metricType: string,
+  intervalMinutes: number
+): Promise<GcpMonitoringTimeSeriesResult[]> {
+  const normalizedProjectId = projectId.trim()
+  if (!normalizedProjectId) return []
+
+  try {
+    const now = new Date()
+    const startTime = new Date(now.getTime() - intervalMinutes * 60 * 1000)
+    const filter = `metric.type="${metricType}"`
+
+    const response = await requestGcp<Record<string, unknown>>(normalizedProjectId, {
+      url: buildMonitoringApiUrl(`projects/${encodeURIComponent(normalizedProjectId)}/timeSeries`, {
+        filter,
+        'interval.startTime': startTime.toISOString(),
+        'interval.endTime': now.toISOString(),
+        pageSize: 100
+      })
+    })
+
+    const results: GcpMonitoringTimeSeriesResult[] = []
+    for (const entry of Array.isArray(response.timeSeries) ? response.timeSeries : []) {
+      const record = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {}
+      const metricObj = record.metric && typeof record.metric === 'object' ? record.metric as Record<string, unknown> : {}
+      const resourceObj = record.resource && typeof record.resource === 'object' ? record.resource as Record<string, unknown> : {}
+      const rawPoints = Array.isArray(record.points) ? record.points : []
+
+      const points = rawPoints.map((point: unknown) => {
+        if (!point || typeof point !== 'object') return null
+        const p = point as Record<string, unknown>
+        const interval = p.interval && typeof p.interval === 'object' ? p.interval as Record<string, unknown> : {}
+        const value = p.value && typeof p.value === 'object' ? p.value as Record<string, unknown> : {}
+        const numericValue = normalizeNumber(value.int64Value ?? value.doubleValue ?? value.value ?? 0)
+        return {
+          timestamp: asString(interval.endTime),
+          value: numericValue
+        }
+      }).filter((p): p is GcpMonitoringTimeSeriesPoint => p !== null)
+
+      results.push({
+        metric: asString(metricObj.type),
+        resource: asString(resourceObj.type),
+        points
+      })
+    }
+
+    return results
+  } catch (error) {
+    throw buildGcpSdkError(`querying Cloud Monitoring time series for project "${normalizedProjectId}"`, error, 'monitoring.googleapis.com')
   }
 }
