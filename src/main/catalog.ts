@@ -95,7 +95,10 @@ const AWS_WORKSPACES: ServiceDescriptor[] = [
   { id: 'kms', label: 'KMS', category: 'Security', migrated: false, maturity: 'experimental', providerId: 'aws', providerLabel: 'AWS', workspaceKind: 'provider', supports: ['aws'], requiresConnection: true },
   { id: 'waf', label: 'WAF', category: 'Security', migrated: false, maturity: 'experimental', providerId: 'aws', providerLabel: 'AWS', workspaceKind: 'provider', supports: ['aws'], requiresConnection: true },
   { id: 'secrets-manager', label: 'Secrets Manager', category: 'Security', migrated: false, maturity: 'beta', providerId: 'aws', providerLabel: 'AWS', workspaceKind: 'provider', supports: ['aws'], requiresConnection: true },
-  { id: 'key-pairs', label: 'Key Pairs', category: 'Security', migrated: false, maturity: 'beta', providerId: 'aws', providerLabel: 'AWS', workspaceKind: 'provider', supports: ['aws'], requiresConnection: true }
+  { id: 'key-pairs', label: 'Key Pairs', category: 'Security', migrated: false, maturity: 'beta', providerId: 'aws', providerLabel: 'AWS', workspaceKind: 'provider', supports: ['aws'], requiresConnection: true },
+  { id: 'security-posture-dashboard', label: 'Security Posture', category: 'Security', migrated: true, maturity: 'beta', providerId: 'aws', providerLabel: 'AWS', workspaceKind: 'provider', supports: ['aws'], requiresConnection: true },
+  { id: 'guard-duty', label: 'GuardDuty', category: 'Security', migrated: true, maturity: 'beta', providerId: 'aws', providerLabel: 'AWS', workspaceKind: 'provider', supports: ['aws'], requiresConnection: true },
+  { id: 'security-trends', label: 'Security Trends', category: 'Security', migrated: true, maturity: 'beta', providerId: 'aws', providerLabel: 'AWS', workspaceKind: 'provider', supports: ['aws'], requiresConnection: true }
 ]
 
 const GCP_WORKSPACES: ServiceDescriptor[] = [
@@ -143,7 +146,8 @@ const AZURE_WORKSPACES: ServiceDescriptor[] = [
   { id: 'azure-event-grid', label: 'Event Grid', category: 'Messaging', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true },
   { id: 'azure-dns', label: 'DNS', category: 'Networking', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true },
   { id: 'azure-firewall', label: 'Firewall', category: 'Networking', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true },
-  { id: 'azure-load-balancers', label: 'Load Balancers', category: 'Networking', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true }
+  { id: 'azure-load-balancers', label: 'Load Balancers', category: 'Networking', migrated: true, maturity: 'experimental', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true },
+  { id: 'azure-defender', label: 'Defender for Cloud', category: 'Security', migrated: true, maturity: 'beta', providerId: 'azure', providerLabel: 'Azure', workspaceKind: 'provider', supports: ['azure'], requiresConnection: true }
 ]
 
 function sortServices(items: ServiceDescriptor[]): ServiceDescriptor[] {

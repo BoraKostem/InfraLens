@@ -1,259 +1,39 @@
+/* GuardDuty console — extends shared .iam-shell-* and .svc-table patterns */
+
 .gd-console {
+  min-width: 0;
+}
+
+.gd-findings-header {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 16px;
+  gap: 10px;
 }
 
-.gd-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.gd-header h2 {
+.gd-findings-header h3 {
   margin: 0;
-  font-size: 18px;
-  font-weight: 600;
+  font-size: 0.95rem;
 }
 
-.gd-header-actions {
+.gd-findings-toolbar {
   display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* ── Not Enabled ───────────────────────────────────────── */
-
-.gd-not-enabled {
-  padding: 32px;
-  text-align: center;
-  color: var(--text-secondary, #aaa);
-  font-size: 14px;
-}
-
-/* ── Warnings ──────────────────────────────────────────── */
-
-.gd-warnings {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.gd-warning {
-  padding: 6px 10px;
-  border-radius: 4px;
-  background: var(--warning-bg, rgba(234, 179, 8, 0.12));
-  color: var(--warning-text, #eab308);
-  font-size: 12px;
-}
-
-/* ── Severity Summary Cards ────────────────────────────── */
-
-.gd-severity-summary {
-  display: flex;
-  gap: 12px;
-}
-
-.gd-severity-card {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 16px;
-  border-radius: 8px;
-  background: var(--card-bg, rgba(255, 255, 255, 0.03));
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
-}
-
-.gd-severity-card--critical { border-top: 3px solid #dc2626; }
-.gd-severity-card--high { border-top: 3px solid #ef4444; }
-.gd-severity-card--medium { border-top: 3px solid #f97316; }
-.gd-severity-card--low { border-top: 3px solid #eab308; }
-
-.gd-severity-count {
-  font-size: 28px;
-  font-weight: 700;
-}
-
-.gd-severity-card--critical .gd-severity-count { color: #dc2626; }
-.gd-severity-card--high .gd-severity-count { color: #ef4444; }
-.gd-severity-card--medium .gd-severity-count { color: #f97316; }
-.gd-severity-card--low .gd-severity-count { color: #eab308; }
-
-.gd-severity-label {
-  font-size: 12px;
-  text-transform: uppercase;
-  font-weight: 600;
-  color: var(--text-secondary, #aaa);
-}
-
-/* ── Severity Badges ───────────────────────────────────── */
-
-.gd-severity {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 3px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-.gd-severity--critical { background: rgba(220, 38, 38, 0.15); color: #dc2626; }
-.gd-severity--high { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
-.gd-severity--medium { background: rgba(249, 115, 22, 0.15); color: #f97316; }
-.gd-severity--low { background: rgba(234, 179, 8, 0.15); color: #eab308; }
-
-/* ── Insights Row ──────────────────────────────────────── */
-
-.gd-insights-row {
-  display: flex;
-  gap: 16px;
-}
-
-.gd-category-breakdown,
-.gd-top-targets {
-  flex: 1;
-  padding: 16px;
-  border-radius: 8px;
-  background: var(--card-bg, rgba(255, 255, 255, 0.03));
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
-}
-
-.gd-category-breakdown h4,
-.gd-top-targets h4 {
-  margin: 0 0 12px;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.gd-category-bars {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.gd-category-row {
-  display: flex;
-  align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
+  align-items: flex-end;
 }
 
-.gd-category-label {
-  width: 140px;
-  flex-shrink: 0;
-  font-size: 12px;
-  color: var(--text-secondary, #aaa);
-  text-align: right;
+.gd-findings-toolbar .field {
+  min-width: 160px;
 }
-
-.gd-category-track {
-  flex: 1;
-  height: 6px;
-  border-radius: 3px;
-  background: var(--bar-bg, rgba(255, 255, 255, 0.08));
-  overflow: hidden;
-}
-
-.gd-category-fill {
-  height: 100%;
-  border-radius: 3px;
-  background: var(--accent, #6366f1);
-}
-
-.gd-category-count {
-  width: 30px;
-  font-size: 12px;
-  font-weight: 600;
-  text-align: right;
-}
-
-/* ── Top Targets Table ─────────────────────────────────── */
-
-.gd-targets-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-}
-
-.gd-targets-table th {
-  text-align: left;
-  padding: 4px 8px;
-  color: var(--text-secondary, #aaa);
-  font-weight: 600;
-  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
-}
-
-.gd-targets-table td {
-  padding: 4px 8px;
-}
-
-.gd-resource-id {
-  font-family: monospace;
-  font-size: 11px;
-}
-
-/* ── Filters ───────────────────────────────────────────── */
-
-.gd-filters {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.gd-filters select {
-  padding: 4px 8px;
-  border-radius: 4px;
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.15));
-  background: var(--input-bg, rgba(255, 255, 255, 0.05));
-  color: inherit;
-  font-size: 12px;
-}
-
-.gd-filter-count {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--text-secondary, #aaa);
-}
-
-.gd-empty-findings {
-  padding: 24px;
-  text-align: center;
-  color: var(--text-secondary, #aaa);
-  font-size: 13px;
-}
-
-/* ── Findings Table ────────────────────────────────────── */
 
 .gd-findings-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-.gd-findings-table th {
-  text-align: left;
-  padding: 8px 10px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary, #aaa);
-  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
-}
-
-.gd-findings-table td {
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.04));
-  vertical-align: top;
-}
-
-.gd-finding-row:hover {
-  background: var(--hover-bg, rgba(255, 255, 255, 0.03));
+  font-size: 0.82rem;
 }
 
 .gd-finding-title-btn {
-  background: none;
-  border: none;
-  color: var(--link-color, #60a5fa);
+  background: transparent;
+  border: 0;
+  color: #9cc2ff;
   cursor: pointer;
   font: inherit;
   padding: 0;
@@ -264,45 +44,89 @@
   text-decoration: underline;
 }
 
-.gd-finding-category {
-  font-size: 12px;
-  color: var(--text-secondary, #aaa);
+.gd-muted-cell {
+  color: #8fa3ba;
+  font-size: 0.78rem;
 }
 
-.gd-finding-resource {
-  font-family: monospace;
-  font-size: 11px;
-  max-width: 180px;
+.gd-resource-cell {
+  font-family: ui-monospace, 'SF Mono', monospace;
+  font-size: 0.74rem;
+  color: #a6bbcf;
+  max-width: 240px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.gd-finding-count {
-  text-align: center;
+/* ── Expanded detail row ─────────────────────────────── */
+
+.gd-detail-row td {
+  background: rgba(9, 14, 22, 0.5);
+  padding: 12px 18px;
 }
 
-.gd-finding-time {
-  font-size: 11px;
-  color: var(--text-secondary, #aaa);
-  white-space: nowrap;
-}
-
-/* ── Finding Detail (expanded) ─────────────────────────── */
-
-.gd-finding-detail-row td {
-  padding: 0 10px 12px 42px;
-  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
-}
-
-.gd-finding-detail {
+.gd-detail-content {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 12px;
-  color: var(--text-secondary, #ccc);
+  font-size: 0.8rem;
+  color: #dce8f5;
 }
 
-.gd-detail-section strong {
-  color: var(--text-primary, #fff);
+.gd-detail-content code {
+  background: rgba(145, 176, 207, 0.08);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, 'SF Mono', monospace;
+  font-size: 0.75rem;
+}
+
+.gd-detail-label {
+  display: inline-block;
+  color: #8fa3ba;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-right: 8px;
+}
+
+.gd-detail-separator {
+  color: rgba(145, 176, 207, 0.3);
+  margin: 0 8px;
+}
+
+/* ── Categories bar list ─────────────────────────────── */
+
+.gd-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gd-bar-row {
+  display: grid;
+  grid-template-columns: 200px 1fr 48px;
+  align-items: center;
+  gap: 12px;
+}
+
+.gd-bar-label {
+  color: #a6bbcf;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.gd-bar-count {
+  font-family: 'Space Grotesk', 'Segoe UI', sans-serif;
+  text-align: right;
+  color: #edf4fb;
+  font-size: 0.9rem;
+}
+
+/* ── Table scroller wrapper ───────────────────────────── */
+
+.table-scroller {
+  overflow-x: auto;
 }

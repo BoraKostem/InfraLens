@@ -125,6 +125,10 @@ import { AzureFoundationPanel } from './AzureFoundationPanel'
 import { CloudFormationConsole } from './CloudFormationConsole'
 import { CompareWorkspace } from './CompareWorkspace'
 import { ComplianceCenter } from './ComplianceCenter'
+import { SecurityPostureDashboard } from './SecurityPostureDashboard'
+import { GuardDutyConsole } from './GuardDutyConsole'
+import { SecurityTrendsView } from './SecurityTrendsView'
+import { AzureDefenderConsole } from './AzureDefenderConsole'
 import { CloudTrailConsole } from './CloudTrailConsole'
 import { CloudWatchConsole } from './CloudWatchConsole'
 import { DirectResourceConsole } from './DirectResourceConsole'
@@ -361,7 +365,11 @@ const SERVICE_DESCRIPTIONS: Record<ServiceId, string> = {
   'azure-event-grid': 'Event Grid posture with custom topics, system topics, domains, and event subscription visibility across delivery schemas.',
   'azure-firewall': 'Azure Firewall inventory with rule collection visibility, threat intelligence posture, and network topology context.',
   'azure-load-balancers': 'Azure Load Balancer inventory with frontend/backend pool visibility, health probes, and load-balancing rule posture.',
-  'azure-dns': 'Azure DNS zone inventory with record set management, zone creation, and name server visibility.'
+  'azure-dns': 'Azure DNS zone inventory with record set management, zone creation, and name server visibility.',
+  'security-posture-dashboard': 'Unified security score across IAM, network, encryption, logging, and compliance domains with configurable weights and per-check visibility.',
+  'guard-duty': 'AWS GuardDuty threat detection findings with severity breakdown, threat categories, top targeted resources, and bulk archive management.',
+  'azure-defender': 'Microsoft Defender for Cloud secure score, recommendations, security alerts, regulatory compliance status, and attack path analysis.',
+  'security-trends': 'Historical trends and time-series analysis of security posture with configurable time ranges, threshold alerting, and snapshot comparison.'
 }
 
 const SERVICE_MATURITY_LABELS: Record<ServiceMaturity, string> = {
@@ -413,7 +421,11 @@ const IMPLEMENTED_SCREENS = new Set<ServiceId>([
   'gcp-memorystore',
   'gcp-load-balancer',
   'azure-dns',
-  'azure-resource-groups'
+  'azure-resource-groups',
+  'security-posture-dashboard',
+  'guard-duty',
+  'security-trends',
+  'azure-defender'
 ])
 
 const DEFAULT_PROVIDER_ID: CloudProviderId = 'aws'
@@ -6926,6 +6938,15 @@ export function App() {
             )
           }
 
+          if (targetScreen === 'azure-defender') {
+            return (
+              <AzureDefenderConsole
+                subscriptionId={activeAzureConnectionDraft?.subscriptionId.trim() ?? ''}
+                refreshNonce={pageRefreshNonceByScreen['azure-defender'] ?? 0}
+              />
+            )
+          }
+
           if (targetScreen === 'direct-access') {
             return (
               <AzureDirectAccessWorkspace
@@ -7142,6 +7163,44 @@ export function App() {
                 if (IMPLEMENTED_SCREENS.has(target)) navigateToServiceWithResourceId(target, resourceId)
               }}
               onRunTerminalCommand={handleOpenTerminalCommand}
+            />
+          )}
+        </ConnectedServiceScreen>
+      )
+    }
+
+    if (targetScreen === 'security-posture-dashboard' && targetService?.id === 'security-posture-dashboard') {
+      return (
+        <ConnectedServiceScreen service={targetService} state={connectionState}>
+          {(connection) => (
+            <SecurityPostureDashboard
+              connection={connection}
+              refreshNonce={pageRefreshNonceByScreen['security-posture-dashboard'] ?? 0}
+            />
+          )}
+        </ConnectedServiceScreen>
+      )
+    }
+
+    if (targetScreen === 'guard-duty' && targetService?.id === 'guard-duty') {
+      return (
+        <ConnectedServiceScreen service={targetService} state={connectionState}>
+          {(connection) => (
+            <GuardDutyConsole
+              connection={connection}
+              refreshNonce={pageRefreshNonceByScreen['guard-duty'] ?? 0}
+            />
+          )}
+        </ConnectedServiceScreen>
+      )
+    }
+
+    if (targetScreen === 'security-trends' && targetService?.id === 'security-trends') {
+      return (
+        <ConnectedServiceScreen service={targetService} state={connectionState}>
+          {(connection) => (
+            <SecurityTrendsView
+              initialScope={`${connection.profile || 'session'}::${connection.region}`}
             />
           )}
         </ConnectedServiceScreen>

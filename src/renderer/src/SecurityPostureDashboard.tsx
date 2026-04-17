@@ -20,12 +20,17 @@ const DOMAIN_LABELS: Record<SecurityScoreDomain, string> = {
   compliance: 'Compliance Benchmarks'
 }
 
-const DOMAIN_ICONS: Record<SecurityScoreDomain, string> = {
-  iam: '\u{1F511}',
-  network: '\u{1F310}',
-  encryption: '\u{1F512}',
-  logging: '\u{1F4CA}',
-  compliance: '\u{2705}'
+const SEVERITY_BADGE: Record<string, { bg: string; fg: string }> = {
+  high: { bg: 'rgba(239, 68, 68, 0.16)', fg: '#ff8b72' },
+  medium: { bg: 'rgba(245, 158, 11, 0.16)', fg: '#fbbf24' },
+  low: { bg: 'rgba(234, 179, 8, 0.16)', fg: '#facc15' }
+}
+
+function scoreTone(score: number): string {
+  if (score >= 90) return '#5cc58c'
+  if (score >= 70) return '#facc15'
+  if (score >= 50) return '#f59a3d'
+  return '#ff8b72'
 }
 
 function scoreGrade(score: number): string {
@@ -36,35 +41,29 @@ function scoreGrade(score: number): string {
   return 'F'
 }
 
-function scoreColor(score: number): string {
-  if (score >= 90) return 'var(--score-excellent, #22c55e)'
-  if (score >= 70) return 'var(--score-good, #eab308)'
-  if (score >= 50) return 'var(--score-fair, #f97316)'
-  return 'var(--score-poor, #ef4444)'
-}
-
-function ScoreRing({ score, size = 140 }: { score: number; size?: number }) {
-  const radius = (size - 16) / 2
+function ScoreRing({ score, size = 144 }: { score: number; size?: number }) {
+  const radius = (size - 18) / 2
   const circumference = 2 * Math.PI * radius
   const offset = circumference - (score / 100) * circumference
+  const tone = scoreTone(score)
 
   return (
-    <svg width={size} height={size} className="score-ring">
+    <svg width={size} height={size} className="spd-score-ring-svg">
       <circle
         cx={size / 2}
         cy={size / 2}
         r={radius}
         fill="none"
-        stroke="var(--ring-bg, #333)"
-        strokeWidth={8}
+        stroke="rgba(145, 176, 207, 0.12)"
+        strokeWidth={10}
       />
       <circle
         cx={size / 2}
         cy={size / 2}
         r={radius}
         fill="none"
-        stroke={scoreColor(score)}
-        strokeWidth={8}
+        stroke={tone}
+        strokeWidth={10}
         strokeLinecap="round"
         strokeDasharray={circumference}
         strokeDashoffset={offset}
@@ -72,21 +71,21 @@ function ScoreRing({ score, size = 140 }: { score: number; size?: number }) {
       />
       <text
         x={size / 2}
-        y={size / 2 - 8}
+        y={size / 2 - 6}
         textAnchor="middle"
         dominantBaseline="central"
-        className="score-ring-value"
-        fill="var(--text-primary, #fff)"
+        className="spd-score-ring-value"
+        fill="#edf4fb"
       >
         {score}
       </text>
       <text
         x={size / 2}
-        y={size / 2 + 16}
+        y={size / 2 + 18}
         textAnchor="middle"
         dominantBaseline="central"
-        className="score-ring-grade"
-        fill={scoreColor(score)}
+        className="spd-score-ring-grade"
+        fill={tone}
       >
         {scoreGrade(score)}
       </text>
@@ -105,69 +104,61 @@ function DomainCard({
 }) {
   const passed = result.checks.filter((c) => c.passed).length
   const total = result.checks.length
+  const tone = scoreTone(result.score)
 
   return (
-    <div className={`domain-card domain-card--${result.score >= 70 ? 'ok' : result.score >= 50 ? 'warn' : 'critical'}`}>
-      <button className="domain-card-header" onClick={onToggle} type="button">
-        <span className="domain-icon">{DOMAIN_ICONS[result.domain]}</span>
-        <div className="domain-info">
-          <span className="domain-label">{DOMAIN_LABELS[result.domain]}</span>
-          <span className="domain-check-count">
-            {passed}/{total} checks passed
-          </span>
+    <div className="panel stack spd-domain-card">
+      <button
+        type="button"
+        className="spd-domain-card-header"
+        onClick={onToggle}
+        aria-expanded={expanded}
+      >
+        <div className="spd-domain-card-copy">
+          <strong>{DOMAIN_LABELS[result.domain]}</strong>
+          <small>{passed}/{total} checks passed</small>
         </div>
-        <div className="domain-score" style={{ color: scoreColor(result.score) }}>
-          {result.score}
+        <div className="spd-domain-card-score-block">
+          <div
+            className="spd-domain-bar-track"
+            aria-label={`Score ${result.score} out of 100`}
+          >
+            <div
+              className="spd-domain-bar-fill"
+              style={{ width: `${result.score}%`, backgroundColor: tone }}
+            />
+          </div>
+          <strong className="spd-domain-score" style={{ color: tone }}>{result.score}</strong>
         </div>
-        <span className={`domain-expand-icon ${expanded ? 'expanded' : ''}`}>&#9662;</span>
+        <span className={`spd-domain-expand ${expanded ? 'open' : ''}`} aria-hidden>
+          {expanded ? '\u25BE' : '\u25B8'}
+        </span>
       </button>
 
       {expanded && (
-        <div className="domain-checks">
-          {result.checks.map((check) => (
-            <div
-              key={check.id}
-              className={`check-row check-row--${check.passed ? 'pass' : 'fail'}`}
-            >
-              <span className="check-icon">{check.passed ? '\u2713' : '\u2717'}</span>
-              <div className="check-body">
-                <span className="check-label">{check.label}</span>
-                <span className="check-detail">{check.detail}</span>
+        <div className="spd-check-list">
+          {result.checks.map((check) => {
+            const sev = SEVERITY_BADGE[check.severity] ?? SEVERITY_BADGE.low
+            return (
+              <div key={check.id} className={`spd-check-row ${check.passed ? 'pass' : 'fail'}`}>
+                <span className="spd-check-icon" aria-hidden>
+                  {check.passed ? '\u2713' : '\u2717'}
+                </span>
+                <div className="spd-check-body">
+                  <strong>{check.label}</strong>
+                  <small>{check.detail}</small>
+                </div>
+                <span
+                  className="eks-badge"
+                  style={{ background: sev.bg, color: sev.fg, fontWeight: 600, fontSize: '0.65rem' }}
+                >
+                  {check.severity.toUpperCase()}
+                </span>
               </div>
-              <span className={`check-severity severity--${check.severity}`}>{check.severity}</span>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
-    </div>
-  )
-}
-
-function WeightsEditor({
-  weights,
-  onChange
-}: {
-  weights: SecurityScoreWeights
-  onChange: (domain: SecurityScoreDomain, value: number) => void
-}) {
-  const domains: SecurityScoreDomain[] = ['iam', 'network', 'encryption', 'logging', 'compliance']
-
-  return (
-    <div className="weights-editor">
-      <h4>Score Weights</h4>
-      {domains.map((domain) => (
-        <div key={domain} className="weight-row">
-          <label>{DOMAIN_LABELS[domain]}</label>
-          <input
-            type="range"
-            min={0}
-            max={50}
-            value={weights[domain]}
-            onChange={(e) => onChange(domain, Number(e.target.value))}
-          />
-          <span className="weight-value">{weights[domain]}%</span>
-        </div>
-      ))}
     </div>
   )
 }
@@ -196,12 +187,12 @@ export function SecurityPostureDashboard({
   async function loadReport() {
     setLoading(true)
     setError('')
+    freshness.beginRefresh()
     try {
       const result = await getSecurityScoreReport(connection, weights)
       setReport(result)
-      freshness.markRefreshed()
+      freshness.completeRefresh()
 
-      // Capture a daily snapshot for trend analysis. Failure here is non-fatal.
       try {
         const failedChecks = result.domainResults.flatMap((d) => d.checks.filter((c) => !c.passed))
         const high = failedChecks.filter((c) => c.severity === 'high').length
@@ -233,128 +224,207 @@ export function SecurityPostureDashboard({
           remediatedFindings: 0
         })
       } catch {
-        /* snapshot is best-effort — do not surface to user */
+        /* best-effort snapshot */
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
+      freshness.failRefresh()
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
-    loadReport()
+    void loadReport()
+
   }, [connection.profile, connection.region, refreshNonce])
 
   function handleRefresh() {
     invalidatePageCache('security-score')
-    loadReport()
+    void loadReport()
   }
 
   function handleWeightChange(domain: SecurityScoreDomain, value: number) {
     setWeights((prev) => ({ ...prev, [domain]: value }))
   }
 
-  function handleApplyWeights() {
-    invalidatePageCache('security-score')
-    loadReport()
-  }
-
   if (loading && !report) {
-    return <SvcState variant="loading" resourceName="Security Score" />
+    return <SvcState variant="loading" resourceName="security posture" />
   }
 
   if (error && !report) {
-    return <SvcState variant="error" resourceName="Security Score" error={error} />
+    return <SvcState variant="error" resourceName="security posture" error={error} />
   }
 
   if (!report) {
-    return <SvcState variant="empty" resourceName="Security Score" />
+    return <SvcState variant="empty" resourceName="security posture" />
   }
 
   const failedChecks = report.domainResults.flatMap((d) => d.checks.filter((c) => !c.passed))
-  const highFailures = failedChecks.filter((c) => c.severity === 'high')
-  const mediumFailures = failedChecks.filter((c) => c.severity === 'medium')
+  const highFailures = failedChecks.filter((c) => c.severity === 'high').length
+  const mediumFailures = failedChecks.filter((c) => c.severity === 'medium').length
 
   return (
-    <div className="security-posture-dashboard">
-      <div className="spd-header">
-        <h2>Security Posture</h2>
-        <div className="spd-header-actions">
-          <FreshnessIndicator state={freshness} />
-          <button className="btn btn-secondary" onClick={() => setShowWeights(!showWeights)} type="button">
-            {showWeights ? 'Hide Weights' : 'Adjust Weights'}
+    <div className="svc-console stack spd-console">
+      {/* Hero */}
+      <section className="iam-shell-hero spd-hero">
+        <div className="iam-shell-hero-copy">
+          <div className="eyebrow">Security posture</div>
+          <h2>Security Posture Dashboard</h2>
+          <p>
+            Unified security score across IAM, network, encryption, logging, and compliance
+            domains. Adjust weights to tune scoring for your environment.
+          </p>
+          <div className="iam-shell-meta-strip">
+            <div className="iam-shell-meta-pill">
+              <span>Profile</span><strong>{connection.profile || 'session'}</strong>
+            </div>
+            <div className="iam-shell-meta-pill">
+              <span>Region</span><strong>{connection.region}</strong>
+            </div>
+            <div className="iam-shell-meta-pill">
+              <span>Checks</span><strong>{report.domainResults.reduce((n, d) => n + d.checks.length, 0)}</strong>
+            </div>
+            <div className="iam-shell-meta-pill">
+              <span>Generated</span><strong>{new Date(report.generatedAt).toLocaleTimeString()}</strong>
+            </div>
+          </div>
+        </div>
+        <div className="iam-shell-hero-stats spd-hero-stats">
+          <div className="iam-shell-stat-card iam-shell-stat-card-accent spd-hero-score-card">
+            <ScoreRing score={report.overallScore} />
+            <div className="spd-hero-score-copy">
+              <span>Overall score</span>
+              <strong>{report.overallScore} / 100</strong>
+              <small>Grade {scoreGrade(report.overallScore)}</small>
+            </div>
+          </div>
+          <div className="iam-shell-stat-card">
+            <span>Critical findings</span>
+            <strong style={{ color: '#ff8b72' }}>{highFailures}</strong>
+            <small>High-severity checks failing</small>
+          </div>
+          <div className="iam-shell-stat-card">
+            <span>Warnings</span>
+            <strong style={{ color: '#fbbf24' }}>{mediumFailures}</strong>
+            <small>Medium-severity findings</small>
+          </div>
+          <div className="iam-shell-stat-card">
+            <span>Domains</span>
+            <strong>{report.domainResults.length}</strong>
+            <small>Scored across posture</small>
+          </div>
+        </div>
+      </section>
+
+      {/* Toolbar */}
+      <div className="iam-shell-toolbar">
+        <div className="iam-tab-bar">
+          <button
+            type="button"
+            className={`svc-tab ${!showWeights ? 'active' : ''}`}
+            onClick={() => setShowWeights(false)}
+          >
+            Domain checks
           </button>
-          <button className="btn btn-primary" onClick={handleRefresh} disabled={loading} type="button">
-            {loading ? 'Scanning\u2026' : 'Rescan'}
+          <button
+            type="button"
+            className={`svc-tab ${showWeights ? 'active' : ''}`}
+            onClick={() => setShowWeights(true)}
+          >
+            Scoring weights
           </button>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+            <FreshnessIndicator freshness={freshness.freshness} />
+            <button
+              type="button"
+              className="svc-btn"
+              onClick={handleRefresh}
+              disabled={loading}
+            >
+              {loading ? 'Scanning\u2026' : 'Rescan'}
+            </button>
+          </div>
         </div>
       </div>
 
       {report.warnings.length > 0 && (
-        <div className="spd-warnings">
-          {report.warnings.map((w, i) => (
-            <div key={i} className="spd-warning">{w}</div>
-          ))}
+        <div className="error-banner">
+          <strong>Some checks could not complete:</strong>
+          <ul style={{ margin: '6px 0 0 18px', padding: 0 }}>
+            {report.warnings.map((w, i) => (
+              <li key={i} style={{ fontSize: '0.8rem' }}>{w}</li>
+            ))}
+          </ul>
         </div>
       )}
 
-      <div className="spd-score-section">
-        <div className="spd-score-main">
-          <ScoreRing score={report.overallScore} />
-          <div className="spd-score-summary">
-            <div className="spd-score-headline">
-              Overall Security Score: <strong>{report.overallScore}/100</strong>
-            </div>
-            <div className="spd-score-meta">
-              {highFailures.length > 0 && (
-                <span className="severity--high">{highFailures.length} critical finding(s)</span>
-              )}
-              {mediumFailures.length > 0 && (
-                <span className="severity--medium">{mediumFailures.length} warning(s)</span>
-              )}
-              {failedChecks.length === 0 && <span className="severity--pass">All checks passed</span>}
-            </div>
-          </div>
+      {/* Domain Bars Summary */}
+      <section className="panel stack spd-summary-panel">
+        <div className="panel-header">
+          <h3>Domain scores</h3>
         </div>
-
-        <div className="spd-domain-bars">
+        <div className="spd-domain-summary">
           {report.domainResults.map((result) => (
-            <div key={result.domain} className="domain-bar-row">
-              <span className="domain-bar-label">{DOMAIN_LABELS[result.domain]}</span>
-              <div className="domain-bar-track">
+            <div key={result.domain} className="spd-domain-summary-row">
+              <span className="spd-domain-summary-label">{DOMAIN_LABELS[result.domain]}</span>
+              <div className="spd-domain-bar-track">
                 <div
-                  className="domain-bar-fill"
-                  style={{ width: `${result.score}%`, backgroundColor: scoreColor(result.score) }}
+                  className="spd-domain-bar-fill"
+                  style={{ width: `${result.score}%`, backgroundColor: scoreTone(result.score) }}
                 />
               </div>
-              <span className="domain-bar-value">{result.score}</span>
+              <strong className="spd-domain-summary-value" style={{ color: scoreTone(result.score) }}>
+                {result.score}
+              </strong>
             </div>
           ))}
         </div>
-      </div>
+      </section>
 
-      {showWeights && (
-        <div className="spd-weights-section">
-          <WeightsEditor weights={weights} onChange={handleWeightChange} />
-          <button className="btn btn-primary" onClick={handleApplyWeights} type="button">
-            Recalculate
-          </button>
+      {/* Tab Content */}
+      {showWeights ? (
+        <section className="panel stack spd-weights-panel">
+          <div className="panel-header">
+            <h3>Adjust scoring weights</h3>
+            <small style={{ color: '#8fa3ba' }}>Tune how each domain contributes to the overall score.</small>
+          </div>
+          <div className="spd-weights-body">
+            {(['iam', 'network', 'encryption', 'logging', 'compliance'] as SecurityScoreDomain[]).map((domain) => (
+              <div key={domain} className="spd-weight-row">
+                <label className="field">
+                  <span>{DOMAIN_LABELS[domain]}</span>
+                </label>
+                <input
+                  type="range"
+                  min={0}
+                  max={50}
+                  step={1}
+                  value={weights[domain]}
+                  onChange={(e) => handleWeightChange(domain, Number(e.target.value))}
+                />
+                <strong>{weights[domain]}%</strong>
+              </div>
+            ))}
+          </div>
+          <div className="spd-weights-actions">
+            <button type="button" className="svc-btn" onClick={handleRefresh} disabled={loading}>
+              {loading ? 'Recalculating\u2026' : 'Apply & recalculate'}
+            </button>
+          </div>
+        </section>
+      ) : (
+        <div className="spd-domain-list">
+          {report.domainResults.map((result) => (
+            <DomainCard
+              key={result.domain}
+              result={result}
+              expanded={expandedDomain === result.domain}
+              onToggle={() => setExpandedDomain(expandedDomain === result.domain ? null : result.domain)}
+            />
+          ))}
         </div>
       )}
-
-      <div className="spd-domains">
-        {report.domainResults.map((result) => (
-          <DomainCard
-            key={result.domain}
-            result={result}
-            expanded={expandedDomain === result.domain}
-            onToggle={() =>
-              setExpandedDomain(expandedDomain === result.domain ? null : result.domain)
-            }
-          />
-        ))}
-      </div>
     </div>
   )
 }

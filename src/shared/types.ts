@@ -3943,6 +3943,10 @@ export type ServiceId =
   | 'azure-firewall'
   | 'azure-load-balancers'
   | 'azure-dns'
+  | 'security-posture-dashboard'
+  | 'guard-duty'
+  | 'azure-defender'
+  | 'security-trends'
 
 export type GovernanceTagKey = 'Owner' | 'Environment' | 'Project' | 'CostCenter'
 
