@@ -69,3 +69,21 @@ export type TerragruntDiscoveryResult = {
   units: TerragruntUnit[]
   errors: string[]
 }
+
+export type TerragruntRunAllCommand = 'plan' | 'apply' | 'destroy'
+
+export type TerragruntRunAllSummary = {
+  succeeded: string[]
+  failed: string[]
+  blocked: string[]
+  cancelled: string[]
+}
+
+export type TerragruntRunAllEvent =
+  | { type: 'stack-started'; runId: string; stackRoot: string; command: TerragruntRunAllCommand; phases: string[][] }
+  | { type: 'unit-started'; runId: string; unitPath: string; phase: number; unitRunId: string }
+  | { type: 'unit-output'; runId: string; unitPath: string; chunk: string }
+  | { type: 'unit-completed'; runId: string; unitPath: string; exitCode: number; success: boolean }
+  | { type: 'unit-blocked'; runId: string; unitPath: string; blockedBy: string[] }
+  | { type: 'unit-cancelled'; runId: string; unitPath: string }
+  | { type: 'stack-completed'; runId: string; summary: TerragruntRunAllSummary }

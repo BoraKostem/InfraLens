@@ -6305,6 +6305,9 @@ export type {
   TerragruntIncludeRef,
   TerragruntProjectInfo,
   TerragruntRemoteState,
+  TerragruntRunAllCommand,
+  TerragruntRunAllEvent,
+  TerragruntRunAllSummary,
   TerragruntStack,
   TerragruntUnit,
   TerraformProjectKind

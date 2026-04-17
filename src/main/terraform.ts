@@ -68,7 +68,14 @@ import { classifyTerraformError } from './terraformErrorClassifier'
 import { getPreferredTerraformCliKindSetting, listToolCommandCandidates } from './toolchain'
 import { readAzureFoundationStore } from './azureFoundationStore'
 import { scanForTerragrunt } from './terragruntDiscovery'
-import { buildTerragruntCommandArgs, resolveTerragruntExecutable } from './terragrunt'
+import {
+  buildTerragruntCommandArgs,
+  cancelRunAll as cancelTerragruntRunAll,
+  resolveStack,
+  resolveTerragruntExecutable,
+  startRunAll as startTerragruntRunAllEngine
+} from './terragrunt'
+import type { TerragruntRunAllCommand } from '@shared/types'
 
 /* ── Stored project shape (persistence) ───────────────────── */
 
@@ -3671,4 +3678,41 @@ export function getProjectContext(profileName: string, projectId: string, connec
     tfCliLabel: terraformCliLabel(),
     tfCliKind: cachedCli?.kind ?? ''
   }
+}
+
+export async function startTerragruntStackRunAll(options: {
+  profileName: string
+  projectId: string
+  connection?: AwsConnection
+  command: TerragruntRunAllCommand
+}, window: BrowserWindow | null): Promise<{ runId: string; phases: string[][] }> {
+  const project = getStoredProjects(options.profileName).find((p) => p.id === options.projectId)
+  if (!project) throw new Error('Project not found.')
+
+  const kindInfo = classifyProjectKind(project.rootPath)
+  if (kindInfo.kind !== 'terragrunt-stack') {
+    throw new Error('run-all requires a Terragrunt stack project. Single Terragrunt units use the regular run command.')
+  }
+
+  const resolved = await resolveStack(project.rootPath)
+  const env = buildEnvWithVars(project, options.profileName, options.connection)
+  return startTerragruntRunAllEngine({
+    stack: resolved.stack,
+    command: options.command,
+    env,
+    identity: {
+      stackProjectId: project.id,
+      stackProjectName: project.name,
+      workspace: project.environment?.workspaceName || 'default',
+      region: options.connection?.region ?? project.environment?.region ?? '',
+      connectionLabel: displayConnectionLabel(options.profileName, options.connection),
+      backendType: project.environment?.backendType ?? 'local',
+      provider: inferTerraformProviderId(options.profileName, options.connection)
+    },
+    window
+  })
+}
+
+export function cancelTerragruntStackRunAll(runId: string): boolean {
+  return cancelTerragruntRunAll(runId)
 }

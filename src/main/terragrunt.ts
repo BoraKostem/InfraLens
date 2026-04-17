@@ -2,14 +2,26 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { execFile } from 'node:child_process'
+import { execFile, execFileSync, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 
-import { app } from 'electron'
+import { app, type BrowserWindow } from 'electron'
 
-import type { TerraformCommandName, TerragruntCliInfo, TerragruntStack, TerragruntUnit } from '@shared/types'
+import type {
+  TerraformAuditProviderId,
+  TerraformCommandName,
+  TerraformRunRecord,
+  TerragruntCliInfo,
+  TerragruntRunAllCommand,
+  TerragruntRunAllEvent,
+  TerragruntRunAllSummary,
+  TerragruntStack,
+  TerragruntUnit
+} from '@shared/types'
 import { getResolvedProcessEnv, resolveExecutablePath } from './shell'
 import { listToolCommandCandidates } from './toolchain'
 import { scanForTerragrunt } from './terragruntDiscovery'
+import { redactArgs, saveRunRecord, updateRunRecord } from './terraformHistoryStore'
+import { classifyTerraformError } from './terraformErrorClassifier'
 
 const NOT_INSTALLED_ERROR =
   'Terragrunt CLI not found. Install Terragrunt and ensure it is on your PATH, or set an explicit path in Settings.'
@@ -408,4 +420,335 @@ export async function resolveStack(rootPath: string): Promise<ResolvedStack> {
     cliAvailable,
     resolveErrors
   }
+}
+
+/* ── run-all orchestration ───────────────────────────────── */
+
+export type RunAllHistoryIdentity = {
+  stackProjectId: string
+  stackProjectName: string
+  workspace: string
+  region: string
+  connectionLabel: string
+  backendType: string
+  provider: TerraformAuditProviderId
+}
+
+export type RunAllStartOptions = {
+  stack: TerragruntStack
+  command: TerragruntRunAllCommand
+  env: Record<string, string>
+  identity: RunAllHistoryIdentity
+  window: BrowserWindow | null
+}
+
+type ActiveRunAll = {
+  runId: string
+  stackRoot: string
+  cancelled: boolean
+  children: Set<ChildProcessWithoutNullStreams>
+  done: Promise<void>
+}
+
+const activeRunAlls = new Map<string, ActiveRunAll>()
+
+function terminateRunAllChild(child: ChildProcessWithoutNullStreams | null): void {
+  if (!child) return
+  if (process.platform === 'win32' && child.pid) {
+    try {
+      execFileSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], {
+        windowsHide: true,
+        stdio: 'ignore',
+        shell: false
+      })
+      return
+    } catch {
+      /* fall back */
+    }
+  }
+  try { child.kill() } catch { /* ignore */ }
+}
+
+function emitRunAllEvent(window: BrowserWindow | null, event: TerragruntRunAllEvent): void {
+  window?.webContents.send('terragrunt:run-all:event', event)
+}
+
+function buildDependencyMap(units: TerragruntUnit[]): Map<string, Set<string>> {
+  const map = new Map<string, Set<string>>()
+  const unitPaths = new Set(units.map((u) => u.unitPath))
+  for (const unit of units) {
+    const deps = new Set<string>()
+    for (const dep of unit.dependencies) {
+      const resolved = dep.resolvedPath || path.resolve(unit.unitPath, dep.configPath || '')
+      if (resolved && unitPaths.has(resolved) && resolved !== unit.unitPath) deps.add(resolved)
+    }
+    for (const raw of unit.additionalDependencyPaths) {
+      const resolved = path.isAbsolute(raw) ? raw : path.resolve(unit.unitPath, raw)
+      if (unitPaths.has(resolved) && resolved !== unit.unitPath) deps.add(resolved)
+    }
+    map.set(unit.unitPath, deps)
+  }
+  return map
+}
+
+function makeRunRecord(params: {
+  id: string
+  stackRoot: string
+  unitPath: string
+  phase: number
+  command: TerraformCommandName
+  args: string[]
+  identity: RunAllHistoryIdentity
+  startedAt: string
+}): TerraformRunRecord {
+  return {
+    id: params.id,
+    projectId: params.identity.stackProjectId,
+    projectName: params.identity.stackProjectName,
+    command: params.command,
+    args: redactArgs(params.args),
+    workspace: params.identity.workspace,
+    region: params.identity.region,
+    connectionLabel: params.identity.connectionLabel,
+    backendType: params.identity.backendType,
+    stateSource: '',
+    startedAt: params.startedAt,
+    finishedAt: null,
+    exitCode: null,
+    success: null,
+    planSummary: null,
+    planJsonPath: '',
+    backupPath: '',
+    backupCreatedAt: '',
+    stateOperationSummary: '',
+    git: null,
+    provider: params.identity.provider,
+    module: params.identity.stackProjectName,
+    resource: '',
+    durationMs: null,
+    retryCount: 0,
+    errorClass: null,
+    suggestedAction: '',
+    stackRoot: params.stackRoot,
+    unitPath: params.unitPath,
+    dependencyPhase: params.phase
+  }
+}
+
+function runUnitProcess(params: {
+  binary: string
+  args: string[]
+  env: Record<string, string>
+  unitPath: string
+  command: TerragruntRunAllCommand
+  onOutput: (chunk: string) => void
+  active: ActiveRunAll
+}): Promise<{ exitCode: number; error: string }> {
+  return new Promise((resolve) => {
+    if (params.active.cancelled) {
+      resolve({ exitCode: 130, error: 'cancelled before start' })
+      return
+    }
+    const child = spawn(params.binary, params.args, {
+      cwd: params.unitPath,
+      env: params.env,
+      shell: false,
+      windowsHide: true
+    })
+    params.active.children.add(child)
+    let errorText = ''
+    child.stdout.on('data', (buf) => params.onOutput(buf.toString()))
+    child.stderr.on('data', (buf) => {
+      const chunk = buf.toString()
+      errorText += chunk
+      params.onOutput(chunk)
+    })
+    child.on('error', (err) => {
+      params.active.children.delete(child)
+      resolve({ exitCode: -1, error: err.message })
+    })
+    child.on('close', (code) => {
+      params.active.children.delete(child)
+      resolve({ exitCode: code ?? -1, error: errorText.slice(-500) })
+    })
+  })
+}
+
+export async function startRunAll(options: RunAllStartOptions): Promise<{ runId: string; phases: string[][] }> {
+  if (options.stack.cycles.length > 0) {
+    throw new Error(`Stack has dependency cycles: ${options.stack.cycles.map((c) => c.join(' -> ')).join('; ')}`)
+  }
+  if (activeRunAlls.has(options.stack.stackRoot)) {
+    throw new Error('A run-all is already active for this stack.')
+  }
+
+  const binary = await resolveTerragruntExecutable()
+  const args = buildTerragruntCommandArgs(options.command)
+  const runId = randomUUID()
+  const depsMap = buildDependencyMap(options.stack.units)
+  const phases = options.stack.dependencyOrder
+
+  const active: ActiveRunAll = {
+    runId,
+    stackRoot: options.stack.stackRoot,
+    cancelled: false,
+    children: new Set(),
+    done: Promise.resolve()
+  }
+
+  emitRunAllEvent(options.window, {
+    type: 'stack-started',
+    runId,
+    stackRoot: options.stack.stackRoot,
+    command: options.command,
+    phases
+  })
+
+  const succeeded = new Set<string>()
+  const failed = new Set<string>()
+  const blocked = new Set<string>()
+  const cancelled = new Set<string>()
+
+  active.done = (async () => {
+    try {
+      for (let phaseIdx = 0; phaseIdx < phases.length; phaseIdx += 1) {
+        const phase = phases[phaseIdx]
+        const tasks: Promise<void>[] = []
+        for (const unitPath of phase) {
+          const deps = depsMap.get(unitPath) ?? new Set<string>()
+          const failedDeps = [...deps].filter((d) => failed.has(d) || blocked.has(d))
+          if (failedDeps.length > 0) {
+            blocked.add(unitPath)
+            emitRunAllEvent(options.window, { type: 'unit-blocked', runId, unitPath, blockedBy: failedDeps })
+            continue
+          }
+          if (active.cancelled) {
+            cancelled.add(unitPath)
+            emitRunAllEvent(options.window, { type: 'unit-cancelled', runId, unitPath })
+            continue
+          }
+          const unitRunId = randomUUID()
+          const startedAt = new Date().toISOString()
+          const record = makeRunRecord({
+            id: unitRunId,
+            stackRoot: options.stack.stackRoot,
+            unitPath,
+            phase: phaseIdx,
+            command: options.command,
+            args,
+            identity: options.identity,
+            startedAt
+          })
+          saveRunRecord(record, '')
+          emitRunAllEvent(options.window, { type: 'unit-started', runId, unitPath, phase: phaseIdx, unitRunId })
+
+          let outputBuffer = ''
+          const task = runUnitProcess({
+            binary,
+            args,
+            env: options.env,
+            unitPath,
+            command: options.command,
+            onOutput: (chunk) => {
+              outputBuffer += chunk
+              emitRunAllEvent(options.window, { type: 'unit-output', runId, unitPath, chunk })
+            },
+            active
+          }).then((result) => {
+            const startedAtMs = Date.parse(startedAt)
+            const finishedAt = new Date().toISOString()
+            const durationMs = Date.parse(finishedAt) - (Number.isFinite(startedAtMs) ? startedAtMs : Date.now())
+            if (active.cancelled && result.exitCode !== 0) {
+              cancelled.add(unitPath)
+              updateRunRecord(unitRunId, {
+                finishedAt,
+                exitCode: 130,
+                success: false,
+                durationMs,
+                errorClass: null,
+                suggestedAction: ''
+              }, outputBuffer)
+              emitRunAllEvent(options.window, { type: 'unit-cancelled', runId, unitPath })
+              return
+            }
+            const success = options.command === 'plan'
+              ? (result.exitCode === 0 || result.exitCode === 2)
+              : result.exitCode === 0
+            if (success) {
+              succeeded.add(unitPath)
+              updateRunRecord(unitRunId, {
+                finishedAt,
+                exitCode: result.exitCode,
+                success: true,
+                durationMs,
+                errorClass: null,
+                suggestedAction: ''
+              }, outputBuffer)
+              emitRunAllEvent(options.window, {
+                type: 'unit-completed',
+                runId,
+                unitPath,
+                exitCode: result.exitCode,
+                success: true
+              })
+            } else {
+              failed.add(unitPath)
+              const classified = classifyTerraformError({
+                output: outputBuffer,
+                exitCode: result.exitCode,
+                errorMessage: result.error,
+                provider: options.identity.provider,
+                errorName: ''
+              })
+              updateRunRecord(unitRunId, {
+                finishedAt,
+                exitCode: result.exitCode,
+                success: false,
+                durationMs,
+                errorClass: classified.errorClass,
+                suggestedAction: classified.suggestedAction
+              }, outputBuffer)
+              emitRunAllEvent(options.window, {
+                type: 'unit-completed',
+                runId,
+                unitPath,
+                exitCode: result.exitCode,
+                success: false
+              })
+            }
+          })
+          tasks.push(task)
+        }
+        await Promise.all(tasks)
+      }
+    } finally {
+      activeRunAlls.delete(options.stack.stackRoot)
+      const summary: TerragruntRunAllSummary = {
+        succeeded: [...succeeded].sort(),
+        failed: [...failed].sort(),
+        blocked: [...blocked].sort(),
+        cancelled: [...cancelled].sort()
+      }
+      emitRunAllEvent(options.window, { type: 'stack-completed', runId, summary })
+    }
+  })()
+
+  activeRunAlls.set(options.stack.stackRoot, active)
+  return { runId, phases }
+}
+
+export function cancelRunAll(runId: string): boolean {
+  for (const [, active] of activeRunAlls) {
+    if (active.runId === runId) {
+      if (active.cancelled) return true
+      active.cancelled = true
+      for (const child of active.children) terminateRunAllChild(child)
+      return true
+    }
+  }
+  return false
+}
+
+export function listActiveRunAllStackRoots(): string[] {
+  return [...activeRunAlls.keys()]
 }

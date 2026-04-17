@@ -1217,11 +1217,26 @@ const api = {
 
 contextBridge.exposeInMainWorld('terraformWorkspace', api)
 
+const terragruntRunAllListeners = new Set<(event: unknown) => void>()
+const forwardTerragruntRunAllEvent = (_event: unknown, payload: unknown) => {
+  for (const listener of terragruntRunAllListeners) listener(payload)
+}
+ipcRenderer.on('terragrunt:run-all:event', forwardTerragruntRunAllEvent)
+
 const terragruntApi = {
   detectCli: () => ipcRenderer.invoke('terragrunt:cli:detect'),
   getCliInfo: () => ipcRenderer.invoke('terragrunt:cli:info'),
   scanDiscovery: (rootPath: string) => ipcRenderer.invoke('terragrunt:discovery:scan', rootPath),
-  resolveStack: (rootPath: string) => ipcRenderer.invoke('terragrunt:stack:resolve', rootPath)
+  resolveStack: (rootPath: string) => ipcRenderer.invoke('terragrunt:stack:resolve', rootPath),
+  startRunAll: (profileName: string, projectId: string, command: string, connection?: AwsConnection) =>
+    ipcRenderer.invoke('terragrunt:run-all:start', profileName, projectId, command, connection),
+  cancelRunAll: (runId: string) => ipcRenderer.invoke('terragrunt:run-all:cancel', runId),
+  subscribeRunAll: (listener: (event: unknown) => void) => {
+    terragruntRunAllListeners.add(listener)
+  },
+  unsubscribeRunAll: (listener: (event: unknown) => void) => {
+    terragruntRunAllListeners.delete(listener)
+  }
 }
 
 contextBridge.exposeInMainWorld('terragrunt', terragruntApi)

@@ -1,4 +1,11 @@
-import type { TerragruntCliInfo, TerragruntDiscoveryResult, TerragruntStack } from '@shared/types'
+import type {
+  AwsConnection,
+  TerragruntCliInfo,
+  TerragruntDiscoveryResult,
+  TerragruntRunAllCommand,
+  TerragruntRunAllEvent,
+  TerragruntStack
+} from '@shared/types'
 import { makeBridgeCall } from './bridgeUtils'
 
 function getTerragruntBridge() {
@@ -20,3 +27,16 @@ export const detectTerragruntCli = call<[], TerragruntCliInfo>('detectCli')
 export const getTerragruntCliInfo = call<[], TerragruntCliInfo>('getCliInfo')
 export const scanTerragruntDiscovery = call<[rootPath: string], TerragruntDiscoveryResult>('scanDiscovery')
 export const resolveTerragruntStack = call<[rootPath: string], ResolvedStackResult>('resolveStack')
+export const startTerragruntRunAll = call<
+  [profileName: string, projectId: string, command: TerragruntRunAllCommand, connection?: AwsConnection],
+  { runId: string; phases: string[][] }
+>('startRunAll')
+export const cancelTerragruntRunAll = call<[runId: string], boolean>('cancelRunAll')
+
+export function subscribeTerragruntRunAll(listener: (event: TerragruntRunAllEvent) => void): void {
+  (getTerragruntBridge().subscribeRunAll as (l: (e: unknown) => void) => void)(listener as (e: unknown) => void)
+}
+
+export function unsubscribeTerragruntRunAll(listener: (event: TerragruntRunAllEvent) => void): void {
+  (getTerragruntBridge().unsubscribeRunAll as (l: (e: unknown) => void) => void)(listener as (e: unknown) => void)
+}
