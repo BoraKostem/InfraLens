@@ -605,6 +605,14 @@
   align-items: flex-start;
 }
 
+.tf-project-row-top-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .tf-project-row-copy {
   min-width: 0;
 }

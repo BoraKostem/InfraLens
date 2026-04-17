@@ -13,6 +13,8 @@ import type {
   TerraformCliOption,
   TerraformCommandLog,
   TerraformCommandRequest,
+  TerraformProjectKind,
+  TerragruntProjectInfo,
   TerraformGitChangedFile,
   TerraformGitCommitMetadata,
   TerraformGitStatus,
@@ -65,6 +67,7 @@ import { createTraceContext, logRunCompleted, logRunFailed, logRunStarted } from
 import { classifyTerraformError } from './terraformErrorClassifier'
 import { getPreferredTerraformCliKindSetting, listToolCommandCandidates } from './toolchain'
 import { readAzureFoundationStore } from './azureFoundationStore'
+import { scanForTerragrunt } from './terragruntDiscovery'
 
 /* ── Stored project shape (persistence) ───────────────────── */
 
@@ -2564,8 +2567,35 @@ function projectStatus(rootPath: string): TerraformProjectStatus {
   return fs.existsSync(rootPath) ? 'Ready' : 'Missing'
 }
 
+function classifyProjectKind(rootPath: string): { kind: TerraformProjectKind; terragrunt: TerragruntProjectInfo | null } {
+  if (!fs.existsSync(rootPath)) return { kind: 'terraform', terragrunt: null }
+  const discovery = scanForTerragrunt(rootPath)
+  if (discovery.classification === 'unit' && discovery.units.length > 0) {
+    return {
+      kind: 'terragrunt-unit',
+      terragrunt: { kind: 'terragrunt-unit', unit: discovery.units[0] }
+    }
+  }
+  if (discovery.classification === 'stack') {
+    return {
+      kind: 'terragrunt-stack',
+      terragrunt: {
+        kind: 'terragrunt-stack',
+        stack: {
+          stackRoot: discovery.stackRoot,
+          units: discovery.units,
+          dependencyOrder: [],
+          cycles: []
+        }
+      }
+    }
+  }
+  return { kind: 'terraform', terragrunt: null }
+}
+
 async function loadProject(project: StoredProject, profileName = '', connection?: AwsConnection): Promise<TerraformProject> {
   const status = projectStatus(project.rootPath)
+  const { kind, terragrunt } = classifyProjectKind(project.rootPath)
   if (status === 'Missing') {
     const stateBackups = listStateBackups(project.id)
     const emptyMeta: TerraformProjectMetadata = {
@@ -2610,7 +2640,9 @@ async function loadProject(project: StoredProject, profileName = '', connection?
       latestStateBackup: stateBackups[0] ?? null,
       stateLockInfo: null,
       hasSavedPlan: savedPlanPaths.has(project.id) || hasSavedPlanArtifacts(project.rootPath),
-      savedPlanMetadata: readPlanMetadata(project.rootPath)
+      savedPlanMetadata: readPlanMetadata(project.rootPath),
+      kind,
+      terragrunt
     }
   }
 
@@ -2648,7 +2680,9 @@ async function loadProject(project: StoredProject, profileName = '', connection?
     latestStateBackup: stateBackups[0] ?? null,
     stateLockInfo,
     hasSavedPlan: savedPlanPaths.has(project.id) || hasSavedPlanArtifacts(project.rootPath),
-    savedPlanMetadata: readPlanMetadata(project.rootPath)
+    savedPlanMetadata: readPlanMetadata(project.rootPath),
+    kind,
+    terragrunt
   }
 }
 
@@ -2736,7 +2770,11 @@ export async function addProject(profileName: string, rootPath: string, connecti
   const normalized = path.resolve(rootPath)
   if (!fs.existsSync(normalized)) throw new Error('Selected path does not exist.')
   if (!fs.statSync(normalized).isDirectory()) throw new Error('Project path must be a directory.')
-  if (listTerraformFiles(normalized).length === 0) throw new Error('No Terraform files were found in the selected directory.')
+  const hasTerraformFiles = listTerraformFiles(normalized).length > 0
+  const terragruntDiscovery = hasTerraformFiles ? null : scanForTerragrunt(normalized)
+  if (!hasTerraformFiles && terragruntDiscovery?.classification === 'none') {
+    throw new Error('No Terraform or Terragrunt files were found in the selected directory.')
+  }
 
   const stored = getStoredProjects(profileName)
   const existing = stored.find((p) => path.normalize(p.rootPath).toLowerCase() === path.normalize(normalized).toLowerCase())

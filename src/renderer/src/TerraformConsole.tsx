@@ -4660,7 +4660,14 @@ export function TerraformConsole({
                           <strong>{project.name}</strong>
                           <span title={project.rootPath}>{formatProjectPath(project.rootPath)}</span>
                         </div>
-                        <span className={`tf-status-badge ${status.tone}`}>{status.label}</span>
+                        <div className="tf-project-row-top-badges">
+                          {(project.kind === 'terragrunt-unit' || project.kind === 'terragrunt-stack') && (
+                            <span className="tf-status-badge info">
+                              {project.kind === 'terragrunt-stack' ? 'Terragrunt stack' : 'Terragrunt unit'}
+                            </span>
+                          )}
+                          <span className={`tf-status-badge ${status.tone}`}>{status.label}</span>
+                        </div>
                       </div>
                       <div className="tf-project-row-meta">
                         <span>{project.currentWorkspace}</span>
