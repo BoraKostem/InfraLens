@@ -535,6 +535,15 @@ function makeRunRecord(params: {
   }
 }
 
+function runUnitTimeoutMs(command: TerragruntRunAllCommand): number {
+  switch (command) {
+    case 'plan': return 15 * 60 * 1000
+    case 'apply':
+    case 'destroy': return 30 * 60 * 1000
+    default: return 15 * 60 * 1000
+  }
+}
+
 function runUnitProcess(params: {
   binary: string
   args: string[]
@@ -543,10 +552,11 @@ function runUnitProcess(params: {
   command: TerragruntRunAllCommand
   onOutput: (chunk: string) => void
   active: ActiveRunAll
-}): Promise<{ exitCode: number; error: string }> {
+  timeoutMs: number
+}): Promise<{ exitCode: number; error: string; timedOut: boolean }> {
   return new Promise((resolve) => {
     if (params.active.cancelled) {
-      resolve({ exitCode: 130, error: 'cancelled before start' })
+      resolve({ exitCode: 130, error: 'cancelled before start', timedOut: false })
       return
     }
     const child = spawn(params.binary, params.args, {
@@ -557,6 +567,21 @@ function runUnitProcess(params: {
     })
     params.active.children.add(child)
     let errorText = ''
+    let timedOut = false
+    let settled = false
+    const timer = params.timeoutMs > 0
+      ? setTimeout(() => {
+          timedOut = true
+          terminateRunAllChild(child)
+        }, params.timeoutMs)
+      : null
+    const finish = (result: { exitCode: number; error: string; timedOut: boolean }): void => {
+      if (settled) return
+      settled = true
+      if (timer) clearTimeout(timer)
+      params.active.children.delete(child)
+      resolve(result)
+    }
     child.stdout.on('data', (buf) => params.onOutput(buf.toString()))
     child.stderr.on('data', (buf) => {
       const chunk = buf.toString()
@@ -564,12 +589,13 @@ function runUnitProcess(params: {
       params.onOutput(chunk)
     })
     child.on('error', (err) => {
-      params.active.children.delete(child)
-      resolve({ exitCode: -1, error: err.message })
+      finish({ exitCode: -1, error: err.message, timedOut })
     })
     child.on('close', (code) => {
-      params.active.children.delete(child)
-      resolve({ exitCode: code ?? -1, error: errorText.slice(-500) })
+      const error = timedOut
+        ? `unit timed out after ${Math.round(params.timeoutMs / 1000)}s`
+        : errorText.slice(-500)
+      finish({ exitCode: code ?? -1, error, timedOut })
     })
   })
 }
@@ -656,6 +682,7 @@ export async function startRunAll(options: RunAllStartOptions): Promise<{ runId:
             env: options.env,
             unitPath,
             command: options.command,
+            timeoutMs: runUnitTimeoutMs(options.command),
             onOutput: (chunk) => {
               outputBuffer += chunk
               emitRunAllEvent(options.window, { type: 'unit-output', runId, unitPath, chunk })

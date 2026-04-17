@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type {
   AwsConnection,
@@ -45,6 +45,8 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
   const [summary, setSummary] = useState<TerragruntRunAllSummary | null>(null)
   const [confirmCommand, setConfirmCommand] = useState<TerragruntRunAllCommand | null>(null)
   const [runError, setRunError] = useState('')
+  const [starting, setStarting] = useState(false)
+  const activeRunIdRef = useRef<string | null>(null)
 
   const effectiveStack = resolvedStack?.stack ?? stackInfo
   const phases = effectiveStack?.dependencyOrder ?? []
@@ -73,13 +75,19 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
 
   useEffect(() => {
     const listener = (event: TerragruntRunAllEvent): void => {
+      if (event.type === 'stack-started') {
+        if (event.stackRoot !== stackInfo?.stackRoot && event.stackRoot !== resolvedStack?.stack.stackRoot) {
+          return
+        }
+        activeRunIdRef.current = event.runId
+        setRunId(event.runId)
+        setRunCommand(event.command)
+        setSummary(null)
+        setUnitStatuses({})
+        return
+      }
+      if (event.runId !== activeRunIdRef.current) return
       switch (event.type) {
-        case 'stack-started':
-          setRunId(event.runId)
-          setRunCommand(event.command)
-          setSummary(null)
-          setUnitStatuses({})
-          break
         case 'unit-started':
           setUnitStatuses((prev) => ({ ...prev, [event.unitPath]: 'running' }))
           break
@@ -96,6 +104,7 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
           setSummary(event.summary)
           setRunId(null)
           setRunCommand(null)
+          activeRunIdRef.current = null
           break
         default:
           break
@@ -103,19 +112,42 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
     }
     subscribeTerragruntRunAll(listener)
     return () => unsubscribeTerragruntRunAll(listener)
-  }, [])
+  }, [resolvedStack?.stack.stackRoot, stackInfo?.stackRoot])
+
+  useEffect(() => {
+    activeRunIdRef.current = null
+    setResolvedStack(null)
+    setResolveError('')
+    setRunId(null)
+    setRunCommand(null)
+    setUnitStatuses({})
+    setSummary(null)
+    setRunError('')
+    setStarting(false)
+  }, [project.id])
+
+  useEffect(() => {
+    if (!resolvedStack && !resolveBusy) {
+      resolve()
+    }
+  }, [project.id, resolve, resolveBusy, resolvedStack])
 
   const handleStart = useCallback(async (command: TerragruntRunAllCommand) => {
+    if (starting || runId) return
+    setStarting(true)
     setRunError('')
     setSummary(null)
     try {
       const result = await startTerragruntRunAll(profileName, project.id, command, connection)
+      activeRunIdRef.current = result.runId
       setRunId(result.runId)
       setRunCommand(command)
     } catch (err) {
       setRunError((err as Error).message)
+    } finally {
+      setStarting(false)
     }
-  }, [connection, profileName, project.id])
+  }, [connection, profileName, project.id, runId, starting])
 
   const handleCancel = useCallback(async () => {
     if (!runId) return
@@ -132,7 +164,7 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
     if (command) await handleStart(command)
   }, [confirmCommand, handleStart])
 
-  const running = Boolean(runId)
+  const running = Boolean(runId) || starting
   const unitCount = units.length
   const phaseCount = phases.length
 
