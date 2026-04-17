@@ -1220,7 +1220,8 @@ contextBridge.exposeInMainWorld('terraformWorkspace', api)
 const terragruntApi = {
   detectCli: () => ipcRenderer.invoke('terragrunt:cli:detect'),
   getCliInfo: () => ipcRenderer.invoke('terragrunt:cli:info'),
-  scanDiscovery: (rootPath: string) => ipcRenderer.invoke('terragrunt:discovery:scan', rootPath)
+  scanDiscovery: (rootPath: string) => ipcRenderer.invoke('terragrunt:discovery:scan', rootPath),
+  resolveStack: (rootPath: string) => ipcRenderer.invoke('terragrunt:stack:resolve', rootPath)
 }
 
 contextBridge.exposeInMainWorld('terragrunt', terragruntApi)
