@@ -74,6 +74,7 @@ import {
   validateProjectInputs
 } from './terraformApi'
 import { ObservabilityResilienceLab } from './ObservabilityResilienceLab'
+import { TerragruntStackPane } from './TerragruntStackPane'
 
 type DetailTab = 'actions' | 'state' | 'resources' | 'drift' | 'lab' | 'history'
 type TerraformProviderId = 'aws' | 'gcp' | 'azure'
@@ -4748,6 +4749,10 @@ export function TerraformConsole({
                   </div>
                 </div>
               </section>
+
+              {detail.kind === 'terragrunt-stack' ? (
+                <TerragruntStackPane project={detail} profileName={contextKey} connection={effectiveConnection} />
+              ) : null}
 
               <div className="tf-detail-tabs">
                 <button className={detailTab === 'actions' ? 'active' : ''} onClick={() => setDetailTab('actions')}>Actions</button>
