@@ -1246,8 +1246,10 @@ const terragruntApi = {
   ) =>
     ipcRenderer.invoke('terragrunt:run-all:start', profileName, projectId, command, connection, unitFilter),
   cancelRunAll: (runId: string) => ipcRenderer.invoke('terragrunt:run-all:cancel', runId),
-  unitInventory: (profileName: string, projectId: string, connection?: AwsConnection) =>
-    ipcRenderer.invoke('terragrunt:unit:inventory', profileName, projectId, connection),
+  unitInventory: (profileName: string, projectId: string, connection?: AwsConnection, unitPath?: string) =>
+    ipcRenderer.invoke('terragrunt:unit:inventory', profileName, projectId, connection, unitPath),
+  unitDrift: (profileName: string, projectId: string, connection: AwsConnection, unitPath: string) =>
+    ipcRenderer.invoke('terragrunt:unit:drift', profileName, projectId, connection, unitPath),
   subscribeRunAll: (listener: (event: unknown) => void) => {
     terragruntRunAllListeners.add(listener)
   },

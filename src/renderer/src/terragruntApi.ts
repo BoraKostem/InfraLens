@@ -1,5 +1,6 @@
 import type {
   AwsConnection,
+  TerraformDriftReport,
   TerraformResourceInventoryItem,
   TerragruntCliInfo,
   TerragruntDiscoveryResult,
@@ -44,9 +45,14 @@ export type TerragruntUnitInventoryResult = {
 }
 
 export const getTerragruntUnitInventory = call<
-  [profileName: string, projectId: string, connection?: AwsConnection],
+  [profileName: string, projectId: string, connection?: AwsConnection, unitPath?: string],
   TerragruntUnitInventoryResult
 >('unitInventory')
+
+export const getTerragruntUnitDrift = call<
+  [profileName: string, projectId: string, connection: AwsConnection, unitPath: string],
+  TerraformDriftReport
+>('unitDrift')
 
 export function subscribeTerragruntRunAll(listener: (event: TerragruntRunAllEvent) => void): void {
   (getTerragruntBridge().subscribeRunAll as (l: (e: unknown) => void) => void)(listener as (e: unknown) => void)

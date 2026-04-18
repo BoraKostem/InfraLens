@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type {
   AwsConnection,
+  TerraformDriftItem,
+  TerraformDriftReport,
   TerraformProject,
   TerraformRunRecord,
   TerragruntProjectInfo,
@@ -13,6 +15,7 @@ import type {
 import { listRunHistory } from './terraformApi'
 import {
   cancelTerragruntRunAll,
+  getTerragruntUnitDrift,
   getTerragruntUnitInventory,
   resolveTerragruntStack,
   startTerragruntRunAll,
@@ -81,7 +84,7 @@ function parsePlanSummary(log: string): UnitPlanSummary | null {
   return null
 }
 
-type StackTab = 'actions' | 'state' | 'history'
+type StackTab = 'actions' | 'state' | 'drift' | 'history'
 
 /**
  * Module-level cache keyed by project id so re-mounting the pane (e.g. after switching screens
@@ -363,6 +366,13 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
         </button>
         <button
           type="button"
+          className={activeTab === 'drift' ? 'active' : ''}
+          onClick={() => setActiveTab('drift')}
+        >
+          Drift
+        </button>
+        <button
+          type="button"
           className={activeTab === 'history' ? 'active' : ''}
           onClick={() => setActiveTab('history')}
         >
@@ -372,6 +382,15 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
 
       {activeTab === 'state' && (
         <StackStateTab
+          project={project}
+          profileName={profileName}
+          connection={connection}
+          units={units}
+        />
+      )}
+
+      {activeTab === 'drift' && (
+        <StackDriftTab
           project={project}
           profileName={profileName}
           connection={connection}
@@ -1133,11 +1152,10 @@ function StackStateTab(props: {
     setError('')
     setInventory(null)
     try {
-      // Route through the stack project (the unit isn't its own StoredProject). The
-      // backend currently handles stack-wide state via the same helper — for a stack
-      // kind project this returns the whole-stack inventory placeholder until per-unit
-      // routing lands. For now, display it as-is and note the limitation.
-      const result = await getTerragruntUnitInventory(profileName, project.id, connection)
+      // Route through the stack project for identity/credentials, but pass the actual
+      // absolute unit path so the backend runs `terragrunt state pull` in the unit's
+      // directory — not the stack root (which has no state of its own).
+      const result = await getTerragruntUnitInventory(profileName, project.id, connection, selectedUnitPath)
       setInventory(result)
     } catch (err) {
       setError((err as Error).message)
@@ -1222,6 +1240,156 @@ function StackStateTab(props: {
       {!inventory && !busy && !error && <div className="tf-section-hint">Pick a unit and click "Pull state" to fetch its inventory.</div>}
     </section>
   )
+}
+
+function StackDriftTab(props: {
+  project: TerraformProject
+  profileName: string
+  connection?: AwsConnection
+  units: TerragruntUnit[]
+}): JSX.Element {
+  const { project, profileName, connection, units } = props
+  const [selectedUnitPath, setSelectedUnitPath] = useState<string>(units[0]?.unitPath ?? '')
+  const [report, setReport] = useState<TerraformDriftReport | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!selectedUnitPath && units[0]) setSelectedUnitPath(units[0].unitPath)
+  }, [units, selectedUnitPath])
+
+  const scan = useCallback(async () => {
+    if (!selectedUnitPath) return
+    if (!connection) {
+      setError('Drift scanning requires a provider connection (profile + region).')
+      return
+    }
+    setBusy(true)
+    setError('')
+    setReport(null)
+    try {
+      const result = await getTerragruntUnitDrift(profileName, project.id, connection, selectedUnitPath)
+      setReport(result)
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }, [connection, profileName, project.id, selectedUnitPath])
+
+  const selectedUnit = units.find((u) => u.unitPath === selectedUnitPath) ?? null
+  const items: TerraformDriftItem[] = report?.items ?? []
+  const grouped = useMemo(() => {
+    const m = new Map<string, TerraformDriftItem[]>()
+    for (const item of items) {
+      const key = item.status
+      if (!m.has(key)) m.set(key, [])
+      m.get(key)!.push(item)
+    }
+    return m
+  }, [items])
+
+  return (
+    <section className="tf-section">
+      <div className="tf-section-head">
+        <div>
+          <h3>Unit drift</h3>
+          <div className="tf-section-hint">
+            Per-unit drift scan: pulls the unit's state via <code>terragrunt state pull</code>, enumerates live cloud resources
+            through the current connection, and reports anything that disagrees. Runs fresh every time (no cache) — pick a unit then "Scan drift".
+          </div>
+        </div>
+      </div>
+
+      <div className="tg-unit-picker">
+        <label>
+          Unit
+          <select
+            value={selectedUnitPath}
+            onChange={(e) => { setSelectedUnitPath(e.target.value); setReport(null) }}
+            disabled={busy}
+          >
+            {units.map((u) => (
+              <option key={u.unitPath} value={u.unitPath}>{unitDisplayName(u)} — {unitRelativePath(u)}</option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          className="tf-action-btn plan primary"
+          disabled={!selectedUnitPath || busy}
+          onClick={scan}
+        >
+          {busy ? 'Scanning drift…' : 'Scan drift'}
+        </button>
+      </div>
+
+      {selectedUnit && (
+        <div className="tg-unit-picker-meta">
+          <span className="tg-muted">Selected:</span>
+          <code>{unitRelativePath(selectedUnit)}</code>
+          {selectedUnit.terraformSource && <span className="tg-muted">source: {selectedUnit.terraformSource}</span>}
+        </div>
+      )}
+
+      {error && (
+        <div className="tf-section-hint" style={{ color: '#e74c3c' }} title={error}>
+          Drift scan failed — see tooltip for details.
+        </div>
+      )}
+
+      {!report && !busy && !error && (
+        <div className="tf-section-hint">
+          Pick a unit and click "Scan drift" to compare its state against the live cloud.
+        </div>
+      )}
+
+      {report && (
+        <div className="tg-state-body">
+          <div className="tg-state-meta">
+            <span>Region: <code>{report.region || '-'}</code></span>
+            <span>Items: {items.length}</span>
+            <span>Scanned: {report.summary?.scannedAt ? new Date(report.summary.scannedAt).toLocaleString() : '—'}</span>
+          </div>
+          {items.length === 0
+            ? <div className="tf-section-hint">No drift detected. Everything in state matches the live cloud — for the resource types InfraLens knows how to compare.</div>
+            : (
+              <div className="tg-plan-detail-groups">
+                {[...grouped.entries()].map(([status, group]) => (
+                  <section key={status} className="tg-plan-detail-group">
+                    <div className="tg-plan-detail-group-head">
+                      <span className="tg-plan-detail-action tone-update">{driftStatusLabel(status)}</span>
+                      <strong>{group.length}</strong>
+                    </div>
+                    <ul className="tg-plan-detail-list">
+                      {group.map((item) => (
+                        <li key={`${item.status}:${item.terraformAddress || item.cloudIdentifier}`}>
+                          <code>{item.terraformAddress || item.cloudIdentifier || '(unnamed)'}</code>
+                          {item.resourceType && <span className="tg-muted"> — {item.resourceType}</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+              </div>
+            )}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function driftStatusLabel(status: string): string {
+  switch (status) {
+    case 'in_sync': return 'In sync'
+    case 'drifted': return 'Drifted'
+    case 'missing_in_aws': return 'Missing in AWS'
+    case 'missing_in_cloud': return 'Missing in cloud'
+    case 'unmanaged_in_aws': return 'Unmanaged in AWS'
+    case 'unmanaged_in_cloud': return 'Unmanaged in cloud'
+    case 'unsupported': return 'Unsupported'
+    default: return status
+  }
 }
 
 function StackHistoryTab(props: {

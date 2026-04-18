@@ -6,6 +6,7 @@ import { createHandlerWrapper, type OperationOptions } from './operations'
 import { detectTerragruntCli, getCachedTerragruntCliInfo, resolveStack } from './terragrunt'
 import { scanForTerragrunt } from './terragruntDiscovery'
 import { cancelTerragruntStackRunAll, loadTerragruntUnitInventory, startTerragruntStackRunAll } from './terraform'
+import { getTerragruntUnitDriftReport } from './terraformDrift'
 
 type HandlerResult<T> = { ok: true; data: T } | { ok: false; error: string }
 const wrap: <T>(
@@ -53,11 +54,20 @@ export function registerTerragruntIpcHandlers(getWindow?: () => BrowserWindow | 
   )
   ipcMain.handle(
     'terragrunt:unit:inventory',
-    async (_event, profileName: string, projectId: string, connection?: AwsConnection) =>
+    async (_event, profileName: string, projectId: string, connection?: AwsConnection, unitPath?: string) =>
       wrap(
-        () => loadTerragruntUnitInventory(profileName, projectId, connection),
+        () => loadTerragruntUnitInventory(profileName, projectId, connection, unitPath),
         'terragrunt:unit:inventory',
         { timeoutMs: 3 * 60 * 1000 }
+      )
+  )
+  ipcMain.handle(
+    'terragrunt:unit:drift',
+    async (_event, profileName: string, projectId: string, connection: AwsConnection, unitPath: string) =>
+      wrap(
+        () => getTerragruntUnitDriftReport(profileName, projectId, connection, unitPath),
+        'terragrunt:unit:drift',
+        { timeoutMs: 5 * 60 * 1000 }
       )
   )
 }

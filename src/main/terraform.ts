@@ -3747,16 +3747,20 @@ export type TerragruntUnitInventoryResult = {
 export async function loadTerragruntUnitInventory(
   profileName: string,
   projectId: string,
-  connection?: AwsConnection
+  connection?: AwsConnection,
+  unitPath?: string
 ): Promise<TerragruntUnitInventoryResult> {
   const project = getStoredProjects(profileName).find((p) => p.id === projectId)
   if (!project) throw new Error('Project not found.')
   const kindInfo = classifyProjectKind(project.rootPath)
-  if (kindInfo.kind !== 'terragrunt-unit') {
-    throw new Error('loadTerragruntUnitInventory requires a Terragrunt unit project.')
+  const effectivePath = unitPath ? path.resolve(unitPath) : project.rootPath
+  // For stack projects we require an explicit unit path — the stack root itself has no
+  // terraform state. Single-unit projects can reuse their rootPath.
+  if (!unitPath && kindInfo.kind !== 'terragrunt-unit') {
+    throw new Error('Stack projects require a unit path. Pass the absolute unit directory.')
   }
   const env = buildEnvWithVars(project, profileName, connection)
-  const pulled = await pullTerragruntState(project.rootPath, env)
+  const pulled = await pullTerragruntState(effectivePath, env)
   if (pulled.error) {
     return {
       inventory: [],

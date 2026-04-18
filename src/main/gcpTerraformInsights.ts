@@ -971,9 +971,27 @@ export async function getGcpTerraformDriftReport(
   profileName: string,
   projectId: string,
   connection?: AwsConnection,
-  _options?: { forceRefresh?: boolean }
+  _options?: { forceRefresh?: boolean },
+  unitPathOverride?: string
 ): Promise<TerraformDriftReport> {
-  const project = await getProject(profileName, projectId)
+  const baseProject = await getProject(profileName, projectId)
+  let project = baseProject
+  if (unitPathOverride) {
+    try {
+      const { loadTerragruntUnitInventory } = await import('./terraform')
+      const pulled = await loadTerragruntUnitInventory(profileName, projectId, connection, unitPathOverride)
+      project = {
+        ...baseProject,
+        inventory: pulled.inventory,
+        stateAddresses: pulled.stateAddresses,
+        rawStateJson: pulled.rawStateJson,
+        stateSource: pulled.stateSource || baseProject.stateSource
+      }
+    } catch {
+      // Fall back to baseProject — drift will report 0 managed resources from the stack root,
+      // which surfaces the misconfiguration without crashing the scan.
+    }
+  }
   const auditCtx = createTraceContext({
     operation: 'drift-report',
     provider: 'gcp',

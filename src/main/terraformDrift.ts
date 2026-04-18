@@ -2725,13 +2725,16 @@ async function scanProjectDrift(
   profileName: string,
   projectId: string,
   connection: AwsConnection,
-  trigger: TerraformDriftSnapshot['trigger']
+  trigger: TerraformDriftSnapshot['trigger'],
+  unitPathOverride?: string
 ): Promise<StoredDriftContext> {
   const baseProject = await getProject(profileName, projectId)
-  const project: TerraformProject = baseProject.kind === 'terragrunt-unit'
+  const useTerragrunt = baseProject.kind === 'terragrunt-unit'
+    || (baseProject.kind === 'terragrunt-stack' && Boolean(unitPathOverride))
+  const project: TerraformProject = useTerragrunt
     ? await (async () => {
         try {
-          const pulled = await loadTerragruntUnitInventory(profileName, projectId, connection)
+          const pulled = await loadTerragruntUnitInventory(profileName, projectId, connection, unitPathOverride)
           return {
             ...baseProject,
             inventory: pulled.inventory,
@@ -2827,6 +2830,33 @@ function toReport(context: StoredDriftContext, fromCache: boolean): TerraformDri
     history: buildHistory(sanitized.snapshots),
     fromCache
   }
+}
+
+/**
+ * Per-unit drift scan for a Terragrunt stack project. Bypasses the stack-level cache and
+ * always runs a fresh scan against the unit's pulled state. Identity fields in the returned
+ * report (projectId/projectName) still reference the stack, so downstream telemetry stays
+ * grouped under the stack.
+ */
+export async function getTerragruntUnitDriftReport(
+  profileName: string,
+  stackProjectId: string,
+  connection: AwsConnection,
+  unitPath: string
+): Promise<TerraformDriftReport> {
+  const auditCtx = createTraceContext({
+    operation: 'drift-report',
+    provider: 'aws',
+    module: stackProjectId
+  })
+  return withAudit(
+    auditCtx,
+    async () => {
+      const scanned = await scanProjectDrift(profileName, stackProjectId, connection, 'manual', unitPath)
+      return toReport(scanned, false)
+    },
+    (report, summary) => ({ ...report, audit: summary })
+  )
 }
 
 export async function getTerraformDriftReport(

@@ -667,6 +667,18 @@ function emitRunAllEvent(window: BrowserWindow | null, event: TerragruntRunAllEv
   window?.webContents.send('terragrunt:run-all:event', event)
 }
 
+function reverseDependencyMap(forward: Map<string, Set<string>>): Map<string, Set<string>> {
+  const reverse = new Map<string, Set<string>>()
+  for (const node of forward.keys()) reverse.set(node, new Set())
+  for (const [node, deps] of forward) {
+    for (const dep of deps) {
+      if (!reverse.has(dep)) reverse.set(dep, new Set())
+      reverse.get(dep)!.add(node)
+    }
+  }
+  return reverse
+}
+
 function buildDependencyMap(units: TerragruntUnit[]): Map<string, Set<string>> {
   const map = new Map<string, Set<string>>()
   const unitPaths = new Set(units.map((u) => u.unitPath))
@@ -805,15 +817,28 @@ export async function startRunAll(options: RunAllStartOptions): Promise<{ runId:
   const binary = await resolveTerragruntExecutable()
   const baseArgs = buildTerragruntCommandArgs(options.command)
   const runId = randomUUID()
-  const depsMap = buildDependencyMap(options.stack.units)
+  const forwardDepsMap = buildDependencyMap(options.stack.units)
+  // For destroy, a unit is blocked by failures on its *dependents* (downstream), not its
+  // dependencies: if a VM fails to destroy, its subnet still has an in-use reference and must
+  // wait. Flip the edges in destroy mode.
+  const depsMap: Map<string, Set<string>> = options.command === 'destroy'
+    ? reverseDependencyMap(forwardDepsMap)
+    : forwardDepsMap
   const filterSet = options.unitFilter && options.unitFilter.length > 0
     ? new Set(options.unitFilter.map((p) => path.resolve(p)))
     : null
-  const phases = filterSet
+  const orderedPhases = filterSet
     ? options.stack.dependencyOrder
         .map((phase) => phase.filter((unitPath) => filterSet.has(unitPath)))
         .filter((phase) => phase.length > 0)
     : options.stack.dependencyOrder
+  // Destroy must run leaf-first: a subnet can't be deleted while a VM in a later phase still
+  // references it. Apply/plan keep the natural dependency order (phase 0 → N); destroy flips
+  // to (phase N → 0). Units within a phase can still run in parallel — they're independent by
+  // definition of the topological sort.
+  const phases = options.command === 'destroy'
+    ? [...orderedPhases].reverse()
+    : orderedPhases
 
   const active: ActiveRunAll = {
     runId,
@@ -1168,6 +1193,30 @@ export async function ensureTerragruntUnitInitialized(
   return workingDir ? { ok: true, workingDir, error: '' } : { ok: false, workingDir: '', error: 'Terragrunt cache not found after init.' }
 }
 
+function extractStatePayload(text: string): string {
+  const trimmed = text.trim()
+  if (!trimmed) return ''
+  // Terragrunt prints log lines before the state JSON on stdout (timestamp + level + message).
+  // Find the first `{` that opens the state object and the last `}` that closes it. That brackets
+  // the JSON payload no matter how much terragrunt chatter precedes it.
+  if (trimmed.startsWith('{')) return trimmed
+  const start = trimmed.indexOf('{')
+  const end = trimmed.lastIndexOf('}')
+  if (start < 0 || end <= start) return ''
+  return trimmed.slice(start, end + 1)
+}
+
+async function runTerraformInCache(
+  workingDir: string,
+  args: string[],
+  env: Record<string, string>
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  // Try terraform on PATH — terragrunt requires it to be there anyway, and it sidesteps
+  // terragrunt's log interleaving on stdout.
+  const binary = process.platform === 'win32' ? 'terraform.exe' : 'terraform'
+  return await invokeTerragrunt(binary, workingDir, args, env, STATE_PULL_TIMEOUT_MS)
+}
+
 export async function pullTerragruntState(
   unitPath: string,
   env: Record<string, string>
@@ -1176,9 +1225,38 @@ export async function pullTerragruntState(
   if (!info.found) return { stateJson: '', workingDir: '', error: NOT_INSTALLED_ERROR }
   const prepared = await ensureTerragruntUnitInitialized(unitPath, env)
   if (!prepared.ok) return { stateJson: '', workingDir: '', error: prepared.error }
-  const result = await invokeTerragrunt(info.path, unitPath, ['state', 'pull', '--non-interactive'], env, STATE_PULL_TIMEOUT_MS)
-  if (result.exitCode !== 0) {
-    return { stateJson: '', workingDir: prepared.workingDir, error: (result.stderr || result.stdout || 'state pull failed').slice(-500) }
+
+  // Primary: terragrunt state pull. Modern Terragrunt interleaves log lines with the state JSON
+  // on stdout, so always run the payload through extractStatePayload to isolate the object.
+  const tgResult = await invokeTerragrunt(info.path, unitPath, ['state', 'pull', '--non-interactive'], env, STATE_PULL_TIMEOUT_MS)
+  if (tgResult.exitCode === 0) {
+    const payload = extractStatePayload(tgResult.stdout)
+    if (payload) return { stateJson: payload, workingDir: prepared.workingDir, error: '' }
   }
-  return { stateJson: result.stdout, workingDir: prepared.workingDir, error: '' }
+
+  // Fallback: call `terraform state pull` directly inside the terragrunt-materialised cache dir.
+  // This avoids terragrunt's stdout log interleaving entirely.
+  if (prepared.workingDir) {
+    const tfResult = await runTerraformInCache(prepared.workingDir, ['state', 'pull'], env)
+    if (tfResult.exitCode === 0) {
+      const payload = extractStatePayload(tfResult.stdout)
+      if (payload) return { stateJson: payload, workingDir: prepared.workingDir, error: '' }
+      return {
+        stateJson: '',
+        workingDir: prepared.workingDir,
+        error: 'terraform state pull completed but produced no parseable JSON payload.'
+      }
+    }
+    return {
+      stateJson: '',
+      workingDir: prepared.workingDir,
+      error: `state pull failed — terragrunt exit ${tgResult.exitCode}, terraform exit ${tfResult.exitCode}. ${(tfResult.stderr || tgResult.stderr || '').slice(-300)}`
+    }
+  }
+
+  return {
+    stateJson: '',
+    workingDir: prepared.workingDir,
+    error: (tgResult.stderr || tgResult.stdout || `terragrunt state pull exited ${tgResult.exitCode}`).slice(-500)
+  }
 }
