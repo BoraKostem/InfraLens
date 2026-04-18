@@ -17,6 +17,7 @@ import type {
 } from '@shared/types'
 import { getCallerIdentity } from './aws/sts'
 import { readSecureJsonFile, writeSecureJsonFile } from './secureJson'
+import { exportAuditEvent } from './exporters'
 
 const DEFAULT_SETTINGS: EnterpriseSettings = {
   accessMode: 'read-only',
@@ -441,6 +442,7 @@ function appendAuditEvent(event: EnterpriseAuditEvent): Promise<void> {
       const current = readAuditLog()
       const next = [event, ...current].slice(0, 500)
       writeAuditLog(next)
+      exportAuditEvent(event)
     })
     .catch(() => { /* never let a write failure break the chain */ }))
 }

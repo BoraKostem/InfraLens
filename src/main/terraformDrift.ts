@@ -89,6 +89,7 @@ import {
 import { listWebAcls } from './aws/waf'
 import { getCachedCliInfo, getProject, loadTerragruntUnitInventory } from './terraform'
 import { createTraceContext, withAudit } from './terraformAudit'
+import { exportDriftSnapshot } from './exporters'
 
 type ComparableValue = string | number | boolean
 type IdentityKey = 'cloudIdentifier' | 'logicalName'
@@ -2809,6 +2810,7 @@ async function scanProjectDrift(
     snapshots: [snapshot, ...(existing?.snapshots ?? [])].slice(0, 20)
   }
   writeStoredContext(profileName, projectId, connection.region, context)
+  exportDriftSnapshot(project.id, project.name, snapshot)
   return context
 }
 

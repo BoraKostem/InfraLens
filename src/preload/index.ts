@@ -659,6 +659,15 @@ const awsLensApi = {
   listEnterpriseAuditEvents: () => ipcRenderer.invoke('enterprise:audit:list'),
   exportEnterpriseAuditEvents: () => ipcRenderer.invoke('enterprise:audit:export'),
 
+  /* Exporters */
+  getExporterConfig: () => ipcRenderer.invoke('exporters:get-config'),
+  setExporterConfig: (config: unknown) => ipcRenderer.invoke('exporters:set-config', config),
+  getExporterHealth: () => ipcRenderer.invoke('exporters:get-health'),
+  purgeExporterQueue: () => ipcRenderer.invoke('exporters:purge-queue'),
+  pingElasticsearch: (config: unknown) => ipcRenderer.invoke('exporters:ping-elasticsearch', config),
+  sendTestExporterEvent: () => ipcRenderer.invoke('exporters:send-test-event'),
+  queryTeamTimeline: (filter: unknown) => ipcRenderer.invoke('exporters:query-team-timeline', filter),
+
   /* EKS */
   listEksClusters: (connection: AwsConnection) => ipcRenderer.invoke('eks:list-clusters', connection),
   describeEksCluster: (connection: AwsConnection, clusterName: string) =>

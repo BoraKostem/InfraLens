@@ -4389,6 +4389,76 @@ export type EnterpriseAuditExportResult = {
   rangeDays?: 1 | 7
 }
 
+// ─── Exporters (Phase 4) ──────────────────────────────────────────────────────
+
+export type ExporterAuthKind = 'none' | 'basic' | 'bearer' | 'api-key'
+
+export type ExporterPrometheusConfig = {
+  enabled: boolean
+  port: number
+  host: string
+  metricsPath: string
+  teamLabel: string
+  projectLabel: string
+}
+
+export type ExporterElasticsearchConfig = {
+  enabled: boolean
+  url: string
+  indexPrefix: string
+  authKind: ExporterAuthKind
+  username: string
+  password: string
+  bearerToken: string
+  apiKey: string
+  tlsSkipVerify: boolean
+  teamLabel: string
+  projectLabel: string
+}
+
+export type ExporterRedactionMode = 'full' | 'partial' | 'none'
+
+export type ExporterConfig = {
+  prometheus: ExporterPrometheusConfig
+  elasticsearch: ExporterElasticsearchConfig
+  redactionMode: ExporterRedactionMode
+  retentionHours: number
+  updatedAt: string
+}
+
+export type ExporterHealthSnapshot = {
+  prometheus: {
+    running: boolean
+    port: number
+    lastError: string
+  }
+  elasticsearch: {
+    enabled: boolean
+    lastSuccessAt: string
+    lastFailureAt: string
+    lastError: string
+    queuedItems: number
+    droppedItems: number
+  }
+  queue: {
+    pending: number
+    retrying: number
+    dropped: number
+  }
+}
+
+export type ExportEventKind = 'audit' | 'terraform-run' | 'drift-snapshot' | 'diagnostics'
+
+export type ExportQueueEntry = {
+  id: string
+  kind: ExportEventKind
+  payload: unknown
+  createdAt: string
+  attempts: number
+  nextAttemptAt: string
+  lastError: string
+}
+
 export type AppDiagnosticsSnapshot = {
   generatedAt: string
   activeProviderId: CloudProviderId
