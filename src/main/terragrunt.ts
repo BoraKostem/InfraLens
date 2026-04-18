@@ -155,10 +155,13 @@ export async function resolveTerragruntExecutable(): Promise<string> {
 }
 
 export function buildTerragruntCommandArgs(command: TerraformCommandName): string[] {
-  const base = ['--terragrunt-non-interactive', '-no-color']
+  // Modern Terragrunt (0.73+) uses --non-interactive; older builds accepted
+  // --terragrunt-non-interactive but the new CLI forwards that straight to `terraform`, which
+  // rejects it. Prefer the modern form everywhere.
+  const base = ['--non-interactive', '-no-color']
   switch (command) {
     case 'init':
-      return ['init', '--terragrunt-non-interactive']
+      return ['init', '--non-interactive']
     case 'plan':
       return ['plan', ...base]
     case 'apply':
@@ -166,9 +169,9 @@ export function buildTerragruntCommandArgs(command: TerraformCommandName): strin
     case 'destroy':
       return ['destroy', ...base, '-auto-approve']
     case 'state-list':
-      return ['state', 'list', '--terragrunt-non-interactive']
+      return ['state', 'list', '--non-interactive']
     case 'state-pull':
-      return ['state', 'pull', '--terragrunt-non-interactive']
+      return ['state', 'pull', '--non-interactive']
     case 'version':
       return ['--version']
     default:
@@ -206,17 +209,21 @@ const RENDER_JSON_STRATEGIES: RenderJsonStrategy[] = [
 let cachedRenderJsonStrategy: RenderJsonStrategy | null = null
 
 function renderJsonArgs(strategy: RenderJsonStrategy, outFile: string): string[] {
+  // Modern CLI uses `--non-interactive`; older CLI accepted `--terragrunt-non-interactive` as a
+  // terragrunt-specific flag. Newer versions now forward the prefixed form to terraform, which
+  // explodes. Keep the non-interactive flag only on the strategies where it's known-safe, and
+  // omit it entirely from the legacy-prefix / stdout probes to avoid passthrough failures.
   switch (strategy.kind) {
     case 'render-out':
       return ['render', '--format=json', `--out=${outFile}`, '--non-interactive']
     case 'render-json-out':
-      return ['render-json', `--out=${outFile}`, '--terragrunt-non-interactive']
+      return ['render-json', `--out=${outFile}`, '--non-interactive']
     case 'legacy-prefix':
-      return ['render-json', `--terragrunt-json-out=${outFile}`, '--terragrunt-non-interactive']
+      return ['render-json', `--terragrunt-json-out=${outFile}`]
     case 'render-stdout':
       return ['render', '--format=json', '--non-interactive']
     case 'stdout':
-      return ['render-json', '--terragrunt-non-interactive']
+      return ['render-json']
   }
 }
 
@@ -1152,7 +1159,7 @@ export async function ensureTerragruntUnitInitialized(
   if (!workingDir) {
     const info = cachedInfo ?? await detectTerragruntCli()
     if (!info.found) return { ok: false, workingDir: '', error: NOT_INSTALLED_ERROR }
-    const result = await invokeTerragrunt(info.path, unitPath, ['init', '--terragrunt-non-interactive', '-no-color'], env, INIT_TIMEOUT_MS)
+    const result = await invokeTerragrunt(info.path, unitPath, ['init', '--non-interactive', '-no-color'], env, INIT_TIMEOUT_MS)
     if (result.exitCode !== 0) {
       return { ok: false, workingDir: '', error: (result.stderr || result.stdout || 'terragrunt init failed').slice(-500) }
     }
@@ -1169,7 +1176,7 @@ export async function pullTerragruntState(
   if (!info.found) return { stateJson: '', workingDir: '', error: NOT_INSTALLED_ERROR }
   const prepared = await ensureTerragruntUnitInitialized(unitPath, env)
   if (!prepared.ok) return { stateJson: '', workingDir: '', error: prepared.error }
-  const result = await invokeTerragrunt(info.path, unitPath, ['state', 'pull', '--terragrunt-non-interactive'], env, STATE_PULL_TIMEOUT_MS)
+  const result = await invokeTerragrunt(info.path, unitPath, ['state', 'pull', '--non-interactive'], env, STATE_PULL_TIMEOUT_MS)
   if (result.exitCode !== 0) {
     return { stateJson: '', workingDir: prepared.workingDir, error: (result.stderr || result.stdout || 'state pull failed').slice(-500) }
   }

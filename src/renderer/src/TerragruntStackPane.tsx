@@ -26,6 +26,20 @@ type UnitStatus = 'idle' | 'running' | 'succeeded' | 'failed' | 'blocked' | 'can
 
 type StackTab = 'actions' | 'state' | 'history'
 
+/**
+ * Module-level cache keyed by project id so re-mounting the pane (e.g. after switching screens
+ * and coming back) doesn't trigger a fresh `terragrunt render-json` sweep across every unit.
+ * The cache is write-through: every successful resolve updates it, "Re-resolve stack" forces
+ * a fresh call, and the cache survives for the lifetime of the renderer process.
+ */
+type ResolvedStackCacheEntry = {
+  result: ResolvedStackResult
+  cachedAt: number
+  rootPath: string
+}
+
+const resolvedStackCache = new Map<string, ResolvedStackCacheEntry>()
+
 type TerragruntStackPaneProps = {
   project: TerraformProject
   profileName: string
@@ -38,7 +52,9 @@ function isStackInfo(info: TerragruntProjectInfo | null | undefined): info is Ex
 
 export function TerragruntStackPane({ project, profileName, connection }: TerragruntStackPaneProps): JSX.Element {
   const stackInfo = isStackInfo(project.terragrunt) ? project.terragrunt.stack : null
-  const [resolvedStack, setResolvedStack] = useState<ResolvedStackResult | null>(null)
+  const initialCached = resolvedStackCache.get(project.id)
+  const initialStack = initialCached && initialCached.rootPath === project.rootPath ? initialCached.result : null
+  const [resolvedStack, setResolvedStack] = useState<ResolvedStackResult | null>(initialStack)
   const [resolveBusy, setResolveBusy] = useState(false)
   const [resolveError, setResolveError] = useState('')
   const [runId, setRunId] = useState<string | null>(null)
@@ -77,6 +93,11 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
     try {
       const result = await resolveTerragruntStack(project.rootPath)
       setResolvedStack(result)
+      resolvedStackCache.set(project.id, {
+        result,
+        cachedAt: Date.now(),
+        rootPath: project.rootPath
+      })
       // Re-resolving the stack invalidates any in-memory saved-plan readiness because
       // unit topology may have changed.
       setPlanReady(false)
@@ -85,7 +106,7 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
     } finally {
       setResolveBusy(false)
     }
-  }, [project.rootPath])
+  }, [project.rootPath, project.id])
 
   useEffect(() => {
     const listener = (event: TerragruntRunAllEvent): void => {
@@ -154,7 +175,8 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
   useEffect(() => {
     activeRunIdRef.current = null
     activeCommandRef.current = null
-    setResolvedStack(null)
+    const cached = resolvedStackCache.get(project.id)
+    setResolvedStack(cached && cached.rootPath === project.rootPath ? cached.result : null)
     setResolveError('')
     setRunId(null)
     setRunCommand(null)
@@ -169,7 +191,7 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
     setOutputOpen(false)
     setSelectedEnvironment('all')
     setDiagramEnvironment('all')
-  }, [project.id])
+  }, [project.id, project.rootPath])
 
   useEffect(() => {
     if (!resolvedStack && !resolveBusy) {
