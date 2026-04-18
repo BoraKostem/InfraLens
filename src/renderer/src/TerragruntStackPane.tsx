@@ -24,6 +24,63 @@ import {
 
 type UnitStatus = 'idle' | 'running' | 'succeeded' | 'failed' | 'blocked' | 'cancelled'
 
+type UnitPlanSummary = {
+  create: number
+  change: number
+  destroy: number
+  noop: boolean
+}
+
+type PlanAction = 'create' | 'update' | 'replace' | 'destroy' | 'read' | 'unknown'
+
+type PlanResourceChange = {
+  action: PlanAction
+  address: string
+}
+
+function parsePlanResourceChanges(log: string): PlanResourceChange[] {
+  if (!log) return []
+  const seen = new Map<string, PlanAction>()
+  const pattern = /#\s+([^\s#\n][^\n]*?)\s+will be\s+(created|updated in-place|replaced|destroyed|read during apply)/gi
+  let match: RegExpExecArray | null
+  while ((match = pattern.exec(log)) !== null) {
+    const address = match[1].trim()
+    const verb = match[2].toLowerCase()
+    let action: PlanAction = 'unknown'
+    if (verb.startsWith('created')) action = 'create'
+    else if (verb.startsWith('updated')) action = 'update'
+    else if (verb.startsWith('replaced')) action = 'replace'
+    else if (verb.startsWith('destroyed')) action = 'destroy'
+    else if (verb.startsWith('read')) action = 'read'
+    // Replace trumps lesser actions; otherwise keep the first seen.
+    const prev = seen.get(address)
+    if (!prev || action === 'replace') seen.set(address, action)
+  }
+  return [...seen.entries()]
+    .map(([address, action]) => ({ address, action }))
+    .sort((a, b) => {
+      const order: Record<PlanAction, number> = { destroy: 0, replace: 1, update: 2, create: 3, read: 4, unknown: 5 }
+      if (order[a.action] !== order[b.action]) return order[a.action] - order[b.action]
+      return a.address.localeCompare(b.address)
+    })
+}
+
+function parsePlanSummary(log: string): UnitPlanSummary | null {
+  if (!log) return null
+  // Terraform emits "No changes. Your infrastructure matches the configuration." or
+  // "No changes. Your configuration is up-to-date." for plan/apply with no actions.
+  if (/no changes\./i.test(log) && /(matches the configuration|infrastructure matches|configuration is up-to-date)/i.test(log)) {
+    return { create: 0, change: 0, destroy: 0, noop: true }
+  }
+  const plan = log.match(/Plan:\s*(\d+)\s+to add,\s*(\d+)\s+to change,\s*(\d+)\s+to destroy/i)
+  if (plan) return { create: +plan[1], change: +plan[2], destroy: +plan[3], noop: false }
+  const apply = log.match(/Apply complete!\s*Resources:\s*(\d+)\s+added,\s*(\d+)\s+changed,\s*(\d+)\s+destroyed/i)
+  if (apply) return { create: +apply[1], change: +apply[2], destroy: +apply[3], noop: false }
+  const destroy = log.match(/Destroy complete!\s*Resources:\s*(\d+)\s+destroyed/i)
+  if (destroy) return { create: 0, change: 0, destroy: +destroy[1], noop: false }
+  return null
+}
+
 type StackTab = 'actions' | 'state' | 'history'
 
 /**
@@ -74,6 +131,9 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
   const [outputOpen, setOutputOpen] = useState(false)
   const [selectedEnvironment, setSelectedEnvironment] = useState<string>('all')
   const [diagramEnvironment, setDiagramEnvironment] = useState<string>('all')
+  const [unitPlanSummaries, setUnitPlanSummaries] = useState<Record<string, UnitPlanSummary | null>>({})
+  const [unitPlanChanges, setUnitPlanChanges] = useState<Record<string, PlanResourceChange[]>>({})
+  const [planDetailUnit, setPlanDetailUnit] = useState<string | null>(null)
 
   const effectiveStack = resolvedStack?.stack ?? stackInfo
   const phases = effectiveStack?.dependencyOrder ?? []
@@ -121,6 +181,8 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
         setSummary(null)
         setUnitStatuses({})
         setUnitLogs({})
+        setUnitPlanSummaries({})
+        setUnitPlanChanges({})
         setMonitorOpen(true)
         setMonitorUnit(null)
         return
@@ -142,6 +204,18 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
         case 'unit-completed':
           setUnitStatuses((prev) => ({ ...prev, [event.unitPath]: event.success ? 'succeeded' : 'failed' }))
           if (!event.success) setMonitorUnit(event.unitPath)
+          setUnitLogs((logs) => {
+            const accumulated = logs[event.unitPath] ?? ''
+            const summary = parsePlanSummary(accumulated)
+            if (summary) {
+              setUnitPlanSummaries((prev) => ({ ...prev, [event.unitPath]: summary }))
+            }
+            const changes = parsePlanResourceChanges(accumulated)
+            if (changes.length > 0) {
+              setUnitPlanChanges((prev) => ({ ...prev, [event.unitPath]: changes }))
+            }
+            return logs
+          })
           break
         case 'unit-blocked':
           setUnitStatuses((prev) => ({ ...prev, [event.unitPath]: 'blocked' }))
@@ -191,6 +265,9 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
     setOutputOpen(false)
     setSelectedEnvironment('all')
     setDiagramEnvironment('all')
+    setUnitPlanSummaries({})
+    setUnitPlanChanges({})
+    setPlanDetailUnit(null)
   }, [project.id, project.rootPath])
 
   useEffect(() => {
@@ -476,7 +553,21 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
           </div>
           {diagramUnits.length === 0
             ? <div className="tf-section-hint">No units match the selected filter.</div>
-            : <TerragruntTopologyDiagram units={diagramUnits} phases={diagramPhases} unitStatuses={unitStatuses} />}
+            : <TerragruntTopologyDiagram
+                units={diagramUnits}
+                phases={diagramPhases}
+                unitStatuses={unitStatuses}
+                unitPlanSummaries={unitPlanSummaries}
+                onSelectUnit={(unitPath) => {
+                  // Only open the detail panel for units that actually have planned work to show.
+                  if (unitPlanChanges[unitPath]?.length || unitPlanSummaries[unitPath]) {
+                    setPlanDetailUnit(unitPath)
+                  } else if (unitLogs[unitPath]) {
+                    setMonitorUnit(unitPath)
+                    setMonitorOpen(true)
+                  }
+                }}
+              />}
         </div>
       )}
 
@@ -581,6 +672,20 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
           unitStatuses={unitStatuses}
           onOpen={() => setMonitorOpen(true)}
           onCancel={handleCancel}
+        />
+      )}
+      {planDetailUnit && (
+        <UnitPlanDetailModal
+          unit={unitByPath.get(planDetailUnit) ?? null}
+          summary={unitPlanSummaries[planDetailUnit] ?? null}
+          changes={unitPlanChanges[planDetailUnit] ?? []}
+          hasLog={Boolean(unitLogs[planDetailUnit])}
+          onClose={() => setPlanDetailUnit(null)}
+          onOpenLog={() => {
+            setMonitorUnit(planDetailUnit)
+            setMonitorOpen(true)
+            setPlanDetailUnit(null)
+          }}
         />
       )}
     </div>
@@ -718,16 +823,65 @@ function TerragruntTopologyDiagram(props: {
   units: TerragruntUnit[]
   phases: string[][]
   unitStatuses: Record<string, UnitStatus>
+  unitPlanSummaries: Record<string, UnitPlanSummary | null>
+  onSelectUnit?: (unitPath: string) => void
 }): JSX.Element {
-  const { units, phases, unitStatuses } = props
+  const { units, phases, unitStatuses, unitPlanSummaries, onSelectUnit } = props
   const [zoom, setZoom] = useState(100)
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const [fullscreen, setFullscreen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const dragging = useRef(false)
+  const dragStart = useRef({ x: 0, y: 0 })
+  const panStart = useRef({ x: 0, y: 0 })
 
-  const NODE_W = 200
-  const NODE_H = 66
-  const COL_GAP = 80
-  const ROW_GAP = 18
-  const PAD_X = 24
-  const PAD_Y = 36
+  const NODE_W = 220
+  const NODE_H = 74
+  const COL_GAP = 110
+  const ROW_GAP = 20
+  const PAD_X = 32
+  const PAD_Y = 40
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return
+    const target = e.target as HTMLElement
+    if (target.closest('button')) return
+    dragging.current = true
+    dragStart.current = { x: e.clientX, y: e.clientY }
+    panStart.current = { ...pan }
+    e.preventDefault()
+  }, [pan])
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!dragging.current) return
+    const dx = e.clientX - dragStart.current.x
+    const dy = e.clientY - dragStart.current.y
+    setPan({ x: panStart.current.x + dx, y: panStart.current.y + dy })
+  }, [])
+
+  const handleMouseUp = useCallback(() => {
+    dragging.current = false
+  }, [])
+
+  useEffect(() => {
+    const stop = (): void => { dragging.current = false }
+    window.addEventListener('mouseup', stop)
+    return () => window.removeEventListener('mouseup', stop)
+  }, [])
+
+  useEffect(() => {
+    if (!fullscreen) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setFullscreen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [fullscreen])
+
+  const resetView = useCallback(() => {
+    setZoom(100)
+    setPan({ x: 0, y: 0 })
+  }, [])
 
   const unitByPath = useMemo(() => {
     const map = new Map<string, TerragruntUnit>()
@@ -791,19 +945,43 @@ function TerragruntTopologyDiagram(props: {
   const scale = zoom / 100
 
   return (
-    <div className="tg-diagram-wrap">
-      <div className="tg-diagram-toolbar">
-        <button type="button" onClick={() => setZoom((z) => Math.max(40, z - 15))}>−</button>
-        <button type="button" onClick={() => setZoom(100)}>{zoom}%</button>
-        <button type="button" onClick={() => setZoom((z) => Math.min(250, z + 15))}>+</button>
+    <div
+      ref={containerRef}
+      className={`tf-diagram-container tg-diagram-container ${fullscreen ? 'fullscreen' : ''}`}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}
+      style={{ cursor: dragging.current ? 'grabbing' : 'grab' }}
+    >
+      <div className="tf-diagram-controls">
+        <button type="button" onMouseDown={(e) => e.stopPropagation()} onClick={() => setFullscreen((v) => !v)}>
+          {fullscreen ? 'Exit' : 'Full'}
+        </button>
+        <button type="button" onMouseDown={(e) => e.stopPropagation()} onClick={() => setZoom((z) => Math.max(25, z - 15))}>−</button>
+        <button type="button" onMouseDown={(e) => e.stopPropagation()} onClick={resetView}>{zoom}%</button>
+        <button type="button" onMouseDown={(e) => e.stopPropagation()} onClick={() => setZoom((z) => Math.min(300, z + 15))}>+</button>
       </div>
-      <div className="tg-diagram-viewport">
+      <div className="tf-diagram-legend" onMouseDown={(e) => e.stopPropagation()}>
+        <span className="tf-diagram-legend-item">
+          <span className="tf-diagram-legend-line" style={{ background: '#9ec7ff' }} />
+          dependency
+        </span>
+        <span className="tf-diagram-legend-item">
+          <span className="tf-diagram-legend-line" style={{ background: '#ffd082' }} />
+          dependencies.paths
+        </span>
+      </div>
       <svg
         className="tg-diagram-svg"
         viewBox={`0 0 ${svgW} ${svgH}`}
-        width={Math.round(svgW * scale)}
-        height={Math.round(svgH * scale)}
-        preserveAspectRatio="xMinYMin meet"
+        style={{
+          transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
+          transformOrigin: '0 0',
+          width: svgW,
+          height: svgH,
+          userSelect: 'none'
+        }}
       >
         <defs>
           <marker id="tg-arrow-dep" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="userSpaceOnUse">
@@ -818,7 +996,7 @@ function TerragruntTopologyDiagram(props: {
           <text
             key={idx}
             x={PAD_X + idx * (NODE_W + COL_GAP) + NODE_W / 2}
-            y={18}
+            y={22}
             className="tg-diagram-col-label"
             textAnchor="middle"
           >
@@ -857,8 +1035,22 @@ function TerragruntTopologyDiagram(props: {
           const pos = positions.get(unit.unitPath)
           if (!pos) return null
           const status = unitStatuses[unit.unitPath] ?? 'idle'
+          const plan = unitPlanSummaries[unit.unitPath] ?? null
+          const clickable = Boolean(onSelectUnit)
+          const handleNodeClick = (e: React.MouseEvent): void => {
+            // Don't treat a pan drag as a click: if the mouse moved while held, ignore.
+            if (dragging.current) return
+            if (!onSelectUnit) return
+            e.stopPropagation()
+            onSelectUnit(unit.unitPath)
+          }
           return (
-            <g key={unit.unitPath} transform={`translate(${pos.x}, ${pos.y})`}>
+            <g
+              key={unit.unitPath}
+              transform={`translate(${pos.x}, ${pos.y})`}
+              onClick={handleNodeClick}
+              style={{ cursor: clickable ? 'pointer' : 'default' }}
+            >
               <rect
                 className={`tg-diagram-node status-${status}`}
                 width={NODE_W}
@@ -872,18 +1064,27 @@ function TerragruntTopologyDiagram(props: {
               <text x={12} y={42} className="tg-diagram-node-sub">
                 {truncate(unit.terraformSource || 'no terraform source', 32)}
               </text>
-              <text x={12} y={60} className="tg-diagram-node-status">
-                {statusLabel(status)}
-              </text>
+              {plan ? (
+                plan.noop ? (
+                  <text x={12} y={62} className="tg-diagram-node-status tg-diagram-plan-noop">
+                    NO-OP
+                  </text>
+                ) : (
+                  <g transform="translate(12, 62)">
+                    <text className="tg-diagram-plan-create">+{plan.create}</text>
+                    <text x={44} className="tg-diagram-plan-change">~{plan.change}</text>
+                    <text x={88} className="tg-diagram-plan-destroy">-{plan.destroy}</text>
+                  </g>
+                )
+              ) : (
+                <text x={12} y={62} className="tg-diagram-node-status">
+                  {statusLabel(status)}
+                </text>
+              )}
             </g>
           )
         })}
       </svg>
-      </div>
-      <div className="tg-diagram-legend">
-        <span><span className="tg-diagram-legend-swatch" style={{ background: '#9ec7ff' }} />dependency</span>
-        <span><span className="tg-diagram-legend-swatch" style={{ background: '#ffd082' }} />dependencies.paths</span>
-      </div>
     </div>
   )
 }
@@ -1116,6 +1317,107 @@ function formatDuration(ms: number): string {
   const minutes = Math.floor(seconds / 60)
   const remSec = seconds % 60
   return `${minutes}m${remSec.toString().padStart(2, '0')}s`
+}
+
+function UnitPlanDetailModal(props: {
+  unit: TerragruntUnit | null
+  summary: UnitPlanSummary | null
+  changes: PlanResourceChange[]
+  hasLog: boolean
+  onClose: () => void
+  onOpenLog: () => void
+}): JSX.Element {
+  const { unit, summary, changes, hasLog, onClose, onOpenLog } = props
+  const grouped = useMemo(() => {
+    const groups: Record<PlanAction, PlanResourceChange[]> = {
+      destroy: [], replace: [], update: [], create: [], read: [], unknown: []
+    }
+    for (const c of changes) groups[c.action].push(c)
+    return groups
+  }, [changes])
+
+  const actionLabel: Record<PlanAction, string> = {
+    create: 'Create',
+    update: 'Update in-place',
+    replace: 'Replace (destroy + create)',
+    destroy: 'Destroy',
+    read: 'Read',
+    unknown: 'Other'
+  }
+
+  return (
+    <div className="tg-modal-backdrop" onClick={onClose}>
+      <div className="tg-plan-detail-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="tg-monitor-head">
+          <div>
+            <strong>{unit ? unitDisplayName(unit) : 'Unit plan details'}</strong>
+            <span className="tf-section-hint">
+              {unit ? unitRelativePath(unit) : 'No unit selected.'}
+              {summary && (
+                <>
+                  {' · '}
+                  {summary.noop ? 'No changes' : `+${summary.create} ~${summary.change} -${summary.destroy}`}
+                </>
+              )}
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {hasLog && (
+              <button type="button" className="tf-toolbar-btn" onClick={onOpenLog}>
+                Open full log
+              </button>
+            )}
+            <button type="button" className="tf-toolbar-btn" onClick={onClose}>Close</button>
+          </div>
+        </div>
+
+        <div className="tg-plan-detail-body">
+          {summary?.noop && (
+            <div className="tf-section-hint">
+              Terraform reported <strong>no changes</strong>. The deployed infrastructure matches the configuration.
+            </div>
+          )}
+
+          {!summary && changes.length === 0 && (
+            <div className="tf-section-hint">
+              No plan has produced a parseable summary for this unit yet. Run all plan (or run a single-unit plan) first.
+            </div>
+          )}
+
+          {changes.length > 0 && (
+            <div className="tg-plan-detail-groups">
+              {(['destroy', 'replace', 'update', 'create', 'read', 'unknown'] as const).map((action) => {
+                const items = grouped[action]
+                if (items.length === 0) return null
+                return (
+                  <section key={action} className={`tg-plan-detail-group tone-${action}`}>
+                    <div className="tg-plan-detail-group-head">
+                      <span className={`tg-plan-detail-action tone-${action}`}>{actionLabel[action]}</span>
+                      <strong>{items.length}</strong>
+                    </div>
+                    <ul className="tg-plan-detail-list">
+                      {items.map((c) => (
+                        <li key={c.address} title={c.address}>
+                          <code>{c.address}</code>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )
+              })}
+            </div>
+          )}
+
+          {summary && !summary.noop && changes.length === 0 && (
+            <div className="tf-section-hint">
+              Terraform reported <code>+{summary.create} ~{summary.change} -{summary.destroy}</code> but no
+              per-resource breakdown was captured from the log. Open the full log for details.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function RunMiniIndicator(props: {
