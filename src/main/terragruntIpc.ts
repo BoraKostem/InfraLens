@@ -5,7 +5,7 @@ import type { AwsConnection, TerragruntRunAllCommand } from '@shared/types'
 import { createHandlerWrapper, type OperationOptions } from './operations'
 import { detectTerragruntCli, getCachedTerragruntCliInfo, resolveStack } from './terragrunt'
 import { scanForTerragrunt } from './terragruntDiscovery'
-import { cancelTerragruntStackRunAll, startTerragruntStackRunAll } from './terraform'
+import { cancelTerragruntStackRunAll, loadTerragruntUnitInventory, startTerragruntStackRunAll } from './terraform'
 
 type HandlerResult<T> = { ok: true; data: T } | { ok: false; error: string }
 const wrap: <T>(
@@ -26,7 +26,7 @@ export function registerTerragruntIpcHandlers(getWindow?: () => BrowserWindow | 
     wrap(() => scanForTerragrunt(path.resolve(rootPath)))
   )
   ipcMain.handle('terragrunt:stack:resolve', async (_event, rootPath: string) =>
-    wrap(() => resolveStack(path.resolve(rootPath)))
+    wrap(() => resolveStack(path.resolve(rootPath)), 'terragrunt:stack:resolve', { timeoutMs: 5 * 60 * 1000 })
   )
   ipcMain.handle(
     'terragrunt:run-all:start',
@@ -35,12 +35,13 @@ export function registerTerragruntIpcHandlers(getWindow?: () => BrowserWindow | 
       profileName: string,
       projectId: string,
       command: TerragruntRunAllCommand,
-      connection?: AwsConnection
+      connection?: AwsConnection,
+      unitFilter?: string[]
     ) =>
       wrap(
         () =>
           startTerragruntStackRunAll(
-            { profileName, projectId, command, connection },
+            { profileName, projectId, command, connection, unitFilter },
             getWindow?.() ?? null
           ),
         'terragrunt:run-all:start',
@@ -49,5 +50,14 @@ export function registerTerragruntIpcHandlers(getWindow?: () => BrowserWindow | 
   )
   ipcMain.handle('terragrunt:run-all:cancel', async (_event, runId: string) =>
     wrap(() => cancelTerragruntStackRunAll(runId))
+  )
+  ipcMain.handle(
+    'terragrunt:unit:inventory',
+    async (_event, profileName: string, projectId: string, connection?: AwsConnection) =>
+      wrap(
+        () => loadTerragruntUnitInventory(profileName, projectId, connection),
+        'terragrunt:unit:inventory',
+        { timeoutMs: 3 * 60 * 1000 }
+      )
   )
 }

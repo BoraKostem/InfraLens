@@ -2509,10 +2509,6 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 16px;
-  border: 1px solid rgba(145, 176, 207, 0.1);
-  border-radius: 16px;
-  background: rgba(19, 28, 26, 0.65);
 }
 
 .tg-stack-summary {
@@ -2677,6 +2673,14 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tg-unit-meta .tg-unit-relpath {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10.5px;
+  color: #c4d1dd;
+  direction: rtl;
+  text-align: left;
 }
 
 .tg-unit-deps {
@@ -2875,6 +2879,834 @@
   justify-content: flex-end;
   padding: 12px 16px;
   border-top: 1px solid rgba(145, 176, 207, 0.1);
+}
+
+/* ── Terragrunt dependency diagram ───────────────────────── */
+
+.tg-stack-diagram {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tg-stack-diagram h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #edf4fb;
+}
+
+.tg-diagram-wrap {
+  position: relative;
+  padding: 0;
+  border-radius: 10px;
+  background: rgba(8, 14, 13, 0.55);
+  border: 1px solid rgba(145, 176, 207, 0.08);
+  overflow: hidden;
+}
+
+.tg-diagram-toolbar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  z-index: 2;
+}
+
+.tg-diagram-toolbar button {
+  background: rgba(19, 28, 26, 0.9);
+  border: 1px solid rgba(145, 176, 207, 0.2);
+  color: #edf4fb;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  min-width: 36px;
+}
+
+.tg-diagram-toolbar button:hover {
+  background: rgba(74, 143, 231, 0.18);
+  border-color: rgba(74, 143, 231, 0.45);
+}
+
+.tg-diagram-viewport {
+  max-height: 440px;
+  overflow: auto;
+  padding: 12px;
+}
+
+.tg-diagram-svg {
+  display: block;
+}
+
+.tg-diagram-col-label {
+  fill: #9ec7ff;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.tg-diagram-node {
+  fill: rgba(19, 28, 26, 0.95);
+  stroke: rgba(145, 176, 207, 0.2);
+  stroke-width: 1;
+}
+
+.tg-diagram-node.status-running { stroke: rgba(74, 143, 231, 0.8); stroke-width: 1.5; }
+.tg-diagram-node.status-succeeded { stroke: rgba(46, 204, 113, 0.8); stroke-width: 1.5; }
+.tg-diagram-node.status-failed { stroke: rgba(231, 76, 60, 0.9); stroke-width: 1.5; }
+.tg-diagram-node.status-blocked { stroke: rgba(243, 156, 18, 0.8); stroke-width: 1.5; }
+.tg-diagram-node.status-cancelled { stroke: rgba(150, 150, 150, 0.8); stroke-width: 1.5; }
+
+.tg-diagram-node-title {
+  fill: #edf4fb;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tg-diagram-node-sub {
+  fill: #8fa3ba;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10.5px;
+}
+
+.tg-diagram-node-status {
+  fill: #c4d1dd;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tg-diagram-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 11px;
+  color: #8fa3ba;
+  padding: 8px 12px;
+  border-top: 1px solid rgba(145, 176, 207, 0.08);
+}
+
+.tg-diagram-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tg-diagram-legend-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+/* ── Terragrunt stack tabs & Actions panel ───────────────── */
+
+.tg-stack-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: rgba(8, 14, 13, 0.6);
+  border-radius: 10px;
+  border: 1px solid rgba(145, 176, 207, 0.08);
+  margin-bottom: 4px;
+}
+
+.tg-stack-tabs button {
+  flex: 1;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #8fa3ba;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.tg-stack-tabs button:hover {
+  color: #edf4fb;
+}
+
+.tg-stack-tabs button.active {
+  background: rgba(74, 143, 231, 0.14);
+  color: #9ec7ff;
+  border-color: rgba(74, 143, 231, 0.35);
+}
+
+.tg-actions-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 12px;
+  background: rgba(8, 14, 13, 0.7);
+  border: 1px solid rgba(145, 176, 207, 0.1);
+}
+
+.tg-actions-header h3 {
+  margin: 0 0 4px 0;
+  font-size: 1rem;
+  color: #edf4fb;
+}
+
+.tg-actions-header p {
+  margin: 0;
+  color: #8fa3ba;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.tg-actions-banner {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: rgba(19, 28, 26, 0.85);
+  border: 1px solid rgba(243, 156, 18, 0.4);
+}
+
+.tg-actions-banner.safe { border-color: rgba(74, 143, 231, 0.4); }
+.tg-actions-banner.danger { border-color: rgba(231, 76, 60, 0.55); background: rgba(40, 20, 20, 0.85); }
+
+.tg-actions-banner-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tg-actions-banner-eyebrow {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #9ec7ff;
+  font-weight: 700;
+}
+
+.tg-actions-banner-copy strong {
+  font-size: 1rem;
+  color: #edf4fb;
+}
+
+.tg-actions-banner-copy small {
+  color: #8fa3ba;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.tg-actions-banner-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(78px, 1fr));
+  gap: 10px;
+  align-items: stretch;
+}
+
+.tg-actions-stat {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(8, 14, 13, 0.85);
+  border: 1px solid rgba(145, 176, 207, 0.1);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  min-width: 84px;
+}
+
+.tg-actions-stat strong {
+  font-size: 1.4rem;
+  color: #edf4fb;
+  line-height: 1;
+}
+
+.tg-actions-stat span {
+  color: #8fa3ba;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.tg-actions-button-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.tg-actions-btn {
+  padding: 14px 18px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  color: #edf4fb;
+  background: rgba(19, 28, 26, 0.85);
+  transition: filter 0.15s, background 0.15s;
+  text-align: center;
+}
+
+.tg-actions-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tg-actions-btn:not(:disabled):hover {
+  filter: brightness(1.12);
+}
+
+.tg-actions-btn.init { background: linear-gradient(180deg, #3b4591, #2f3876); }
+.tg-actions-btn.plan { background: linear-gradient(180deg, #3d6baf, #315790); }
+.tg-actions-btn.apply { background: linear-gradient(180deg, #2d6b4a, #234f38); }
+.tg-actions-btn.destroy { background: linear-gradient(180deg, #7a2f2f, #5a2020); }
+
+.tg-actions-btn.ghost-danger {
+  background: rgba(231, 76, 60, 0.14);
+  color: #ff9e92;
+  border: 1px solid rgba(231, 76, 60, 0.4);
+  padding: 8px 14px;
+  font-size: 0.85rem;
+}
+
+.tg-actions-footer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* ── State & history panels ──────────────────────────────── */
+
+.tg-state-panel,
+.tg-history-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 12px;
+  background: rgba(8, 14, 13, 0.7);
+  border: 1px solid rgba(145, 176, 207, 0.1);
+}
+
+.tg-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.tg-panel-head h3 {
+  margin: 0 0 4px 0;
+  font-size: 1rem;
+  color: #edf4fb;
+}
+
+.tg-panel-head p {
+  margin: 0;
+  color: #8fa3ba;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.tg-unit-picker {
+  display: flex;
+  gap: 10px;
+  align-items: end;
+  flex-wrap: wrap;
+}
+
+.tg-unit-picker label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 260px;
+  color: #8fa3ba;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.tg-unit-picker select {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(145, 176, 207, 0.2);
+  background: rgba(19, 28, 26, 0.85);
+  color: #edf4fb;
+  font-size: 0.85rem;
+}
+
+.tg-unit-picker-meta {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: #c4d1dd;
+}
+
+.tg-unit-picker-meta code {
+  background: rgba(19, 28, 26, 0.85);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+}
+
+.tg-state-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tg-state-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 11.5px;
+  color: #c4d1dd;
+}
+
+.tg-state-meta code {
+  background: rgba(19, 28, 26, 0.85);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+}
+
+.tg-state-table,
+.tg-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.tg-state-table thead th,
+.tg-history-table thead th {
+  text-align: left;
+  font-weight: 700;
+  color: #8fa3ba;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(145, 176, 207, 0.1);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.tg-state-table tbody td,
+.tg-history-table tbody td {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(145, 176, 207, 0.06);
+  color: #c4d1dd;
+}
+
+.tg-state-table tbody tr:hover,
+.tg-history-table tbody tr:hover {
+  background: rgba(74, 143, 231, 0.05);
+}
+
+/* ── Monitor modal & summary chips ──────────────────────── */
+
+.tg-summary-item-btn {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: #c4d1dd;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tg-summary-item-btn:hover {
+  color: #9ec7ff;
+  text-decoration: underline;
+}
+
+.tg-monitor-modal {
+  background: #0f1a18;
+  border: 1px solid rgba(145, 176, 207, 0.2);
+  border-radius: 12px;
+  width: min(94vw, 1100px);
+  height: min(86vh, 720px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tg-monitor-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(145, 176, 207, 0.12);
+  gap: 14px;
+}
+
+.tg-monitor-head strong {
+  display: block;
+  font-size: 1rem;
+  color: #edf4fb;
+  margin-bottom: 2px;
+}
+
+.tg-monitor-head .tf-section-hint {
+  font-size: 12px;
+  color: #8fa3ba;
+}
+
+.tg-monitor-body {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  flex: 1;
+  min-height: 0;
+}
+
+.tg-monitor-unit-list {
+  border-right: 1px solid rgba(145, 176, 207, 0.12);
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tg-monitor-unit {
+  background: rgba(19, 28, 26, 0.6);
+  border: 1px solid rgba(145, 176, 207, 0.08);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: #c4d1dd;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: relative;
+}
+
+.tg-monitor-unit:hover {
+  background: rgba(74, 143, 231, 0.08);
+}
+
+.tg-monitor-unit.active {
+  background: rgba(74, 143, 231, 0.18);
+  border-color: rgba(74, 143, 231, 0.45);
+}
+
+.tg-monitor-unit-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #edf4fb;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tg-monitor-unit-path {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10.5px;
+  color: #8fa3ba;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.tg-monitor-unit .tg-status-badge {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
+.tg-monitor-log-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 12px 14px;
+}
+
+.tg-monitor-log-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.tg-monitor-log-head strong {
+  display: block;
+  font-size: 0.95rem;
+  color: #edf4fb;
+}
+
+.tg-monitor-log-head .tf-section-hint {
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  color: #8fa3ba;
+}
+
+.tg-monitor-log {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 12px;
+  background: #05090a;
+  border: 1px solid rgba(145, 176, 207, 0.1);
+  border-radius: 8px;
+  color: #d0d8e0;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: auto;
+}
+
+.tg-monitor-log-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #8fa3ba;
+  font-size: 0.9rem;
+}
+
+/* ── Mini indicator (minimised run monitor) ─────────────── */
+
+.tg-mini-indicator {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 900;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  background: #1a2322;
+  border: 1px solid rgba(145, 176, 207, 0.18);
+  border-radius: 12px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45);
+  min-width: 360px;
+  max-width: 460px;
+  overflow: hidden;
+}
+
+.tg-mini-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: transparent;
+  border: 0;
+  color: #edf4fb;
+  cursor: pointer;
+  text-align: left;
+}
+
+.tg-mini-body:hover {
+  background: rgba(74, 143, 231, 0.06);
+}
+
+.tg-mini-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(158, 199, 255, 0.4);
+  border-top-color: #9ec7ff;
+  animation: tg-mini-spin 1s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes tg-mini-spin {
+  to { transform: rotate(360deg); }
+}
+
+.tg-mini-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.tg-mini-copy strong {
+  font-size: 0.95rem;
+  color: #edf4fb;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tg-mini-copy span {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11.5px;
+  color: #8fa3ba;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tg-mini-kill {
+  align-self: stretch;
+  padding: 0 16px;
+  background: linear-gradient(180deg, #8a2a2a, #6a1d1d);
+  border: 0;
+  border-left: 1px solid rgba(145, 176, 207, 0.2);
+  color: #ffe3df;
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tg-mini-kill:hover {
+  filter: brightness(1.15);
+}
+
+/* ── Terragrunt Inputs dialog ────────────────────────────── */
+
+.tg-inputs-modal {
+  background: #0f1a18;
+  border: 1px solid rgba(145, 176, 207, 0.2);
+  border-radius: 12px;
+  width: min(94vw, 900px);
+  height: min(86vh, 680px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tg-inputs-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(145, 176, 207, 0.12);
+  gap: 14px;
+}
+
+.tg-inputs-head strong {
+  display: block;
+  font-size: 1rem;
+  color: #edf4fb;
+  margin-bottom: 4px;
+}
+
+.tg-inputs-picker {
+  padding: 12px 18px 0 18px;
+}
+
+.tg-inputs-body {
+  flex: 1;
+  min-height: 0;
+  padding: 12px 18px 18px 18px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tg-inputs-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(8, 14, 13, 0.55);
+  border: 1px solid rgba(145, 176, 207, 0.08);
+}
+
+.tg-inputs-meta > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.tg-inputs-meta code {
+  background: rgba(19, 28, 26, 0.85);
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+  color: #c4d1dd;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tg-inputs-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tg-inputs-toolbar-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tg-inputs-table-wrap {
+  border-radius: 8px;
+  border: 1px solid rgba(145, 176, 207, 0.1);
+  overflow: hidden;
+}
+
+.tg-inputs-table code {
+  background: rgba(19, 28, 26, 0.85);
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11.5px;
+  color: #c4d1dd;
+}
+
+.tg-inputs-value {
+  display: inline-block;
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.tg-inputs-type {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(74, 143, 231, 0.14);
+  color: #9ec7ff;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tg-inputs-sensitive-tag {
+  margin-left: 8px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(243, 156, 18, 0.14);
+  color: #ffd082;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 /* ── Resource Rows (inventory) ───────────────────────────── */

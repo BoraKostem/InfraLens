@@ -168,6 +168,7 @@ export function parseTerragruntFile(configFile: string): Omit<TerragruntUnit, 'u
     additionalDependencyPaths: parseAdditionalDependencyPaths(source),
     generatedFiles: parseGenerateBlocks(source),
     remoteState: parseRemoteStateBlock(source),
+    inputs: [],
     resolvedAt: '',
     resolveError: ''
   }
@@ -241,11 +242,19 @@ export function scanForTerragrunt(rootPath: string): TerragruntDiscoveryResult {
     .filter((unit) => unit.terraformSource !== '' || unit.includes.length > 0)
     .sort((a, b) => a.relativePath.localeCompare(b.relativePath))
 
+  // The root terragrunt.hcl (if present) is not a runnable unit, but it may carry shared
+  // `inputs = { … }`, `locals`, `remote_state`, and `generate` blocks that every child
+  // inherits. Surface it so the Inputs dialog can render its values alongside the per-unit view.
+  const rootUnit: TerragruntUnit | null = rootHasConfig
+    ? buildUnit(rootConfig, stackRoot)
+    : null
+
   return {
     rootPath: absoluteRoot,
     classification: 'stack',
     stackRoot,
     units,
+    rootConfig: rootUnit,
     errors
   }
 }

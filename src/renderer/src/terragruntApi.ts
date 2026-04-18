@@ -1,5 +1,6 @@
 import type {
   AwsConnection,
+  TerraformResourceInventoryItem,
   TerragruntCliInfo,
   TerragruntDiscoveryResult,
   TerragruntRunAllCommand,
@@ -28,10 +29,24 @@ export const getTerragruntCliInfo = call<[], TerragruntCliInfo>('getCliInfo')
 export const scanTerragruntDiscovery = call<[rootPath: string], TerragruntDiscoveryResult>('scanDiscovery')
 export const resolveTerragruntStack = call<[rootPath: string], ResolvedStackResult>('resolveStack')
 export const startTerragruntRunAll = call<
-  [profileName: string, projectId: string, command: TerragruntRunAllCommand, connection?: AwsConnection],
+  [profileName: string, projectId: string, command: TerragruntRunAllCommand, connection?: AwsConnection, unitFilter?: string[]],
   { runId: string; phases: string[][] }
 >('startRunAll')
 export const cancelTerragruntRunAll = call<[runId: string], boolean>('cancelRunAll')
+
+export type TerragruntUnitInventoryResult = {
+  inventory: TerraformResourceInventoryItem[]
+  stateAddresses: string[]
+  rawStateJson: string
+  stateSource: string
+  workingDir: string
+  error: string
+}
+
+export const getTerragruntUnitInventory = call<
+  [profileName: string, projectId: string, connection?: AwsConnection],
+  TerragruntUnitInventoryResult
+>('unitInventory')
 
 export function subscribeTerragruntRunAll(listener: (event: TerragruntRunAllEvent) => void): void {
   (getTerragruntBridge().subscribeRunAll as (l: (e: unknown) => void) => void)(listener as (e: unknown) => void)

@@ -11,6 +11,7 @@ import type {
   TerraformCommandName,
   TerraformRunRecord,
   TerragruntCliInfo,
+  TerragruntInputEntry,
   TerragruntRunAllCommand,
   TerragruntRunAllEvent,
   TerragruntRunAllSummary,
@@ -26,7 +27,7 @@ import { classifyTerraformError } from './terraformErrorClassifier'
 const NOT_INSTALLED_ERROR =
   'Terragrunt CLI not found. Install Terragrunt and ensure it is on your PATH, or set an explicit path in Settings.'
 
-const RENDER_JSON_TIMEOUT_MS = 30000
+const RENDER_JSON_TIMEOUT_MS = 20000
 
 let cachedInfo: TerragruntCliInfo | null = null
 
@@ -37,6 +38,8 @@ type RenderedJson = {
   dependency?: Record<string, RenderedDependency> | RenderedDependency[]
   dependencies?: { paths?: string[] }
   include?: Record<string, { path?: string }> | Array<{ name?: string; path?: string }>
+  inputs?: Record<string, unknown>
+  locals?: Record<string, unknown>
 }
 
 type RenderedUnitCacheEntry = {
@@ -185,23 +188,124 @@ function configFileMtime(configFile: string): number {
   try { return fs.statSync(configFile).mtimeMs } catch { return 0 }
 }
 
+type RenderJsonStrategy =
+  | { kind: 'render-out' }          // `terragrunt render --format=json --out=<file>` (current CLI, 0.73+)
+  | { kind: 'render-json-out' }     // `terragrunt render-json --out=<file>` (brief transitional form)
+  | { kind: 'legacy-prefix' }       // `terragrunt render-json --terragrunt-json-out=<file>` (pre-0.73)
+  | { kind: 'render-stdout' }       // `terragrunt render --format=json` → stdout (newest, no `--out`)
+  | { kind: 'stdout' }              // `terragrunt render-json` → stdout (legacy fallback)
+
+const RENDER_JSON_STRATEGIES: RenderJsonStrategy[] = [
+  { kind: 'render-out' },
+  { kind: 'render-json-out' },
+  { kind: 'legacy-prefix' },
+  { kind: 'render-stdout' },
+  { kind: 'stdout' }
+]
+
+let cachedRenderJsonStrategy: RenderJsonStrategy | null = null
+
+function renderJsonArgs(strategy: RenderJsonStrategy, outFile: string): string[] {
+  switch (strategy.kind) {
+    case 'render-out':
+      return ['render', '--format=json', `--out=${outFile}`, '--non-interactive']
+    case 'render-json-out':
+      return ['render-json', `--out=${outFile}`, '--terragrunt-non-interactive']
+    case 'legacy-prefix':
+      return ['render-json', `--terragrunt-json-out=${outFile}`, '--terragrunt-non-interactive']
+    case 'render-stdout':
+      return ['render', '--format=json', '--non-interactive']
+    case 'stdout':
+      return ['render-json', '--terragrunt-non-interactive']
+  }
+}
+
+function isUnknownFlagError(stderr: string): boolean {
+  const text = stderr.toLowerCase()
+  return text.includes('flag provided but not defined')
+    || text.includes('unknown flag')
+    || text.includes('unknown command')
+    || text.includes('unrecognized flag')
+    || text.includes('is not a valid flag')
+    || text.includes('is not a valid global flag')
+    || text.includes('is not a valid command')
+    || text.includes('did you mean')
+}
+
+function extractJsonObject(text: string): string {
+  const trimmed = text.trim()
+  if (trimmed.startsWith('{')) return trimmed
+  const firstBrace = trimmed.indexOf('{')
+  const lastBrace = trimmed.lastIndexOf('}')
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    return trimmed.slice(firstBrace, lastBrace + 1)
+  }
+  return ''
+}
+
+async function attemptRenderJson(
+  strategy: RenderJsonStrategy,
+  cliPath: string,
+  unitPath: string,
+  outFile: string,
+  env: Record<string, string>
+): Promise<{ ok: boolean; json: string; error: string; unknownFlag: boolean }> {
+  const args = renderJsonArgs(strategy, outFile)
+  const result = await invokeTerragrunt(cliPath, unitPath, args, env, RENDER_JSON_TIMEOUT_MS)
+  const usesStdout = strategy.kind === 'stdout' || strategy.kind === 'render-stdout'
+  if (result.exitCode !== 0) {
+    const stderr = result.stderr || result.stdout
+    return { ok: false, json: '', error: stderr.slice(-600), unknownFlag: isUnknownFlagError(stderr) }
+  }
+  if (usesStdout) {
+    const json = extractJsonObject(result.stdout)
+    return {
+      ok: json.length > 0,
+      json,
+      error: json ? '' : 'no JSON payload on stdout',
+      unknownFlag: false
+    }
+  }
+  try {
+    const raw = fs.readFileSync(outFile, 'utf-8')
+    return { ok: raw.trim().length > 0, json: raw, error: raw ? '' : 'empty output file', unknownFlag: false }
+  } catch (err) {
+    return { ok: false, json: '', error: (err as Error).message, unknownFlag: false }
+  }
+}
+
 async function invokeRenderJson(
   cliPath: string,
   unitPath: string,
   outFile: string,
   env: Record<string, string>
-): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    execFile(
-      cliPath,
-      ['render-json', '--terragrunt-json-out', outFile],
-      { cwd: unitPath, env, timeout: RENDER_JSON_TIMEOUT_MS, windowsHide: true },
-      (err) => {
-        if (err) reject(err)
-        else resolve()
-      }
-    )
-  })
+): Promise<string> {
+  const errors: string[] = []
+
+  // If we already know which flag-form this Terragrunt accepts, try it first. A non-flag failure
+  // (bad config, missing creds) is almost certainly a real error for this unit — surface it
+  // immediately instead of cycling through every other form and returning a confusing chain.
+  if (cachedRenderJsonStrategy) {
+    const attempt = await attemptRenderJson(cachedRenderJsonStrategy, cliPath, unitPath, outFile, env)
+    if (attempt.ok) return attempt.json
+    errors.push(`[${cachedRenderJsonStrategy.kind}] ${attempt.error}`)
+    if (!attempt.unknownFlag) {
+      throw new Error(`terragrunt render-json failed: ${errors.join(' | ')}`)
+    }
+    // Cached strategy no longer recognised — Terragrunt may have been upgraded. Fall through and
+    // probe all strategies to rediscover the working form.
+  }
+
+  for (const strategy of RENDER_JSON_STRATEGIES) {
+    if (cachedRenderJsonStrategy && strategy.kind === cachedRenderJsonStrategy.kind) continue
+    const attempt = await attemptRenderJson(strategy, cliPath, unitPath, outFile, env)
+    if (attempt.ok) {
+      cachedRenderJsonStrategy = strategy
+      return attempt.json
+    }
+    errors.push(`[${strategy.kind}] ${attempt.error}`)
+  }
+  throw new Error(`terragrunt render-json failed across all strategies: ${errors.join(' | ')}`)
 }
 
 export async function renderUnitJson(unitPath: string): Promise<RenderedJson> {
@@ -219,8 +323,7 @@ export async function renderUnitJson(unitPath: string): Promise<RenderedJson> {
   const env = await getResolvedProcessEnv()
   const outFile = renderJsonTempPath()
   try {
-    await invokeRenderJson(info.path, unitPath, outFile, env)
-    const raw = fs.readFileSync(outFile, 'utf-8')
+    const raw = await invokeRenderJson(info.path, unitPath, outFile, env)
     const parsed = JSON.parse(raw) as RenderedJson
     renderCache.set(configFile, { configMtimeMs: mtime, json: parsed })
     return parsed
@@ -244,6 +347,45 @@ function applyStaticResolution(units: TerragruntUnit[]): TerragruntUnit[] {
       resolvedPath: dep.resolvedPath || resolveStaticDependencyPath(unit, dep.configPath)
     }))
   }))
+}
+
+function summarizeInputValue(value: unknown): TerragruntInputEntry['valueSummary'] {
+  if (value === null || value === undefined) return 'null'
+  if (typeof value === 'string') return value.length > 120 ? `${value.slice(0, 117)}…` : value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (Array.isArray(value)) {
+    const preview = value.slice(0, 5).map((v) => summarizeInputValue(v)).join(', ')
+    return value.length > 5 ? `[${preview}, +${value.length - 5} more]` : `[${preview}]`
+  }
+  try {
+    const json = JSON.stringify(value)
+    return json.length > 160 ? `${json.slice(0, 157)}…` : json
+  } catch {
+    return '[unserialisable value]'
+  }
+}
+
+function classifyInputValueType(value: unknown): TerragruntInputEntry['valueType'] {
+  if (value === null || value === undefined) return 'null'
+  if (Array.isArray(value)) return 'list'
+  const t = typeof value
+  if (t === 'string' || t === 'number' || t === 'boolean') return t
+  if (t === 'object') return 'object'
+  return 'unknown'
+}
+
+const SENSITIVE_NAME_PATTERN = /(password|secret|token|private_key|api_key|credentials?)$/i
+
+function buildInputEntries(raw: Record<string, unknown> | undefined): TerragruntInputEntry[] {
+  if (!raw) return []
+  return Object.entries(raw)
+    .map(([name, value]) => ({
+      name,
+      valueSummary: summarizeInputValue(value),
+      valueType: classifyInputValueType(value),
+      isSensitive: SENSITIVE_NAME_PATTERN.test(name)
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name))
 }
 
 function applyRenderedResolution(unit: TerragruntUnit, json: RenderedJson): TerragruntUnit {
@@ -274,6 +416,8 @@ function applyRenderedResolution(unit: TerragruntUnit, json: RenderedJson): Terr
       path.isAbsolute(p) ? p : path.resolve(unit.unitPath, p)
     )
   }
+
+  next.inputs = buildInputEntries(json.inputs)
 
   next.resolvedAt = new Date().toISOString()
   next.resolveError = ''
@@ -378,6 +522,27 @@ export type ResolvedStack = {
   resolveErrors: Array<{ unitPath: string; error: string }>
 }
 
+const RESOLVE_CONCURRENCY = 4
+
+async function mapWithConcurrency<T, R>(items: T[], limit: number, mapper: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length)
+  let cursor = 0
+  const workers: Promise<void>[] = []
+  const workerCount = Math.min(limit, Math.max(1, items.length))
+  for (let w = 0; w < workerCount; w += 1) {
+    workers.push((async () => {
+      while (true) {
+        const idx = cursor
+        cursor += 1
+        if (idx >= items.length) return
+        results[idx] = await mapper(items[idx], idx)
+      }
+    })())
+  }
+  await Promise.all(workers)
+  return results
+}
+
 export async function resolveStack(rootPath: string): Promise<ResolvedStack> {
   const discovery = scanForTerragrunt(rootPath)
   const info = await detectTerragruntCli()
@@ -385,27 +550,25 @@ export async function resolveStack(rootPath: string): Promise<ResolvedStack> {
   const resolveErrors: Array<{ unitPath: string; error: string }> = []
 
   let units: TerragruntUnit[] = discovery.units
+  let rootConfig: TerragruntUnit | null = discovery.rootConfig ?? null
   if (cliAvailable) {
-    const resolved: TerragruntUnit[] = []
-    for (const unit of units) {
-      try {
-        const json = await renderUnitJson(unit.unitPath)
-        resolved.push(applyRenderedResolution(unit, json))
-      } catch (err) {
-        resolveErrors.push({ unitPath: unit.unitPath, error: (err as Error).message })
-        resolved.push({
-          ...unit,
-          resolveError: (err as Error).message,
-          dependencies: unit.dependencies.map((d) => ({
-            ...d,
-            resolvedPath: d.resolvedPath || resolveStaticDependencyPath(unit, d.configPath)
-          }))
-        })
-      }
+    if (units.length > 0) {
+      // First unit serially so its probe can populate cachedRenderJsonStrategy before we fan out.
+      const [head, ...tail] = units
+      const headResolved = await resolveSingleUnit(head, resolveErrors)
+      const tailResolved = tail.length > 0
+        ? await mapWithConcurrency(tail, RESOLVE_CONCURRENCY, (u) => resolveSingleUnit(u, resolveErrors))
+        : []
+      units = [headResolved, ...tailResolved]
     }
-    units = resolved
+    if (rootConfig) {
+      rootConfig = await resolveSingleUnit(rootConfig, resolveErrors)
+    }
   } else {
     units = applyStaticResolution(units)
+    if (rootConfig) {
+      rootConfig = applyStaticResolution([rootConfig])[0]
+    }
   }
 
   const { dependencyOrder, cycles } = buildDependencyGraph(units)
@@ -415,7 +578,8 @@ export async function resolveStack(rootPath: string): Promise<ResolvedStack> {
       stackRoot: discovery.stackRoot || path.resolve(rootPath),
       units,
       dependencyOrder,
-      cycles
+      cycles,
+      rootConfig
     },
     cliAvailable,
     resolveErrors
@@ -423,6 +587,27 @@ export async function resolveStack(rootPath: string): Promise<ResolvedStack> {
 }
 
 /* ── run-all orchestration ───────────────────────────────── */
+
+async function resolveSingleUnit(
+  unit: TerragruntUnit,
+  resolveErrors: Array<{ unitPath: string; error: string }>
+): Promise<TerragruntUnit> {
+  try {
+    const json = await renderUnitJson(unit.unitPath)
+    return applyRenderedResolution(unit, json)
+  } catch (err) {
+    const message = (err as Error).message
+    resolveErrors.push({ unitPath: unit.unitPath, error: message })
+    return {
+      ...unit,
+      resolveError: message,
+      dependencies: unit.dependencies.map((d) => ({
+        ...d,
+        resolvedPath: d.resolvedPath || resolveStaticDependencyPath(unit, d.configPath)
+      }))
+    }
+  }
+}
 
 export type RunAllHistoryIdentity = {
   stackProjectId: string
@@ -440,6 +625,8 @@ export type RunAllStartOptions = {
   env: Record<string, string>
   identity: RunAllHistoryIdentity
   window: BrowserWindow | null
+  /** Optional set of absolute unit paths to include. Units outside this set are skipped. */
+  unitFilter?: string[]
 }
 
 type ActiveRunAll = {
@@ -612,7 +799,14 @@ export async function startRunAll(options: RunAllStartOptions): Promise<{ runId:
   const baseArgs = buildTerragruntCommandArgs(options.command)
   const runId = randomUUID()
   const depsMap = buildDependencyMap(options.stack.units)
-  const phases = options.stack.dependencyOrder
+  const filterSet = options.unitFilter && options.unitFilter.length > 0
+    ? new Set(options.unitFilter.map((p) => path.resolve(p)))
+    : null
+  const phases = filterSet
+    ? options.stack.dependencyOrder
+        .map((phase) => phase.filter((unitPath) => filterSet.has(unitPath)))
+        .filter((phase) => phase.length > 0)
+    : options.stack.dependencyOrder
 
   const active: ActiveRunAll = {
     runId,

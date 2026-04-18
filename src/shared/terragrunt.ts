@@ -33,6 +33,13 @@ export type TerragruntRemoteState = {
   configSummary: Record<string, string>
 }
 
+export type TerragruntInputEntry = {
+  name: string
+  valueSummary: string
+  valueType: 'string' | 'number' | 'boolean' | 'list' | 'object' | 'null' | 'unknown'
+  isSensitive: boolean
+}
+
 export type TerragruntUnit = {
   unitPath: string
   relativePath: string
@@ -43,6 +50,7 @@ export type TerragruntUnit = {
   additionalDependencyPaths: string[]
   generatedFiles: TerragruntGeneratedFile[]
   remoteState: TerragruntRemoteState | null
+  inputs: TerragruntInputEntry[]
   resolvedAt: string
   resolveError: string
 }
@@ -52,6 +60,11 @@ export type TerragruntStack = {
   units: TerragruntUnit[]
   dependencyOrder: string[][]
   cycles: string[][]
+  /**
+   * Root-level terragrunt.hcl at the stack root, when present. Not a runnable unit — it holds
+   * shared inputs, locals, remote_state, and generate blocks that every child inherits.
+   */
+  rootConfig?: TerragruntUnit | null
 }
 
 export type TerragruntProjectInfo =
@@ -67,6 +80,7 @@ export type TerragruntDiscoveryResult = {
   classification: TerragruntDiscoveryClassification
   stackRoot: string
   units: TerragruntUnit[]
+  rootConfig?: TerragruntUnit | null
   errors: string[]
 }
 

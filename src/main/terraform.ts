@@ -2597,7 +2597,8 @@ function classifyProjectKind(rootPath: string): { kind: TerraformProjectKind; te
           stackRoot: discovery.stackRoot,
           units: discovery.units,
           dependencyOrder: [],
-          cycles: []
+          cycles: [],
+          rootConfig: discovery.rootConfig ?? null
         }
       }
     }
@@ -3700,6 +3701,7 @@ export async function startTerragruntStackRunAll(options: {
   projectId: string
   connection?: AwsConnection
   command: TerragruntRunAllCommand
+  unitFilter?: string[]
 }, window: BrowserWindow | null): Promise<{ runId: string; phases: string[][] }> {
   const project = getStoredProjects(options.profileName).find((p) => p.id === options.projectId)
   if (!project) throw new Error('Project not found.')
@@ -3724,7 +3726,8 @@ export async function startTerragruntStackRunAll(options: {
       backendType: project.environment?.backendType ?? 'local',
       provider: inferTerraformProviderId(options.profileName, options.connection)
     },
-    window
+    window,
+    unitFilter: options.unitFilter
   })
 }
 

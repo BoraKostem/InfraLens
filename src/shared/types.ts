@@ -6373,6 +6373,7 @@ export type {
   TerragruntDiscoveryResult,
   TerragruntGeneratedFile,
   TerragruntIncludeRef,
+  TerragruntInputEntry,
   TerragruntProjectInfo,
   TerragruntRemoteState,
   TerragruntRunAllCommand,

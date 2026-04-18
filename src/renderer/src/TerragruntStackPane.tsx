@@ -3,22 +3,28 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   AwsConnection,
   TerraformProject,
+  TerraformRunRecord,
   TerragruntProjectInfo,
   TerragruntRunAllCommand,
   TerragruntRunAllEvent,
   TerragruntRunAllSummary,
   TerragruntUnit
 } from '@shared/types'
+import { listRunHistory } from './terraformApi'
 import {
   cancelTerragruntRunAll,
+  getTerragruntUnitInventory,
   resolveTerragruntStack,
   startTerragruntRunAll,
   subscribeTerragruntRunAll,
   unsubscribeTerragruntRunAll,
-  type ResolvedStackResult
+  type ResolvedStackResult,
+  type TerragruntUnitInventoryResult
 } from './terragruntApi'
 
 type UnitStatus = 'idle' | 'running' | 'succeeded' | 'failed' | 'blocked' | 'cancelled'
+
+type StackTab = 'actions' | 'state' | 'history'
 
 type TerragruntStackPaneProps = {
   project: TerraformProject
@@ -28,10 +34,6 @@ type TerragruntStackPaneProps = {
 
 function isStackInfo(info: TerragruntProjectInfo | null | undefined): info is Extract<TerragruntProjectInfo, { kind: 'terragrunt-stack' }> {
   return info?.kind === 'terragrunt-stack'
-}
-
-function relativePath(unit: TerragruntUnit): string {
-  return unit.relativePath || '.'
 }
 
 export function TerragruntStackPane({ project, profileName, connection }: TerragruntStackPaneProps): JSX.Element {
@@ -47,6 +49,14 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
   const [runError, setRunError] = useState('')
   const [starting, setStarting] = useState(false)
   const activeRunIdRef = useRef<string | null>(null)
+  const activeCommandRef = useRef<TerragruntRunAllCommand | null>(null)
+  const [activeTab, setActiveTab] = useState<StackTab>('actions')
+  const [planReady, setPlanReady] = useState(false)
+  const [unitLogs, setUnitLogs] = useState<Record<string, string>>({})
+  const [monitorOpen, setMonitorOpen] = useState(false)
+  const [monitorUnit, setMonitorUnit] = useState<string | null>(null)
+  const [outputOpen, setOutputOpen] = useState(false)
+  const [selectedEnvironment, setSelectedEnvironment] = useState<string>('all')
 
   const effectiveStack = resolvedStack?.stack ?? stackInfo
   const phases = effectiveStack?.dependencyOrder ?? []
@@ -66,6 +76,9 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
     try {
       const result = await resolveTerragruntStack(project.rootPath)
       setResolvedStack(result)
+      // Re-resolving the stack invalidates any in-memory saved-plan readiness because
+      // unit topology may have changed.
+      setPlanReady(false)
     } catch (err) {
       setResolveError((err as Error).message)
     } finally {
@@ -80,19 +93,33 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
           return
         }
         activeRunIdRef.current = event.runId
+        activeCommandRef.current = event.command
         setRunId(event.runId)
         setRunCommand(event.command)
         setSummary(null)
         setUnitStatuses({})
+        setUnitLogs({})
+        setMonitorOpen(true)
+        setMonitorUnit(null)
         return
       }
       if (event.runId !== activeRunIdRef.current) return
       switch (event.type) {
         case 'unit-started':
           setUnitStatuses((prev) => ({ ...prev, [event.unitPath]: 'running' }))
+          setMonitorUnit((prev) => prev ?? event.unitPath)
+          break
+        case 'unit-output':
+          setUnitLogs((prev) => {
+            const existing = prev[event.unitPath] ?? ''
+            const next = existing + event.chunk
+            // Cap each unit's buffer so a chatty unit doesn't balloon renderer memory.
+            return { ...prev, [event.unitPath]: next.length > 500_000 ? next.slice(-500_000) : next }
+          })
           break
         case 'unit-completed':
           setUnitStatuses((prev) => ({ ...prev, [event.unitPath]: event.success ? 'succeeded' : 'failed' }))
+          if (!event.success) setMonitorUnit(event.unitPath)
           break
         case 'unit-blocked':
           setUnitStatuses((prev) => ({ ...prev, [event.unitPath]: 'blocked' }))
@@ -100,12 +127,21 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
         case 'unit-cancelled':
           setUnitStatuses((prev) => ({ ...prev, [event.unitPath]: 'cancelled' }))
           break
-        case 'stack-completed':
+        case 'stack-completed': {
+          const finishedCommand = activeCommandRef.current
           setSummary(event.summary)
           setRunId(null)
           setRunCommand(null)
           activeRunIdRef.current = null
+          activeCommandRef.current = null
+          if (finishedCommand === 'plan') {
+            setPlanReady(event.summary.succeeded.length > 0)
+          } else if (finishedCommand === 'apply' || finishedCommand === 'destroy') {
+            // Apply / destroy consume or invalidate the saved plans.
+            setPlanReady(false)
+          }
           break
+        }
         default:
           break
       }
@@ -116,6 +152,7 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
 
   useEffect(() => {
     activeRunIdRef.current = null
+    activeCommandRef.current = null
     setResolvedStack(null)
     setResolveError('')
     setRunId(null)
@@ -124,6 +161,12 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
     setSummary(null)
     setRunError('')
     setStarting(false)
+    setPlanReady(false)
+    setUnitLogs({})
+    setMonitorOpen(false)
+    setMonitorUnit(null)
+    setOutputOpen(false)
+    setSelectedEnvironment('all')
   }, [project.id])
 
   useEffect(() => {
@@ -132,13 +175,30 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
     }
   }, [project.id, resolve, resolveBusy, resolvedStack])
 
+  const environments = useMemo(() => deriveEnvironments(units), [units])
+
+  const filteredUnitPaths = useMemo(() => {
+    if (selectedEnvironment === 'all' || environments.depth < 0) return null
+    return units
+      .filter((u) => unitSegmentAt(u, environments.depth) === selectedEnvironment)
+      .map((u) => u.unitPath)
+  }, [units, environments.depth, selectedEnvironment])
+
+  const scopedUnitCount = filteredUnitPaths ? filteredUnitPaths.length : units.length
+
   const handleStart = useCallback(async (command: TerragruntRunAllCommand) => {
     if (starting || runId) return
     setStarting(true)
     setRunError('')
     setSummary(null)
     try {
-      const result = await startTerragruntRunAll(profileName, project.id, command, connection)
+      const result = await startTerragruntRunAll(
+        profileName,
+        project.id,
+        command,
+        connection,
+        filteredUnitPaths ?? undefined
+      )
       activeRunIdRef.current = result.runId
       setRunId(result.runId)
       setRunCommand(command)
@@ -147,7 +207,7 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
     } finally {
       setStarting(false)
     }
-  }, [connection, profileName, project.id, runId, starting])
+  }, [connection, profileName, project.id, runId, starting, filteredUnitPaths])
 
   const handleCancel = useCallback(async () => {
     if (!runId) return
@@ -167,65 +227,207 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
   const running = Boolean(runId) || starting
   const unitCount = units.length
   const phaseCount = phases.length
+  const resolveErrorCount = resolvedStack?.resolveErrors.length ?? 0
+  const failedCount = summary?.failed.length ?? 0
 
   return (
     <div className="tg-stack-pane">
-      <section className="tg-stack-summary">
-        <div className="tg-stack-summary-stat">
-          <span>Units</span>
-          <strong>{unitCount}</strong>
-        </div>
-        <div className="tg-stack-summary-stat">
-          <span>Phases</span>
-          <strong>{phaseCount}</strong>
-        </div>
-        <div className="tg-stack-summary-stat">
-          <span>Stack root</span>
-          <strong title={effectiveStack?.stackRoot ?? ''}>{effectiveStack?.stackRoot ?? '-'}</strong>
-        </div>
-      </section>
+      <div className="tf-detail-tabs">
+        <button
+          type="button"
+          className={activeTab === 'actions' ? 'active' : ''}
+          onClick={() => setActiveTab('actions')}
+        >
+          Actions
+        </button>
+        <button
+          type="button"
+          className={activeTab === 'state' ? 'active' : ''}
+          onClick={() => setActiveTab('state')}
+        >
+          State
+        </button>
+        <button
+          type="button"
+          className={activeTab === 'history' ? 'active' : ''}
+          onClick={() => setActiveTab('history')}
+        >
+          History
+        </button>
+      </div>
 
-      <section className="tg-stack-actions">
-        <div className="tg-stack-action-group">
-          <button type="button" onClick={() => handleStart('plan')} disabled={running}>
-            Run all plan
-          </button>
-          <button type="button" className="accent" onClick={() => setConfirmCommand('apply')} disabled={running}>
-            Run all apply
-          </button>
-          <button type="button" className="danger" onClick={() => setConfirmCommand('destroy')} disabled={running}>
-            Run all destroy
-          </button>
-          <button type="button" onClick={resolve} disabled={resolveBusy || running}>
-            {resolveBusy ? 'Resolving…' : 'Re-resolve stack'}
-          </button>
-          {running && (
-            <button type="button" className="danger" onClick={handleCancel}>
-              Cancel run-all
+      {activeTab === 'state' && (
+        <StackStateTab
+          project={project}
+          profileName={profileName}
+          connection={connection}
+          units={units}
+        />
+      )}
+
+      {activeTab === 'history' && (
+        <StackHistoryTab projectId={project.id} unitByPath={unitByPath} />
+      )}
+
+      {activeTab === 'actions' && (
+      <>
+      <div className="tf-section">
+        <div className="tf-section-head">
+          <div>
+            <h3>Actions</h3>
+            <div className="tf-section-hint">Default path: re-resolve the stack, run plan across every unit, review the summary, then apply.</div>
+          </div>
+        </div>
+        {environments.options.length > 0 && (
+          <div className="tf-inputs-toolbar">
+            <label>
+              Scope
+              <select
+                value={selectedEnvironment}
+                onChange={(e) => setSelectedEnvironment(e.target.value)}
+                disabled={running}
+              >
+                <option value="all">All environments ({units.length})</option>
+                {environments.options.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.value} ({opt.count})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="tf-section-hint" style={{ alignSelf: 'end', paddingBottom: 6 }}>
+              {selectedEnvironment === 'all'
+                ? 'Plan / apply / destroy will run across every unit in the stack.'
+                : `Scoped to ${scopedUnitCount} unit${scopedUnitCount === 1 ? '' : 's'} under "${selectedEnvironment}". Units in other environments are skipped.`}
+            </div>
+          </div>
+        )}
+        <div className={`tf-readiness-banner ${failedCount > 0 ? 'danger' : planReady ? 'ok' : 'info'}`}>
+          <div className="tf-readiness-copy">
+            <span className="tf-plan-summary-label">Safe To Apply?</span>
+            <strong>
+              {failedCount > 0
+                ? 'Review failed units before applying'
+                : planReady
+                  ? 'Saved plans are ready across the stack'
+                  : 'Run plan before apply or destroy'}
+            </strong>
+            <span>
+              {planReady
+                ? 'Apply and destroy consume the saved plans produced by the most recent run-all plan.'
+                : 'Apply and destroy stay disabled until a run-all plan completes successfully.'}
+              {resolveErrorCount > 0 && ` ${resolveErrorCount} unit${resolveErrorCount === 1 ? '' : 's'} failed to resolve — static edges only.`}
+            </span>
+          </div>
+          <div className="tf-readiness-metrics">
+            <div><strong>{planReady ? 'Yes' : 'No'}</strong><span>saved plan</span></div>
+            <div><strong>{failedCount}</strong><span>failed last run</span></div>
+            <div>
+              <strong>{scopedUnitCount}</strong>
+              <span>{selectedEnvironment === 'all' ? 'units orchestrated' : `units in "${selectedEnvironment}"`}</span>
+            </div>
+          </div>
+        </div>
+        <div className="tf-primary-action-area">
+          <div className="tf-primary-action-stack">
+            <button
+              className="tf-action-btn init"
+              onClick={resolve}
+              disabled={resolveBusy || running}
+              title="Re-scan the stack and rebuild the dependency graph"
+            >
+              {resolveBusy ? 'Resolving…' : 'Re-resolve stack'}
             </button>
+            <button
+              className="tf-action-btn plan primary"
+              onClick={() => handleStart('plan')}
+              disabled={running}
+            >
+              Run all plan
+            </button>
+          </div>
+          <div className="tf-primary-action-stack tf-primary-action-stack-commit">
+            <button
+              className="tf-action-btn apply primary"
+              onClick={() => setConfirmCommand('apply')}
+              disabled={running || !planReady}
+              title={!planReady ? 'Run all plan first to enable Apply.' : undefined}
+            >
+              Run all apply
+            </button>
+            <button
+              className="tf-action-btn destroy"
+              onClick={() => setConfirmCommand('destroy')}
+              disabled={running || !planReady}
+              title={!planReady ? 'Run all plan first to enable Destroy.' : undefined}
+            >
+              Run all destroy
+            </button>
+          </div>
+        </div>
+        <div className="tf-plan-controls-toggle-row">
+          {running
+            ? (
+              <>
+                <span className="tf-section-hint">Running: {runCommand ?? 'run-all'} ({unitCount} unit{unitCount === 1 ? '' : 's'}).</span>
+                <button type="button" className="tf-toolbar-btn" onClick={() => setMonitorOpen(true)}>View run output</button>
+                <button type="button" className="tf-toolbar-btn" onClick={handleCancel}>Cancel run-all</button>
+              </>
+            )
+            : !planReady
+              ? <div className="tf-section-hint">Run all plan first. Apply and Destroy stay disabled until a saved plan exists.</div>
+              : <div className="tf-section-hint">Saved plans are ready. Run-all orchestrates every unit in dependency order — failed units block downstream phases.</div>}
+          {!running && Object.keys(unitLogs).length > 0 && (
+            <button type="button" className="tf-toolbar-btn" onClick={() => setMonitorOpen(true)}>Open run output</button>
           )}
+          {resolveError && <div className="tf-section-hint" style={{ color: '#e74c3c' }} title={resolveError}>Resolve error: {resolveError.slice(0, 200)}</div>}
+          {runError && <div className="tf-section-hint" style={{ color: '#e74c3c' }}>{runError}</div>}
         </div>
-        <div className="tg-stack-action-meta">
-          {runCommand && running && <span className="tg-tag info">Running: {runCommand}</span>}
-          {resolveError && <span className="tg-tag danger">Resolve error: {resolveError}</span>}
-          {runError && <span className="tg-tag danger">{runError}</span>}
-        </div>
-      </section>
+      </div>
 
       {cycles.length > 0 && (
-        <section className="tg-stack-cycle-warning">
-          <strong>Dependency cycles detected:</strong>
+        <div className="tf-section tf-plan-section-danger">
+          <div className="tf-section-head">
+            <div>
+              <h3>Dependency cycles detected</h3>
+              <div className="tf-section-hint">Cannot run-all while cycles exist. Resolve cycles then re-resolve the stack.</div>
+            </div>
+          </div>
           {cycles.map((cycle, i) => (
             <div key={i} className="tg-stack-cycle">{cycle.join(' → ')}</div>
           ))}
-          <p>Cannot run-all while cycles exist. Resolve cycles then re-resolve the stack.</p>
-        </section>
+        </div>
       )}
 
-      {summary && <PartialFailureSummary summary={summary} /> }
+      {summary && (
+        <PartialFailureSummary
+          summary={summary}
+          onSelectUnit={(unitPath) => {
+            setMonitorUnit(unitPath)
+            setMonitorOpen(true)
+          }}
+        />
+      )}
 
-      <section className="tg-stack-topology">
-        <h3>Topology</h3>
+      {units.length > 0 && (
+        <div className="tf-section">
+          <div className="tf-section-head">
+            <div>
+              <h3>Dependency diagram</h3>
+              <div className="tf-section-hint">Units grouped by phase with dependency edges. Re-scan state after every apply.</div>
+            </div>
+          </div>
+          <TerragruntTopologyDiagram units={units} phases={phases} unitStatuses={unitStatuses} />
+        </div>
+      )}
+
+      <section className="tf-section tg-stack-topology">
+        <div className="tf-section-head">
+          <div>
+            <h3>Topology</h3>
+            <div className="tf-section-hint">Ordered unit list — dependencies in earlier phases run first.</div>
+          </div>
+        </div>
         {phases.length === 0 && <p className="tg-muted">No runnable phases. Try re-resolving the stack.</p>}
         {phases.map((phase, phaseIdx) => (
           <div key={phaseIdx} className="tg-phase">
@@ -240,11 +442,11 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
                 return (
                   <div key={unitPath} className={`tg-unit-card status-${status}`}>
                     <div className="tg-unit-header">
-                      <strong>{unit ? relativePath(unit) : unitPath}</strong>
+                      <strong title={unit ? unitRelativePath(unit) : unitPath}>{unit ? unitDisplayName(unit) : unitPath}</strong>
                       <span className={`tg-status-badge status-${status}`}>{statusLabel(status)}</span>
                     </div>
                     <div className="tg-unit-meta">
-                      <span title={unitPath}>{shortenPath(unitPath)}</span>
+                      {unit && <span className="tg-unit-relpath" title={unit.unitPath}>{unitRelativePath(unit)}</span>}
                       {unit?.terraformSource && <span>source: {unit.terraformSource}</span>}
                     </div>
                     {unit && unit.dependencies.length > 0 && (
@@ -256,7 +458,9 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
                       </div>
                     )}
                     {unit && unit.resolveError && (
-                      <div className="tg-unit-error">Resolve error: {unit.resolveError}</div>
+                      <div className="tg-unit-error" title={unit.resolveError}>
+                        Resolve error — this unit could not be fully resolved by <code>terragrunt render-json</code>. Static dependency edges are still shown.
+                      </div>
                     )}
                   </div>
                 )
@@ -266,13 +470,58 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
         ))}
       </section>
 
+      <div className="tf-section">
+        <button
+          className="tf-output-toggle"
+          onClick={() => setOutputOpen((value) => !value)}
+        >
+          {outputOpen ? '▼' : '▶'} Command Output
+          {runCommand && (
+            <span style={{ fontWeight: 400, color: running ? '#9ca7b7' : '#2ecc71', marginLeft: 8 }}>
+              ({runCommand}{running ? ' running' : ''})
+            </span>
+          )}
+        </button>
+        {outputOpen && (
+          <pre className="tf-output-panel">{buildCombinedLog(units, unitLogs, unitStatuses) || '(no output yet — start a run-all)'}</pre>
+        )}
+      </div>
+      </>
+      )}
+
       {confirmCommand && (
         <RunAllConfirmModal
           command={confirmCommand}
-          units={units}
-          phases={phases}
+          units={filteredUnitPaths
+            ? units.filter((u) => filteredUnitPaths.includes(u.unitPath))
+            : units}
+          phases={filteredUnitPaths
+            ? phases.map((p) => p.filter((path) => filteredUnitPaths.includes(path))).filter((p) => p.length > 0)
+            : phases}
+          environmentLabel={selectedEnvironment === 'all' ? null : selectedEnvironment}
           onCancel={() => setConfirmCommand(null)}
           onConfirm={handleConfirm}
+        />
+      )}
+      {monitorOpen && (
+        <RunMonitorModal
+          command={runCommand}
+          running={running}
+          units={units}
+          unitStatuses={unitStatuses}
+          unitLogs={unitLogs}
+          selectedUnit={monitorUnit}
+          onSelect={setMonitorUnit}
+          onClose={() => setMonitorOpen(false)}
+        />
+      )}
+      {!monitorOpen && running && (
+        <RunMiniIndicator
+          command={runCommand}
+          units={units}
+          unitStatuses={unitStatuses}
+          onOpen={() => setMonitorOpen(true)}
+          onCancel={handleCancel}
         />
       )}
     </div>
@@ -295,25 +544,95 @@ function shortenPath(p: string): string {
   return `…${p.slice(-60)}`
 }
 
-function PartialFailureSummary({ summary }: { summary: TerragruntRunAllSummary }): JSX.Element {
+function unitDisplayName(unit: TerragruntUnit): string {
+  const rel = unit.relativePath || '.'
+  const segments = rel.split(/[\\/]+/).filter((seg) => seg && seg !== '.')
+  if (segments.length === 0) return '.'
+  if (segments.length === 1) return segments[0]
+  const last = segments[segments.length - 1]
+  const parent = segments[segments.length - 2]
+  return `${parent}/${last}`
+}
+
+function unitRelativePath(unit: TerragruntUnit): string {
+  const rel = unit.relativePath || '.'
+  return rel.replace(/\\/g, '/')
+}
+
+const ENV_NAME_PATTERN = /^(dev|development|stage|staging|prod|production|qa|test|preview|sandbox|uat|integration|perf)[-_]?.*$/i
+
+type EnvironmentOption = { value: string; count: number }
+type EnvironmentDeriveResult = {
+  depth: number
+  options: EnvironmentOption[]
+}
+
+function deriveEnvironments(units: TerragruntUnit[]): EnvironmentDeriveResult {
+  if (units.length === 0) return { depth: -1, options: [] }
+  const segmentLists = units.map((u) =>
+    (u.relativePath || '.').split(/[\\/]+/).filter((s) => s && s !== '.')
+  )
+  const maxDepth = Math.max(0, ...segmentLists.map((l) => l.length))
+  const buildOptionsAt = (depth: number): EnvironmentOption[] => {
+    const counts = new Map<string, number>()
+    for (const list of segmentLists) {
+      if (depth < list.length) counts.set(list[depth], (counts.get(list[depth]) ?? 0) + 1)
+    }
+    return [...counts.entries()]
+      .map(([value, count]) => ({ value, count }))
+      .sort((a, b) => a.value.localeCompare(b.value))
+  }
+  // First pass: prefer a depth whose segments look like env names.
+  for (let depth = 0; depth < maxDepth; depth += 1) {
+    const options = buildOptionsAt(depth)
+    if (options.length < 2) continue
+    if (options.some((o) => ENV_NAME_PATTERN.test(o.value))) return { depth, options }
+  }
+  // Fallback: first depth with any variation.
+  for (let depth = 0; depth < maxDepth; depth += 1) {
+    const options = buildOptionsAt(depth)
+    if (options.length >= 2) return { depth, options }
+  }
+  return { depth: -1, options: [] }
+}
+
+function unitSegmentAt(unit: TerragruntUnit, depth: number): string | null {
+  if (depth < 0) return null
+  const segments = (unit.relativePath || '.').split(/[\\/]+/).filter((s) => s && s !== '.')
+  return depth < segments.length ? segments[depth] : null
+}
+
+function PartialFailureSummary(props: {
+  summary: TerragruntRunAllSummary
+  onSelectUnit: (unitPath: string) => void
+}): JSX.Element {
+  const { summary, onSelectUnit } = props
   const total = summary.succeeded.length + summary.failed.length + summary.blocked.length + summary.cancelled.length
   return (
-    <section className="tg-summary-panel">
-      <div className="tg-summary-header">
-        <strong>Last run summary</strong>
-        <span className="tg-muted">{total} unit{total === 1 ? '' : 's'}</span>
+    <section className="tf-section">
+      <div className="tf-section-head">
+        <div>
+          <h3>Last run summary</h3>
+          <div className="tf-section-hint">{total} unit{total === 1 ? '' : 's'} processed — click a unit to see its output.</div>
+        </div>
       </div>
       <div className="tg-summary-grid">
-        <SummaryCell label="Succeeded" tone="success" items={summary.succeeded} />
-        <SummaryCell label="Failed" tone="danger" items={summary.failed} />
-        <SummaryCell label="Blocked" tone="warning" items={summary.blocked} />
-        <SummaryCell label="Cancelled" tone="info" items={summary.cancelled} />
+        <SummaryCell label="Succeeded" tone="success" items={summary.succeeded} onSelect={onSelectUnit} />
+        <SummaryCell label="Failed" tone="danger" items={summary.failed} onSelect={onSelectUnit} />
+        <SummaryCell label="Blocked" tone="warning" items={summary.blocked} onSelect={onSelectUnit} />
+        <SummaryCell label="Cancelled" tone="info" items={summary.cancelled} onSelect={onSelectUnit} />
       </div>
     </section>
   )
 }
 
-function SummaryCell({ label, tone, items }: { label: string; tone: 'success' | 'danger' | 'warning' | 'info'; items: string[] }): JSX.Element {
+function SummaryCell(props: {
+  label: string
+  tone: 'success' | 'danger' | 'warning' | 'info'
+  items: string[]
+  onSelect: (unitPath: string) => void
+}): JSX.Element {
+  const { label, tone, items, onSelect } = props
   return (
     <div className={`tg-summary-cell tone-${tone}`}>
       <div className="tg-summary-cell-header">
@@ -322,10 +641,606 @@ function SummaryCell({ label, tone, items }: { label: string; tone: 'success' | 
       </div>
       {items.length > 0 && (
         <ul>
-          {items.slice(0, 6).map((p) => <li key={p} title={p}>{shortenPath(p)}</li>)}
+          {items.slice(0, 6).map((p) => (
+            <li key={p}>
+              <button type="button" className="tg-summary-item-btn" title={p} onClick={() => onSelect(p)}>
+                {shortenPath(p)}
+              </button>
+            </li>
+          ))}
           {items.length > 6 && <li className="tg-muted">+ {items.length - 6} more</li>}
         </ul>
       )}
+    </div>
+  )
+}
+
+function TerragruntTopologyDiagram(props: {
+  units: TerragruntUnit[]
+  phases: string[][]
+  unitStatuses: Record<string, UnitStatus>
+}): JSX.Element {
+  const { units, phases, unitStatuses } = props
+  const [zoom, setZoom] = useState(100)
+
+  const NODE_W = 200
+  const NODE_H = 66
+  const COL_GAP = 80
+  const ROW_GAP = 18
+  const PAD_X = 24
+  const PAD_Y = 36
+
+  const unitByPath = useMemo(() => {
+    const map = new Map<string, TerragruntUnit>()
+    for (const u of units) map.set(u.unitPath, u)
+    return map
+  }, [units])
+
+  const { positions, columns, height } = useMemo(() => {
+    const pos = new Map<string, { x: number; y: number }>()
+    const placedColumns: string[][] = []
+    const placed = new Set<string>()
+    phases.forEach((phase, col) => {
+      const filtered = phase.filter((u) => unitByPath.has(u))
+      placedColumns.push(filtered)
+      filtered.forEach((unitPath, row) => {
+        pos.set(unitPath, {
+          x: PAD_X + col * (NODE_W + COL_GAP),
+          y: PAD_Y + row * (NODE_H + ROW_GAP)
+        })
+        placed.add(unitPath)
+      })
+    })
+    // Any unit missing from phases (shouldn't happen but be safe) goes in an overflow column.
+    const overflow = units.filter((u) => !placed.has(u.unitPath))
+    if (overflow.length > 0) {
+      const col = placedColumns.length
+      placedColumns.push(overflow.map((u) => u.unitPath))
+      overflow.forEach((u, row) => {
+        pos.set(u.unitPath, {
+          x: PAD_X + col * (NODE_W + COL_GAP),
+          y: PAD_Y + row * (NODE_H + ROW_GAP)
+        })
+      })
+    }
+    const maxRows = placedColumns.reduce((acc, c) => Math.max(acc, c.length), 0)
+    const totalHeight = PAD_Y * 2 + Math.max(1, maxRows) * (NODE_H + ROW_GAP) - ROW_GAP
+    return { positions: pos, columns: placedColumns, height: totalHeight }
+  }, [phases, units, unitByPath])
+
+  const edges = useMemo(() => {
+    const list: Array<{ from: string; to: string; kind: 'dep' | 'deps-paths' }> = []
+    const unitPaths = new Set(units.map((u) => u.unitPath))
+    for (const unit of units) {
+      for (const dep of unit.dependencies) {
+        if (dep.resolvedPath && unitPaths.has(dep.resolvedPath) && dep.resolvedPath !== unit.unitPath) {
+          list.push({ from: dep.resolvedPath, to: unit.unitPath, kind: 'dep' })
+        }
+      }
+      for (const raw of unit.additionalDependencyPaths) {
+        if (unitPaths.has(raw) && raw !== unit.unitPath) {
+          list.push({ from: raw, to: unit.unitPath, kind: 'deps-paths' })
+        }
+      }
+    }
+    return list
+  }, [units])
+
+  const width = PAD_X * 2 + columns.length * (NODE_W + COL_GAP) - COL_GAP
+  const svgW = Math.max(width, 320)
+  const svgH = Math.max(height, 160)
+  const scale = zoom / 100
+
+  return (
+    <div className="tg-diagram-wrap">
+      <div className="tg-diagram-toolbar">
+        <button type="button" onClick={() => setZoom((z) => Math.max(40, z - 15))}>−</button>
+        <button type="button" onClick={() => setZoom(100)}>{zoom}%</button>
+        <button type="button" onClick={() => setZoom((z) => Math.min(250, z + 15))}>+</button>
+      </div>
+      <div className="tg-diagram-viewport">
+      <svg
+        className="tg-diagram-svg"
+        viewBox={`0 0 ${svgW} ${svgH}`}
+        width={Math.round(svgW * scale)}
+        height={Math.round(svgH * scale)}
+        preserveAspectRatio="xMinYMin meet"
+      >
+        <defs>
+          <marker id="tg-arrow-dep" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="userSpaceOnUse">
+            <polygon points="0,0 10,3.5 0,7" fill="#9ec7ff" />
+          </marker>
+          <marker id="tg-arrow-paths" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="userSpaceOnUse">
+            <polygon points="0,0 10,3.5 0,7" fill="#ffd082" />
+          </marker>
+        </defs>
+
+        {columns.map((_, idx) => (
+          <text
+            key={idx}
+            x={PAD_X + idx * (NODE_W + COL_GAP) + NODE_W / 2}
+            y={18}
+            className="tg-diagram-col-label"
+            textAnchor="middle"
+          >
+            Phase {idx}
+          </text>
+        ))}
+
+        {edges.map((edge, i) => {
+          const from = positions.get(edge.from)
+          const to = positions.get(edge.to)
+          if (!from || !to) return null
+          const fromX = from.x + NODE_W
+          const fromY = from.y + NODE_H / 2
+          const toX = to.x
+          const toY = to.y + NODE_H / 2
+          const controlOffset = Math.max(40, Math.abs(toX - fromX) / 2.5)
+          const c1x = fromX + controlOffset
+          const c2x = toX - controlOffset
+          const d = `M ${fromX} ${fromY} C ${c1x} ${fromY}, ${c2x} ${toY}, ${toX} ${toY}`
+          const stroke = edge.kind === 'deps-paths' ? '#ffd082' : '#9ec7ff'
+          const marker = edge.kind === 'deps-paths' ? 'url(#tg-arrow-paths)' : 'url(#tg-arrow-dep)'
+          return (
+            <path
+              key={i}
+              d={d}
+              stroke={stroke}
+              strokeWidth={1.4}
+              fill="none"
+              markerEnd={marker}
+              opacity={0.7}
+            />
+          )
+        })}
+
+        {units.map((unit) => {
+          const pos = positions.get(unit.unitPath)
+          if (!pos) return null
+          const status = unitStatuses[unit.unitPath] ?? 'idle'
+          return (
+            <g key={unit.unitPath} transform={`translate(${pos.x}, ${pos.y})`}>
+              <rect
+                className={`tg-diagram-node status-${status}`}
+                width={NODE_W}
+                height={NODE_H}
+                rx={8}
+                ry={8}
+              />
+              <text x={12} y={22} className="tg-diagram-node-title">
+                {truncate(unitDisplayName(unit), 30)}
+              </text>
+              <text x={12} y={42} className="tg-diagram-node-sub">
+                {truncate(unit.terraformSource || 'no terraform source', 32)}
+              </text>
+              <text x={12} y={60} className="tg-diagram-node-status">
+                {statusLabel(status)}
+              </text>
+            </g>
+          )
+        })}
+      </svg>
+      </div>
+      <div className="tg-diagram-legend">
+        <span><span className="tg-diagram-legend-swatch" style={{ background: '#9ec7ff' }} />dependency</span>
+        <span><span className="tg-diagram-legend-swatch" style={{ background: '#ffd082' }} />dependencies.paths</span>
+      </div>
+    </div>
+  )
+}
+
+function truncate(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max - 1)}…`
+}
+
+function buildCombinedLog(
+  units: TerragruntUnit[],
+  unitLogs: Record<string, string>,
+  unitStatuses: Record<string, UnitStatus>
+): string {
+  const lines: string[] = []
+  for (const unit of units) {
+    const log = unitLogs[unit.unitPath]
+    if (!log) continue
+    const status = unitStatuses[unit.unitPath] ?? 'idle'
+    const header = `════ ${unitDisplayName(unit)} · ${unitRelativePath(unit)} · ${statusLabel(status).toUpperCase()} ════`
+    lines.push(header)
+    lines.push(log.trimEnd())
+    lines.push('')
+  }
+  return lines.join('\n')
+}
+
+function StackStateTab(props: {
+  project: TerraformProject
+  profileName: string
+  connection?: AwsConnection
+  units: TerragruntUnit[]
+}): JSX.Element {
+  const { project, profileName, connection, units } = props
+  const [selectedUnitPath, setSelectedUnitPath] = useState<string>(units[0]?.unitPath ?? '')
+  const [inventory, setInventory] = useState<TerragruntUnitInventoryResult | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!selectedUnitPath && units[0]) setSelectedUnitPath(units[0].unitPath)
+  }, [units, selectedUnitPath])
+
+  const load = useCallback(async () => {
+    if (!selectedUnitPath) return
+    setBusy(true)
+    setError('')
+    setInventory(null)
+    try {
+      // Route through the stack project (the unit isn't its own StoredProject). The
+      // backend currently handles stack-wide state via the same helper — for a stack
+      // kind project this returns the whole-stack inventory placeholder until per-unit
+      // routing lands. For now, display it as-is and note the limitation.
+      const result = await getTerragruntUnitInventory(profileName, project.id, connection)
+      setInventory(result)
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }, [connection, profileName, project.id, selectedUnitPath])
+
+  const selectedUnit = units.find((u) => u.unitPath === selectedUnitPath) ?? null
+
+  return (
+    <section className="tf-section">
+      <div className="tf-section-head">
+        <div>
+          <h3>Unit state</h3>
+          <div className="tf-section-hint">Select a unit and pull its live state. Requires terragrunt CLI, backend credentials, and a cache that has been initialised at least once.</div>
+        </div>
+      </div>
+      <div className="tg-unit-picker">
+        <label>
+          Unit
+          <select
+            value={selectedUnitPath}
+            onChange={(e) => { setSelectedUnitPath(e.target.value); setInventory(null) }}
+            disabled={busy}
+          >
+            {units.map((u) => (
+              <option key={u.unitPath} value={u.unitPath}>{unitDisplayName(u)} — {unitRelativePath(u)}</option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          className="tf-action-btn plan primary"
+          disabled={!selectedUnitPath || busy}
+          onClick={load}
+        >
+          {busy ? 'Pulling state…' : 'Pull state'}
+        </button>
+      </div>
+      {error && <div className="tf-section-hint" style={{ color: '#e74c3c' }} title={error}>State pull failed — see tooltip for terragrunt output.</div>}
+      {selectedUnit && (
+        <div className="tg-unit-picker-meta">
+          <span className="tg-muted">Selected:</span>
+          <code>{unitRelativePath(selectedUnit)}</code>
+          {selectedUnit.terraformSource && <span className="tg-muted">source: {selectedUnit.terraformSource}</span>}
+        </div>
+      )}
+      {inventory && (
+        <div className="tg-state-body">
+          <div className="tg-state-meta">
+            <span>State source: <code>{inventory.stateSource || 'unknown'}</code></span>
+            <span>Working dir: <code>{inventory.workingDir || 'unresolved'}</code></span>
+            <span>{inventory.inventory.length} resource{inventory.inventory.length === 1 ? '' : 's'}</span>
+          </div>
+          {inventory.inventory.length === 0
+            ? <p className="tg-muted">No resources in state. Run apply first, then pull again.</p>
+            : (
+              <table className="tg-state-table">
+                <thead>
+                  <tr>
+                    <th>Address</th>
+                    <th>Type</th>
+                    <th>Provider</th>
+                    <th>Module</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {inventory.inventory.map((item) => (
+                    <tr key={item.address}>
+                      <td><code>{item.address}</code></td>
+                      <td>{item.type}</td>
+                      <td>{item.provider}</td>
+                      <td>{item.modulePath || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+        </div>
+      )}
+      {!inventory && !busy && !error && <div className="tf-section-hint">Pick a unit and click "Pull state" to fetch its inventory.</div>}
+    </section>
+  )
+}
+
+function StackHistoryTab(props: {
+  projectId: string
+  unitByPath: Map<string, TerragruntUnit>
+}): JSX.Element {
+  const { projectId, unitByPath } = props
+  const [records, setRecords] = useState<TerraformRunRecord[]>([])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const reload = useCallback(async () => {
+    setBusy(true)
+    setError('')
+    try {
+      const data = await listRunHistory({ projectId })
+      setRecords(data)
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }, [projectId])
+
+  useEffect(() => {
+    void reload()
+  }, [reload])
+
+  return (
+    <section className="tf-section">
+      <div className="tf-section-head">
+        <div>
+          <h3>Run history</h3>
+          <div className="tf-section-hint">Every run-all writes one record per unit with phase and duration. Records are local-only and persisted under this project id.</div>
+        </div>
+        <button type="button" className="tf-toolbar-btn" onClick={reload} disabled={busy}>
+          {busy ? 'Loading…' : 'Refresh'}
+        </button>
+      </div>
+      {error && <div className="tf-section-hint" style={{ color: '#e74c3c' }}>{error}</div>}
+      {records.length === 0 && !busy && !error && <div className="tf-section-hint">No runs recorded yet. Launch a Run all plan or apply to populate this tab.</div>}
+      {records.length > 0 && (
+        <table className="tg-history-table">
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>Command</th>
+              <th>Unit</th>
+              <th>Phase</th>
+              <th>Result</th>
+              <th>Duration</th>
+            </tr>
+          </thead>
+          <tbody>
+            {records.map((r) => {
+              const unit = r.unitPath ? unitByPath.get(r.unitPath) : null
+              const unitLabel = unit ? unitDisplayName(unit) : r.unitPath ? truncate(r.unitPath, 40) : r.projectName
+              const resultClass = r.success === true ? 'success' : r.success === false ? 'danger' : 'info'
+              const resultText = r.success === true ? 'Success' : r.success === false ? `Failed (${r.exitCode ?? '?'})` : r.finishedAt ? 'Done' : 'Running'
+              const duration = typeof r.durationMs === 'number' ? formatDuration(r.durationMs) : '—'
+              return (
+                <tr key={r.id}>
+                  <td>{formatHistoryDate(r.startedAt)}</td>
+                  <td>{r.command}</td>
+                  <td title={r.unitPath ?? ''}>{unitLabel}</td>
+                  <td>{typeof r.dependencyPhase === 'number' ? `Phase ${r.dependencyPhase}` : '—'}</td>
+                  <td><span className={`tg-tag ${resultClass}`}>{resultText}</span></td>
+                  <td>{duration}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      )}
+    </section>
+  )
+}
+
+function formatHistoryDate(iso: string): string {
+  try {
+    const d = new Date(iso)
+    return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+  } catch {
+    return iso
+  }
+}
+
+function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '—'
+  if (ms < 1000) return `${ms}ms`
+  const seconds = Math.round(ms / 1000)
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  const remSec = seconds % 60
+  return `${minutes}m${remSec.toString().padStart(2, '0')}s`
+}
+
+function RunMiniIndicator(props: {
+  command: TerragruntRunAllCommand | null
+  units: TerragruntUnit[]
+  unitStatuses: Record<string, UnitStatus>
+  onOpen: () => void
+  onCancel: () => void
+}): JSX.Element {
+  const { command, units, unitStatuses, onOpen, onCancel } = props
+
+  const counts = useMemo(() => {
+    let running = 0, succeeded = 0, failed = 0, blocked = 0, idle = 0
+    for (const u of units) {
+      const s = unitStatuses[u.unitPath] ?? 'idle'
+      if (s === 'running') running += 1
+      else if (s === 'succeeded') succeeded += 1
+      else if (s === 'failed') failed += 1
+      else if (s === 'blocked') blocked += 1
+      else idle += 1
+    }
+    return { running, succeeded, failed, blocked, idle, total: units.length }
+  }, [units, unitStatuses])
+
+  const activeRunningUnit = useMemo(() => {
+    return units.find((u) => (unitStatuses[u.unitPath] ?? 'idle') === 'running') ?? null
+  }, [units, unitStatuses])
+
+  const commandLabel = command ?? 'run-all'
+  const subtitle = activeRunningUnit
+    ? `Running ${unitDisplayName(activeRunningUnit)} · phase ${resolveUnitPhase(activeRunningUnit, units)} · ${counts.succeeded + counts.failed}/${counts.total} done`
+    : counts.idle === counts.total
+      ? `Starting ${commandLabel} …`
+      : `${counts.succeeded + counts.failed}/${counts.total} done · waiting for next phase`
+
+  return (
+    <div className="tg-mini-indicator" role="status" aria-live="polite">
+      <button
+        type="button"
+        className="tg-mini-body"
+        onClick={onOpen}
+        title="Open run output"
+      >
+        <span className="tg-mini-spinner" aria-hidden />
+        <div className="tg-mini-copy">
+          <strong>Running Terragrunt {commandLabel}…</strong>
+          <span>{subtitle}</span>
+        </div>
+      </button>
+      <button type="button" className="tg-mini-kill" onClick={onCancel}>
+        Kill Switch
+      </button>
+    </div>
+  )
+}
+
+function resolveUnitPhase(unit: TerragruntUnit, units: TerragruntUnit[]): number {
+  // Phase isn't directly stored on the unit; approximate by locating the unit in the provided
+  // list order, which we keep sorted by relative path. For tactful display only.
+  const idx = units.findIndex((u) => u.unitPath === unit.unitPath)
+  return idx < 0 ? 0 : idx
+}
+
+function RunMonitorModal(props: {
+  command: TerragruntRunAllCommand | null
+  running: boolean
+  units: TerragruntUnit[]
+  unitStatuses: Record<string, UnitStatus>
+  unitLogs: Record<string, string>
+  selectedUnit: string | null
+  onSelect: (unitPath: string) => void
+  onClose: () => void
+}): JSX.Element {
+  const { command, running, units, unitStatuses, unitLogs, selectedUnit, onSelect, onClose } = props
+  const logRef = useRef<HTMLPreElement>(null)
+
+  const orderedUnits = useMemo(() => {
+    const getRank = (status: UnitStatus): number => {
+      switch (status) {
+        case 'running': return 0
+        case 'failed': return 1
+        case 'blocked': return 2
+        case 'cancelled': return 3
+        case 'succeeded': return 4
+        default: return 5
+      }
+    }
+    return [...units].sort((a, b) => {
+      const ra = getRank(unitStatuses[a.unitPath] ?? 'idle')
+      const rb = getRank(unitStatuses[b.unitPath] ?? 'idle')
+      if (ra !== rb) return ra - rb
+      return unitRelativePath(a).localeCompare(unitRelativePath(b))
+    })
+  }, [units, unitStatuses])
+
+  const activeUnit = selectedUnit
+    ? units.find((u) => u.unitPath === selectedUnit) ?? null
+    : null
+  const activeLog = selectedUnit ? unitLogs[selectedUnit] ?? '' : ''
+  const activeStatus = selectedUnit ? unitStatuses[selectedUnit] ?? 'idle' : 'idle'
+
+  const counters = useMemo(() => {
+    let running = 0, succeeded = 0, failed = 0, blocked = 0, cancelled = 0, idle = 0
+    for (const u of units) {
+      const s = unitStatuses[u.unitPath] ?? 'idle'
+      if (s === 'running') running += 1
+      else if (s === 'succeeded') succeeded += 1
+      else if (s === 'failed') failed += 1
+      else if (s === 'blocked') blocked += 1
+      else if (s === 'cancelled') cancelled += 1
+      else idle += 1
+    }
+    return { running, succeeded, failed, blocked, cancelled, idle }
+  }, [units, unitStatuses])
+
+  // Auto-scroll the log pane while the active unit is streaming.
+  useEffect(() => {
+    if (!logRef.current) return
+    if (activeStatus === 'running') {
+      logRef.current.scrollTop = logRef.current.scrollHeight
+    }
+  }, [activeLog, activeStatus])
+
+  return (
+    <div className="tg-modal-backdrop" onClick={onClose}>
+      <div className="tg-monitor-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="tg-monitor-head">
+          <div>
+            <strong>{running ? 'Run-all in progress' : 'Run-all output'}</strong>
+            <span className="tf-section-hint">
+              {command ? `Command: ${command}` : 'No command running'}
+              {' · '}
+              {counters.running > 0 && `${counters.running} running · `}
+              {counters.succeeded} ok · {counters.failed} failed · {counters.blocked} blocked
+              {counters.cancelled > 0 && ` · ${counters.cancelled} cancelled`}
+              {counters.idle > 0 && ` · ${counters.idle} pending`}
+            </span>
+          </div>
+          <button type="button" className="tf-toolbar-btn" onClick={onClose}>Close</button>
+        </div>
+        <div className="tg-monitor-body">
+          <div className="tg-monitor-unit-list">
+            {orderedUnits.map((unit) => {
+              const status = unitStatuses[unit.unitPath] ?? 'idle'
+              const isSelected = unit.unitPath === selectedUnit
+              return (
+                <button
+                  key={unit.unitPath}
+                  type="button"
+                  className={`tg-monitor-unit ${isSelected ? 'active' : ''}`}
+                  onClick={() => onSelect(unit.unitPath)}
+                  title={unit.unitPath}
+                >
+                  <div className="tg-monitor-unit-name">{unitDisplayName(unit)}</div>
+                  <div className="tg-monitor-unit-path">{unitRelativePath(unit)}</div>
+                  <span className={`tg-status-badge status-${status}`}>{statusLabel(status)}</span>
+                </button>
+              )
+            })}
+          </div>
+          <div className="tg-monitor-log-pane">
+            {activeUnit ? (
+              <>
+                <div className="tg-monitor-log-head">
+                  <div>
+                    <strong>{unitDisplayName(activeUnit)}</strong>
+                    <span className="tf-section-hint">{unitRelativePath(activeUnit)}</span>
+                  </div>
+                  <span className={`tg-status-badge status-${activeStatus}`}>{statusLabel(activeStatus)}</span>
+                </div>
+                <pre ref={logRef} className="tg-monitor-log">{activeLog || '(waiting for output…)'}</pre>
+                {activeStatus === 'blocked' && (
+                  <div className="tf-section-hint">Blocked: an upstream dependency in this stack failed. See the failing unit's output.</div>
+                )}
+                {activeStatus === 'cancelled' && (
+                  <div className="tf-section-hint">Cancelled by the operator before this unit could finish.</div>
+                )}
+              </>
+            ) : (
+              <div className="tg-monitor-log-empty">Pick a unit from the left to see its output.</div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -334,21 +1249,29 @@ function RunAllConfirmModal(props: {
   command: TerragruntRunAllCommand
   units: TerragruntUnit[]
   phases: string[][]
+  environmentLabel: string | null
   onCancel: () => void
   onConfirm: () => void
 }): JSX.Element {
-  const { command, units, phases, onCancel, onConfirm } = props
+  const { command, units, phases, environmentLabel, onCancel, onConfirm } = props
   const unitCount = units.length
   const verb = command === 'apply' ? 'apply' : command === 'destroy' ? 'destroy' : command
   return (
     <div className="tg-modal-backdrop" onClick={onCancel}>
       <div className="tg-modal" onClick={(e) => e.stopPropagation()}>
         <div className="tg-modal-header">
-          <strong>Confirm run-all {verb}</strong>
+          <strong>
+            Confirm run-all {verb}
+            {environmentLabel && <span style={{ color: '#9ec7ff' }}> · {environmentLabel}</span>}
+          </strong>
         </div>
         <div className="tg-modal-body">
           <p>
-            This will <strong>{verb}</strong> across {unitCount} unit{unitCount === 1 ? '' : 's'} in {phases.length} phase{phases.length === 1 ? '' : 's'}.
+            This will <strong>{verb}</strong>{' '}
+            {environmentLabel
+              ? <>only the {unitCount} unit{unitCount === 1 ? '' : 's'} under <code>{environmentLabel}</code></>
+              : <>across {unitCount} unit{unitCount === 1 ? '' : 's'}</>}
+            {' '}in {phases.length} phase{phases.length === 1 ? '' : 's'}.
             {command === 'destroy' && ' Destroy is irreversible — ensure you have backups and understand the blast radius.'}
           </p>
           <div className="tg-modal-phase-list">
