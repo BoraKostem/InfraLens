@@ -57,6 +57,7 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
   const [monitorUnit, setMonitorUnit] = useState<string | null>(null)
   const [outputOpen, setOutputOpen] = useState(false)
   const [selectedEnvironment, setSelectedEnvironment] = useState<string>('all')
+  const [diagramEnvironment, setDiagramEnvironment] = useState<string>('all')
 
   const effectiveStack = resolvedStack?.stack ?? stackInfo
   const phases = effectiveStack?.dependencyOrder ?? []
@@ -167,6 +168,7 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
     setMonitorUnit(null)
     setOutputOpen(false)
     setSelectedEnvironment('all')
+    setDiagramEnvironment('all')
   }, [project.id])
 
   useEffect(() => {
@@ -185,6 +187,19 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
   }, [units, environments.depth, selectedEnvironment])
 
   const scopedUnitCount = filteredUnitPaths ? filteredUnitPaths.length : units.length
+
+  const diagramUnits = useMemo(() => {
+    if (diagramEnvironment === 'all' || environments.depth < 0) return units
+    return units.filter((u) => unitSegmentAt(u, environments.depth) === diagramEnvironment)
+  }, [units, environments.depth, diagramEnvironment])
+
+  const diagramPhases = useMemo(() => {
+    if (diagramEnvironment === 'all' || environments.depth < 0) return phases
+    const allowed = new Set(diagramUnits.map((u) => u.unitPath))
+    return phases
+      .map((phase) => phase.filter((p) => allowed.has(p)))
+      .filter((phase) => phase.length > 0)
+  }, [phases, diagramEnvironment, environments.depth, diagramUnits])
 
   const handleStart = useCallback(async (command: TerragruntRunAllCommand) => {
     if (starting || runId) return
@@ -414,10 +429,32 @@ export function TerragruntStackPane({ project, profileName, connection }: Terrag
           <div className="tf-section-head">
             <div>
               <h3>Dependency diagram</h3>
-              <div className="tf-section-hint">Units grouped by phase with dependency edges. Re-scan state after every apply.</div>
+              <div className="tf-section-hint">
+                {diagramEnvironment === 'all'
+                  ? `Units grouped by phase with dependency edges. Showing all ${units.length} units.`
+                  : `Filtered to "${diagramEnvironment}" — ${diagramUnits.length} of ${units.length} units shown. Dependencies crossing into other environments are hidden.`}
+              </div>
             </div>
+            {environments.options.length > 0 && (
+              <label className="tg-diagram-filter">
+                <span>View</span>
+                <select
+                  value={diagramEnvironment}
+                  onChange={(e) => setDiagramEnvironment(e.target.value)}
+                >
+                  <option value="all">All environments ({units.length})</option>
+                  {environments.options.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.value} ({opt.count})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
-          <TerragruntTopologyDiagram units={units} phases={phases} unitStatuses={unitStatuses} />
+          {diagramUnits.length === 0
+            ? <div className="tf-section-hint">No units match the selected filter.</div>
+            : <TerragruntTopologyDiagram units={diagramUnits} phases={diagramPhases} unitStatuses={unitStatuses} />}
         </div>
       )}
 
