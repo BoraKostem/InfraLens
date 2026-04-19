@@ -750,6 +750,27 @@ function runUnitTimeoutMs(command: TerragruntRunAllCommand): number {
   }
 }
 
+function classifyUnitRunError(command: TerragruntRunAllCommand, errorText: string): string {
+  const low = errorText.toLowerCase()
+  if (low.includes('detected no outputs') || low.includes('there is no variable named "dependency"')) {
+    return [
+      '[InfraLens] This unit references a `dependency` whose upstream has no state — either it was never applied, or its state file is empty.',
+      `For 'run-all ${command}' to work across an unapplied stack, add \`mock_outputs = { ... }\` (and \`mock_outputs_allowed_terraform_commands = ["plan", "validate"]\`) to the dependency block. Otherwise, apply the upstream units first, then re-run.`,
+      '',
+      errorText
+    ].join('\n')
+  }
+  if (low.includes('resourceinuseByanotherresource') || low.includes('resource in use') || low.includes('is already being used')) {
+    return [
+      '[InfraLens] Destroy failed because another resource still references this one.',
+      'This usually means leaf units (VMs, firewalls) weren\'t torn down before their upstream (subnets, VPCs). InfraLens runs destroy phase-N → 0; if a unit was skipped or failed upstream, re-run destroy to let the failed parent retry.',
+      '',
+      errorText
+    ].join('\n')
+  }
+  return errorText
+}
+
 function runUnitProcess(params: {
   binary: string
   args: string[]
@@ -798,10 +819,205 @@ function runUnitProcess(params: {
       finish({ exitCode: -1, error: err.message, timedOut })
     })
     child.on('close', (code) => {
-      const error = timedOut
+      const rawError = timedOut
         ? `unit timed out after ${Math.round(params.timeoutMs / 1000)}s`
-        : errorText.slice(-500)
+        : errorText.slice(-2000)
+      const error = timedOut ? rawError : classifyUnitRunError(params.command, rawError)
       finish({ exitCode: code ?? -1, error, timedOut })
+    })
+  })
+}
+
+// Parse a single key-value log line terragrunt emits with `--log-format=key-value`.
+// Fields are space-separated `key=value`; values may be quoted with double quotes.
+// Returns the prefix (unit path) and a display line reconstructed from level + msg.
+function parseTerragruntKeyValueLine(line: string): { prefix: string; display: string } | null {
+  const trimmed = line.replace(/\r$/, '')
+  if (!trimmed) return null
+  const fields = new Map<string, string>()
+  const re = /(\w+)=("((?:[^"\\]|\\.)*)"|(\S+))/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(trimmed)) !== null) {
+    const key = m[1]
+    const value = m[3] !== undefined ? m[3].replace(/\\(.)/g, '$1') : m[4]
+    fields.set(key, value)
+  }
+  const prefix = fields.get('prefix') ?? ''
+  if (!fields.has('msg') && !fields.has('level') && !prefix) return null
+  const level = fields.get('level') ?? ''
+  const msg = fields.get('msg') ?? ''
+  const display = level ? `${level.toUpperCase().padEnd(5)} ${msg}` : msg
+  return { prefix, display }
+}
+
+function runNativeRunAllDestroy(params: {
+  binary: string
+  env: Record<string, string>
+  window: BrowserWindow | null
+  runId: string
+  identity: RunAllHistoryIdentity
+  active: ActiveRunAll
+  stack: TerragruntStack
+  phases: string[][]
+  timeoutMs: number
+}): Promise<{
+  succeeded: Set<string>
+  failed: Set<string>
+  blocked: Set<string>
+  cancelled: Set<string>
+}> {
+  return new Promise((resolve) => {
+    const { binary, env, window, runId, identity, active, stack, phases, timeoutMs } = params
+
+    // `terragrunt run --all destroy` at the stack root (formerly `run-all destroy`, renamed
+    // in 0.73+). The run-all form is required because per-unit `terragrunt destroy` fails to
+    // resolve `dependency.<x>.outputs.*` references when the upstream hasn't been applied or
+    // its state isn't reachable from the unit's cwd; the run-all path parses the full
+    // dependency graph and handles this uniformly.
+    //
+    // `--log-format=key-value --log-show-abs-paths` forces parseable output where each line
+    // carries a `prefix=<absolute-unit-path>` field, which we use to route output to the
+    // right unit in the UI.
+    const args = [
+      'run', '--all',
+      '--non-interactive',
+      '--log-format=key-value',
+      '--log-show-abs-paths',
+      '--',
+      'destroy',
+      '-auto-approve'
+    ]
+    const child = spawn(binary, args, { cwd: stack.stackRoot, env, shell: false, windowsHide: true })
+    active.children.add(child)
+
+    const succeeded = new Set<string>()
+    const failed = new Set<string>()
+    const cancelled = new Set<string>()
+    const blocked = new Set<string>()
+
+    const phaseByUnit = new Map<string, number>()
+    phases.forEach((phase, idx) => {
+      for (const unit of phase) phaseByUnit.set(unit, idx)
+    })
+
+    // Emit unit-started for every unit upfront. run-all destroy doesn't stream per-unit
+    // start events, so we anchor the UI to all expected units immediately; that way
+    // progress is visible even if a unit never produces any prefix-tagged log line.
+    const unitRecords = new Map<string, { unitRunId: string; startedAt: string; output: string; phase: number }>()
+    for (const unitPath of stack.units.map((u) => u.unitPath)) {
+      const unitRunId = randomUUID()
+      const startedAt = new Date().toISOString()
+      const phase = phaseByUnit.get(unitPath) ?? 0
+      unitRecords.set(unitPath, { unitRunId, startedAt, output: '', phase })
+      const record = makeRunRecord({
+        id: unitRunId,
+        stackRoot: stack.stackRoot,
+        unitPath,
+        phase,
+        command: 'destroy',
+        args,
+        identity,
+        startedAt
+      })
+      saveRunRecord(record, '')
+      emitRunAllEvent(window, { type: 'unit-started', runId, unitPath, phase, unitRunId })
+    }
+
+    const timer = timeoutMs > 0
+      ? setTimeout(() => terminateRunAllChild(child), timeoutMs)
+      : null
+
+    let leftover = ''
+    const routeLine = (rawLine: string): void => {
+      const parsed = parseTerragruntKeyValueLine(rawLine)
+      if (!parsed) return
+      const prefix = parsed.prefix ? path.resolve(parsed.prefix) : ''
+      const chunk = parsed.display + '\n'
+      if (prefix && unitRecords.has(prefix)) {
+        const rec = unitRecords.get(prefix)!
+        rec.output += chunk
+        if (rec.output.length > 500_000) rec.output = rec.output.slice(-500_000)
+        emitRunAllEvent(window, { type: 'unit-output', runId, unitPath: prefix, chunk })
+        return
+      }
+      // Stack-level message (no prefix, or prefix not in our known units). Broadcast to
+      // every in-scope unit so early errors are visible; they'll be deduped naturally
+      // since we cap each unit's output buffer.
+      for (const [unitPath, rec] of unitRecords) {
+        rec.output += chunk
+        if (rec.output.length > 500_000) rec.output = rec.output.slice(-500_000)
+        emitRunAllEvent(window, { type: 'unit-output', runId, unitPath, chunk })
+      }
+    }
+
+    const processText = (text: string): void => {
+      const combined = leftover + text
+      const lines = combined.split(/\r?\n/)
+      leftover = lines.pop() ?? ''
+      for (const line of lines) routeLine(line)
+    }
+
+    child.stdout.on('data', (buf) => processText(buf.toString()))
+    child.stderr.on('data', (buf) => processText(buf.toString()))
+
+    child.on('error', (err) => {
+      if (timer) clearTimeout(timer)
+      active.children.delete(child)
+      const spawnMsg = `\n─── InfraLens: terragrunt run-all destroy spawn error ───\n${err.message}\n`
+      for (const [unitPath, rec] of unitRecords) {
+        rec.output += spawnMsg
+        emitRunAllEvent(window, { type: 'unit-output', runId, unitPath, chunk: spawnMsg })
+        failed.add(unitPath)
+        emitRunAllEvent(window, { type: 'unit-completed', runId, unitPath, exitCode: -1, success: false })
+      }
+      resolve({ succeeded, failed, blocked, cancelled })
+    })
+
+    child.on('close', (code) => {
+      if (timer) clearTimeout(timer)
+      active.children.delete(child)
+      if (leftover.trim()) routeLine(leftover)
+      const overallOk = code === 0
+      for (const [unit, rec] of unitRecords) {
+        const startedAtMs = Date.parse(rec.startedAt)
+        const finishedAt = new Date().toISOString()
+        const durationMs = Date.parse(finishedAt) - (Number.isFinite(startedAtMs) ? startedAtMs : Date.now())
+        const unitHasError = rec.output.toLowerCase().includes('error')
+        if (active.cancelled) {
+          cancelled.add(unit)
+          updateRunRecord(rec.unitRunId, { finishedAt, exitCode: 130, success: false, durationMs }, rec.output)
+          emitRunAllEvent(window, { type: 'unit-cancelled', runId, unitPath: unit })
+        } else if (overallOk && !unitHasError) {
+          succeeded.add(unit)
+          updateRunRecord(rec.unitRunId, { finishedAt, exitCode: 0, success: true, durationMs }, rec.output)
+          emitRunAllEvent(window, { type: 'unit-completed', runId, unitPath: unit, exitCode: 0, success: true })
+        } else {
+          failed.add(unit)
+          const classified = classifyTerraformError({
+            output: rec.output,
+            exitCode: code ?? -1,
+            errorMessage: rec.output.slice(-500),
+            provider: identity.provider,
+            errorName: ''
+          })
+          const hint = classifyUnitRunError('destroy', rec.output.slice(-2000))
+          if (hint && !rec.output.includes(hint)) {
+            const banner = `\n─── InfraLens diagnosis ───\n${hint}\n`
+            rec.output += banner
+            emitRunAllEvent(window, { type: 'unit-output', runId, unitPath: unit, chunk: banner })
+          }
+          updateRunRecord(rec.unitRunId, {
+            finishedAt,
+            exitCode: code ?? -1,
+            success: false,
+            durationMs,
+            errorClass: classified.errorClass,
+            suggestedAction: classified.suggestedAction
+          }, rec.output)
+          emitRunAllEvent(window, { type: 'unit-completed', runId, unitPath: unit, exitCode: code ?? -1, success: false })
+        }
+      }
+      resolve({ succeeded, failed, blocked, cancelled })
     })
   })
 }
@@ -856,10 +1072,51 @@ export async function startRunAll(options: RunAllStartOptions): Promise<{ runId:
     phases
   })
 
-  const succeeded = new Set<string>()
-  const failed = new Set<string>()
-  const blocked = new Set<string>()
-  const cancelled = new Set<string>()
+  let succeeded = new Set<string>()
+  let failed = new Set<string>()
+  let blocked = new Set<string>()
+  let cancelled = new Set<string>()
+
+  // Destroy goes through `terragrunt run --all destroy` natively so we inherit terragrunt's
+  // cross-unit dependency-output resolution (per-unit `terragrunt destroy` fails with
+  // "There is no variable named 'dependency'" when a unit references an upstream's outputs
+  // and the upstream's state can't be read from the unit's cwd).
+  //
+  // Native run-all, however, ignores our unit filter — it will tear down every unit in the
+  // stack. So only take the native path when the user has "All environments" selected; if a
+  // filter is set, fall back to per-unit destroy to respect the user's scope.
+  if (options.command === 'destroy' && !filterSet) {
+    active.done = (async () => {
+      try {
+        const result = await runNativeRunAllDestroy({
+          binary,
+          env: options.env,
+          window: options.window,
+          runId,
+          identity: options.identity,
+          active,
+          stack: options.stack,
+          phases,
+          timeoutMs: 4 * 60 * 60 * 1000
+        })
+        succeeded = result.succeeded
+        failed = result.failed
+        blocked = new Set([...blocked, ...result.blocked])
+        cancelled = result.cancelled
+      } finally {
+        activeRunAlls.delete(options.stack.stackRoot)
+        const summary: TerragruntRunAllSummary = {
+          succeeded: [...succeeded].sort(),
+          failed: [...failed].sort(),
+          blocked: [...blocked].sort(),
+          cancelled: [...cancelled].sort()
+        }
+        emitRunAllEvent(options.window, { type: 'stack-completed', runId, summary })
+      }
+    })()
+    activeRunAlls.set(options.stack.stackRoot, active)
+    return { runId, phases }
+  }
 
   active.done = (async () => {
     try {
@@ -956,6 +1213,13 @@ export async function startRunAll(options: RunAllStartOptions): Promise<{ runId:
               })
             } else {
               failed.add(unitPath)
+              // Append the classified hint to the streamed output so the UI monitor picks it
+              // up alongside the raw terragrunt / terraform error.
+              if (result.error && !outputBuffer.includes(result.error)) {
+                const banner = `\n─── InfraLens diagnosis ───\n${result.error}\n`
+                outputBuffer += banner
+                emitRunAllEvent(options.window, { type: 'unit-output', runId, unitPath, chunk: banner })
+              }
               const classified = classifyTerraformError({
                 output: outputBuffer,
                 exitCode: result.exitCode,
