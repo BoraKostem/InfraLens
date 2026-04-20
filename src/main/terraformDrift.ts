@@ -87,9 +87,10 @@ import {
   listVpcs
 } from './aws/vpc'
 import { listWebAcls } from './aws/waf'
-import { getCachedCliInfo, getProject, loadTerragruntUnitInventory } from './terraform'
+import { getCachedCliInfo, getProject, loadTerragruntUnitInventory, type TerragruntUnitInventoryResult } from './terraform'
 import { createTraceContext, withAudit } from './terraformAudit'
 import { exportDriftSnapshot } from './exporters'
+import { resolveDriftProviderId } from './terraformDriftProvider'
 
 type ComparableValue = string | number | boolean
 type IdentityKey = 'cloudIdentifier' | 'logicalName'
@@ -2844,6 +2845,55 @@ export async function getTerragruntUnitDriftReport(
   connection: AwsConnection,
   unitPath: string
 ): Promise<TerraformDriftReport> {
+  // Route by what's actually in the unit's state, not by the connection/profile or HCL-parsed
+  // backend. scanProjectDrift's live-inventory is AWS-only — passing it a GCP unit returns an
+  // empty AWS-only comparison that the UI renders as "No drift detected". The hints upstream
+  // (resolveDriftProviderId from connection.providerId + profile prefix, findEffectiveRemoteState
+  // for metadata.backendType) are both unreliable: the UI often forwards a generic AWS connection
+  // for a stack, and the HCL walk quietly returns `local` when it can't grip a given layout.
+  // The state file is authoritative — whatever cloud wrote the resources is the cloud to compare
+  // them against. Fast path for explicit GCP/Azure connections skips the extra pull.
+  let providerId = resolveDriftProviderId(profileName, connection)
+  // Always preload the unit's inventory: the per-provider drift reporters accept
+  // `preloadedInventory` so we avoid a second state pull inside them. For the unreliable
+  // `'aws'` default, we also use the preloaded state for a content-based re-route.
+  const preloadedInventory: TerragruntUnitInventoryResult = await loadTerragruntUnitInventory(profileName, stackProjectId, connection, unitPath)
+  if (preloadedInventory.error) {
+    throw new Error(preloadedInventory.error)
+  }
+  const managed = preloadedInventory.inventory.filter((item) => item.mode === 'managed')
+  if (managed.length === 0) {
+    throw new Error([
+      `No managed resources in state for ${unitPath} — cannot determine which cloud to drift-scan.`,
+      `(inventory size=${preloadedInventory.inventory.length}, stateSource=${preloadedInventory.stateSource})`,
+      'Run terragrunt apply on this unit first, then retry.'
+    ].join('\n'))
+  }
+  if (providerId === 'aws') {
+    let gcpHits = 0
+    let azureHits = 0
+    let awsHits = 0
+    for (const item of managed) {
+      if (item.type.startsWith('google_')) gcpHits += 1
+      else if (item.type.startsWith('azurerm_') || item.type.startsWith('azuread_') || item.type.startsWith('azapi_')) azureHits += 1
+      else if (item.type.startsWith('aws_')) awsHits += 1
+    }
+    // Prefer non-AWS on ties: reaching this branch means the connection didn't point at a
+    // specific non-AWS cloud, so a tie is more likely a mixed-cloud unit where the non-AWS
+    // slice is what the user is drift-scanning.
+    if (gcpHits > 0 && gcpHits >= azureHits && gcpHits >= awsHits) providerId = 'gcp'
+    else if (azureHits > 0 && azureHits >= awsHits) providerId = 'azure'
+    // else: all counts 0 (only provider-agnostic types like random_/time_) or aws-majority —
+    // leave 'aws'.
+  }
+  if (providerId === 'gcp') {
+    const { getGcpTerragruntUnitDriftReport } = await import('./gcpTerraformInsights')
+    return getGcpTerragruntUnitDriftReport(profileName, stackProjectId, connection, unitPath, preloadedInventory)
+  }
+  if (providerId === 'azure') {
+    const { getAzureTerragruntUnitDriftReport } = await import('./azure/terraformDrift')
+    return getAzureTerragruntUnitDriftReport(profileName, stackProjectId, connection, unitPath, preloadedInventory)
+  }
   const auditCtx = createTraceContext({
     operation: 'drift-report',
     provider: 'aws',

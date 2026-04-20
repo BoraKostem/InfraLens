@@ -1211,30 +1211,36 @@ function StackStateTab(props: {
             <span>Working dir: <code>{inventory.workingDir || 'unresolved'}</code></span>
             <span>{inventory.inventory.length} resource{inventory.inventory.length === 1 ? '' : 's'}</span>
           </div>
-          {inventory.inventory.length === 0
-            ? <p className="tg-muted">No resources in state. Run apply first, then pull again.</p>
-            : (
-              <table className="tg-state-table">
-                <thead>
-                  <tr>
-                    <th>Address</th>
-                    <th>Type</th>
-                    <th>Provider</th>
-                    <th>Module</th>
+          {inventory.error && (
+            <pre className="tg-muted" style={{ color: '#e74c3c', whiteSpace: 'pre-wrap', marginTop: 8 }}>
+              {inventory.error}
+            </pre>
+          )}
+          {inventory.inventory.length === 0 && !inventory.error && (
+            <p className="tg-muted">No resources in state. Run apply first, then pull again.</p>
+          )}
+          {inventory.inventory.length > 0 && (
+            <table className="tg-state-table">
+              <thead>
+                <tr>
+                  <th>Address</th>
+                  <th>Type</th>
+                  <th>Provider</th>
+                  <th>Module</th>
+                </tr>
+              </thead>
+              <tbody>
+                {inventory.inventory.map((item) => (
+                  <tr key={item.address}>
+                    <td><code>{item.address}</code></td>
+                    <td>{item.type}</td>
+                    <td>{item.provider}</td>
+                    <td>{item.modulePath || '-'}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {inventory.inventory.map((item) => (
-                    <tr key={item.address}>
-                      <td><code>{item.address}</code></td>
-                      <td>{item.type}</td>
-                      <td>{item.provider}</td>
-                      <td>{item.modulePath || '-'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
       {!inventory && !busy && !error && <div className="tf-section-hint">Pick a unit and click "Pull state" to fetch its inventory.</div>}
@@ -1279,14 +1285,55 @@ function StackDriftTab(props: {
 
   const selectedUnit = units.find((u) => u.unitPath === selectedUnitPath) ?? null
   const items: TerraformDriftItem[] = report?.items ?? []
-  const grouped = useMemo(() => {
-    const m = new Map<string, TerraformDriftItem[]>()
+  const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [typeFilter, setTypeFilter] = useState<string>('all')
+  const [selectedAddress, setSelectedAddress] = useState<string>('')
+  const selectedItem = useMemo(
+    () => items.find((item) => (item.terraformAddress || item.cloudIdentifier) === selectedAddress) ?? null,
+    [items, selectedAddress]
+  )
+
+  const cloudLabel = useMemo(() => {
+    // Infer the cloud from the first item's resource type — all items from a unit share a cloud.
+    const first = items[0]?.resourceType ?? ''
+    if (first.startsWith('google_')) return 'GCP'
+    if (first.startsWith('azurerm_')) return 'Azure'
+    return 'AWS'
+  }, [items])
+
+  const statusChips: Array<{ key: string; label: string }> = [
+    { key: 'all', label: 'All' },
+    { key: 'in_sync', label: 'In Sync' },
+    { key: 'drifted', label: 'Drifted' },
+    { key: 'missing_in_aws', label: `Missing In ${cloudLabel}` },
+    { key: 'unmanaged_in_aws', label: `Unmanaged In ${cloudLabel}` },
+    { key: 'unsupported', label: 'Unsupported' }
+  ]
+
+  const resourceTypes = useMemo(() => {
+    const seen = new Set<string>()
+    const out: string[] = []
     for (const item of items) {
-      const key = item.status
-      if (!m.has(key)) m.set(key, [])
-      m.get(key)!.push(item)
+      if (item.resourceType && !seen.has(item.resourceType)) {
+        seen.add(item.resourceType)
+        out.push(item.resourceType)
+      }
     }
-    return m
+    return out.sort()
+  }, [items])
+
+  const filteredItems = useMemo(() => items.filter((item) => {
+    if (statusFilter !== 'all' && item.status !== statusFilter) return false
+    if (typeFilter !== 'all' && item.resourceType !== typeFilter) return false
+    return true
+  }), [items, statusFilter, typeFilter])
+
+  const statusCounts = useMemo(() => {
+    const counts = { in_sync: 0, drifted: 0, missing_in_aws: 0, unmanaged_in_aws: 0, unsupported: 0 }
+    for (const item of items) {
+      if (item.status in counts) (counts as Record<string, number>)[item.status] += 1
+    }
+    return counts
   }, [items])
 
   return (
@@ -1351,42 +1398,110 @@ function StackDriftTab(props: {
             <span>Items: {items.length}</span>
             <span>Scanned: {report.summary?.scannedAt ? new Date(report.summary.scannedAt).toLocaleString() : '—'}</span>
           </div>
-          {items.length === 0
-            ? <div className="tf-section-hint">No drift detected. Everything in state matches the live cloud — for the resource types InfraLens knows how to compare.</div>
+          <div className="tf-summary" style={{ marginTop: 8 }}>
+            <span className="tf-summary-item"><span className="tf-summary-count in_sync">{statusCounts.in_sync}</span> in sync</span>
+            <span className="tf-summary-item"><span className="tf-summary-count drifted">{statusCounts.drifted}</span> drifted</span>
+            <span className="tf-summary-item"><span className="tf-summary-count missing_in_aws">{statusCounts.missing_in_aws}</span> missing</span>
+            <span className="tf-summary-item"><span className="tf-summary-count unmanaged_in_aws">{statusCounts.unmanaged_in_aws}</span> unmanaged</span>
+            <span className="tf-summary-item"><span className="tf-summary-count unsupported">{statusCounts.unsupported}</span> unsupported</span>
+          </div>
+          <div className="tf-drift-filters" style={{ marginTop: 12 }}>
+            <div className="tf-drift-status-row">
+              {statusChips.map((chip) => (
+                <button
+                  key={chip.key}
+                  type="button"
+                  className={statusFilter === chip.key ? 'active' : ''}
+                  onClick={() => setStatusFilter(chip.key)}
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
+            <label className="tf-drift-filter-select">
+              <span>Type</span>
+              <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+                <option value="all">All resource types</option>
+                {resourceTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </label>
+          </div>
+          {filteredItems.length === 0
+            ? <div className="tf-section-hint" style={{ marginTop: 12 }}>
+                {items.length === 0
+                  ? 'No resources in state to compare. Apply this unit to populate state.'
+                  : 'No items match the current filter.'}
+              </div>
             : (
-              <div className="tg-plan-detail-groups">
-                {[...grouped.entries()].map(([status, group]) => (
-                  <section key={status} className="tg-plan-detail-group">
-                    <div className="tg-plan-detail-group-head">
-                      <span className="tg-plan-detail-action tone-update">{driftStatusLabel(status)}</span>
-                      <strong>{group.length}</strong>
-                    </div>
-                    <ul className="tg-plan-detail-list">
-                      {group.map((item) => (
-                        <li key={`${item.status}:${item.terraformAddress || item.cloudIdentifier}`}>
-                          <code>{item.terraformAddress || item.cloudIdentifier || '(unnamed)'}</code>
-                          {item.resourceType && <span className="tg-muted"> — {item.resourceType}</span>}
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                ))}
+              <div className="tf-resource-table-wrap" style={{ marginTop: 12 }}>
+                <table className="tf-data-table tf-drift-table">
+                  <thead>
+                    <tr>
+                      <th>Status</th>
+                      <th>Type</th>
+                      <th>Logical Name</th>
+                      <th>Terraform Address</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredItems.map((item) => {
+                      const key = item.terraformAddress || item.cloudIdentifier
+                      return (
+                        <tr
+                          key={`${item.status}:${key}`}
+                          className={selectedAddress === key ? 'active' : ''}
+                          onClick={() => setSelectedAddress(key === selectedAddress ? '' : key)}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          <td>
+                            <span className={`tf-drift-badge ${item.status}`}>
+                              {driftStatusLabel(item.status, item.resourceType)}
+                            </span>
+                          </td>
+                          <td><code>{item.resourceType || '—'}</code></td>
+                          <td>{item.logicalName || '—'}</td>
+                          <td><code>{item.terraformAddress || item.cloudIdentifier || '—'}</code></td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
+          {selectedItem && (
+            <div className="tf-kv" style={{ marginTop: 16 }}>
+              <div className="tf-kv-row"><div className="tf-kv-label">Status</div><div className="tf-kv-value">{driftStatusLabel(selectedItem.status, selectedItem.resourceType)}</div></div>
+              <div className="tf-kv-row"><div className="tf-kv-label">Resource Type</div><div className="tf-kv-value"><code>{selectedItem.resourceType}</code></div></div>
+              <div className="tf-kv-row"><div className="tf-kv-label">Logical Name</div><div className="tf-kv-value">{selectedItem.logicalName || '—'}</div></div>
+              <div className="tf-kv-row"><div className="tf-kv-label">Terraform Address</div><div className="tf-kv-value"><code>{selectedItem.terraformAddress || '—'}</code></div></div>
+              <div className="tf-kv-row"><div className="tf-kv-label">Cloud Identifier</div><div className="tf-kv-value">{selectedItem.cloudIdentifier || '—'}</div></div>
+              <div className="tf-kv-row"><div className="tf-kv-label">Region</div><div className="tf-kv-value">{selectedItem.region || '—'}</div></div>
+              <div className="tf-kv-row"><div className="tf-kv-label">Explanation</div><div className="tf-kv-value">{selectedItem.explanation || '—'}</div></div>
+              <div className="tf-kv-row"><div className="tf-kv-label">Suggested Next Step</div><div className="tf-kv-value">{selectedItem.suggestedNextStep || '—'}</div></div>
+              <div className="tf-kv-row"><div className="tf-kv-label">Evidence</div><div className="tf-kv-value">{selectedItem.evidence.length > 0 ? selectedItem.evidence.join(' · ') : '—'}</div></div>
+              <div className="tf-kv-row"><div className="tf-kv-label">Differences</div><div className="tf-kv-value">{selectedItem.differences.length > 0 ? selectedItem.differences.map((d) => `${d.label}: terraform=${d.terraformValue || '—'} → live=${d.liveValue || '—'}`).join(' · ') : '—'}</div></div>
+            </div>
+          )}
         </div>
       )}
     </section>
   )
 }
 
-function driftStatusLabel(status: string): string {
+function driftStatusLabel(status: string, resourceType: string): string {
+  // The status enum names (`missing_in_aws` / `unmanaged_in_aws`) predate multi-cloud and
+  // are shared across providers. Pick a user-facing cloud name from the resource type
+  // prefix so a GCP stack's unmanaged items don't read "Unmanaged in AWS".
+  const cloud = resourceType.startsWith('google_') ? 'GCP'
+    : resourceType.startsWith('azurerm_') ? 'Azure'
+    : 'AWS'
   switch (status) {
     case 'in_sync': return 'In sync'
     case 'drifted': return 'Drifted'
-    case 'missing_in_aws': return 'Missing in AWS'
-    case 'missing_in_cloud': return 'Missing in cloud'
-    case 'unmanaged_in_aws': return 'Unmanaged in AWS'
-    case 'unmanaged_in_cloud': return 'Unmanaged in cloud'
+    case 'missing_in_aws': return `Missing in ${cloud}`
+    case 'missing_in_cloud': return `Missing in ${cloud}`
+    case 'unmanaged_in_aws': return `Unmanaged in ${cloud}`
+    case 'unmanaged_in_cloud': return `Unmanaged in ${cloud}`
     case 'unsupported': return 'Unsupported'
     default: return status
   }

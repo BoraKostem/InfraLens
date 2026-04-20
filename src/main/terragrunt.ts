@@ -7,6 +7,7 @@ import { execFile, execFileSync, spawn, type ChildProcessWithoutNullStreams } fr
 import { app, type BrowserWindow } from 'electron'
 
 import type {
+  AwsConnection,
   TerraformAuditProviderId,
   TerraformCommandName,
   TerraformRunRecord,
@@ -23,6 +24,11 @@ import { listToolCommandCandidates } from './toolchain'
 import { scanForTerragrunt } from './terragruntDiscovery'
 import { redactArgs, saveRunRecord, updateRunRecord } from './terraformHistoryStore'
 import { classifyTerraformError } from './terraformErrorClassifier'
+import { pullGcsStateDirect } from './gcp/terraformState'
+import { pullS3StateDirect } from './aws/terraformState'
+import { pullAzureBlobStateDirect } from './azure/terraformState'
+import { pullLocalStateDirect } from './terraformStateLocal'
+import { type DirectStatePullResult, readBackendMeta } from './terraformStateTypes'
 
 const NOT_INSTALLED_ERROR =
   'Terragrunt CLI not found. Install Terragrunt and ensure it is on your PATH, or set an explicit path in Settings.'
@@ -829,19 +835,58 @@ function runUnitProcess(params: {
 }
 
 // Parse a single key-value log line terragrunt emits with `--log-format=key-value`.
-// Fields are space-separated `key=value`; values may be quoted with double quotes.
-// Returns the prefix (unit path) and a display line reconstructed from level + msg.
+// Terragrunt's output looks like `time=... level=stdout prefix=/abs/path msg=Destroy complete!`
+// — the `msg=` value is frequently UNQUOTED and contains spaces, so a naive `\S+` capture
+// truncates it to the first word. An unquoted value therefore extends until the next
+// ` <key>=` pattern or end of line, not just the next whitespace.
 function parseTerragruntKeyValueLine(line: string): { prefix: string; display: string } | null {
   const trimmed = line.replace(/\r$/, '')
   if (!trimmed) return null
+
   const fields = new Map<string, string>()
-  const re = /(\w+)=("((?:[^"\\]|\\.)*)"|(\S+))/g
-  let m: RegExpExecArray | null
-  while ((m = re.exec(trimmed)) !== null) {
-    const key = m[1]
-    const value = m[3] !== undefined ? m[3].replace(/\\(.)/g, '$1') : m[4]
+  let i = 0
+  while (i < trimmed.length) {
+    while (i < trimmed.length && /\s/.test(trimmed[i])) i += 1
+    if (i >= trimmed.length) break
+
+    const keyStart = i
+    while (i < trimmed.length && /[\w.-]/.test(trimmed[i])) i += 1
+    const key = trimmed.slice(keyStart, i)
+    if (!key || trimmed[i] !== '=') {
+      while (i < trimmed.length && !/\s/.test(trimmed[i])) i += 1
+      continue
+    }
+    i += 1 // consume '='
+
+    let value = ''
+    if (trimmed[i] === '"') {
+      i += 1
+      const valStart = i
+      while (i < trimmed.length) {
+        if (trimmed[i] === '\\' && i + 1 < trimmed.length) { i += 2; continue }
+        if (trimmed[i] === '"') break
+        i += 1
+      }
+      value = trimmed.slice(valStart, i).replace(/\\(.)/g, '$1')
+      if (trimmed[i] === '"') i += 1
+    } else {
+      // Unquoted — extend until we hit ` <word>=` or end of line.
+      const valStart = i
+      while (i < trimmed.length) {
+        if (/\s/.test(trimmed[i])) {
+          let j = i
+          while (j < trimmed.length && /\s/.test(trimmed[j])) j += 1
+          const peekStart = j
+          while (j < trimmed.length && /[\w.-]/.test(trimmed[j])) j += 1
+          if (j > peekStart && trimmed[j] === '=') break
+        }
+        i += 1
+      }
+      value = trimmed.slice(valStart, i).trimEnd()
+    }
     fields.set(key, value)
   }
+
   const prefix = fields.get('prefix') ?? ''
   if (!fields.has('msg') && !fields.has('level') && !prefix) return null
   const level = fields.get('level') ?? ''
@@ -903,12 +948,24 @@ function runNativeRunAllDestroy(params: {
     // Emit unit-started for every unit upfront. run-all destroy doesn't stream per-unit
     // start events, so we anchor the UI to all expected units immediately; that way
     // progress is visible even if a unit never produces any prefix-tagged log line.
-    const unitRecords = new Map<string, { unitRunId: string; startedAt: string; output: string; phase: number }>()
+    //
+    // `sawCompletion` / `sawUnitError` track per-unit success signals from prefix-routed
+    // lines only — broadcast stack-level chatter (including the word "error" in TIP messages
+    // or diagnostics that don't belong to this unit) does not flip these flags, which was
+    // the root cause of every unit being marked failed after a successful destroy.
+    const unitRecords = new Map<string, {
+      unitRunId: string
+      startedAt: string
+      output: string
+      phase: number
+      sawCompletion: boolean
+      sawUnitError: boolean
+    }>()
     for (const unitPath of stack.units.map((u) => u.unitPath)) {
       const unitRunId = randomUUID()
       const startedAt = new Date().toISOString()
       const phase = phaseByUnit.get(unitPath) ?? 0
-      unitRecords.set(unitPath, { unitRunId, startedAt, output: '', phase })
+      unitRecords.set(unitPath, { unitRunId, startedAt, output: '', phase, sawCompletion: false, sawUnitError: false })
       const record = makeRunRecord({
         id: unitRunId,
         stackRoot: stack.stackRoot,
@@ -927,6 +984,12 @@ function runNativeRunAllDestroy(params: {
       ? setTimeout(() => terminateRunAllChild(child), timeoutMs)
       : null
 
+    // Completion and error markers emitted by terraform (not terragrunt wrappers). These
+    // only flip the per-unit success flags when seen in *prefix-routed* output — broadcast
+    // stack chatter does not contribute to per-unit outcome.
+    const COMPLETION_RE = /(?:destroy complete!|apply complete!|no changes\.|no objects need to be destroyed)/i
+    const UNIT_ERROR_RE = /^\s*(?:│\s*)?error:/i
+
     let leftover = ''
     const routeLine = (rawLine: string): void => {
       const parsed = parseTerragruntKeyValueLine(rawLine)
@@ -937,12 +1000,15 @@ function runNativeRunAllDestroy(params: {
         const rec = unitRecords.get(prefix)!
         rec.output += chunk
         if (rec.output.length > 500_000) rec.output = rec.output.slice(-500_000)
+        if (COMPLETION_RE.test(parsed.display)) rec.sawCompletion = true
+        if (UNIT_ERROR_RE.test(parsed.display)) rec.sawUnitError = true
         emitRunAllEvent(window, { type: 'unit-output', runId, unitPath: prefix, chunk })
         return
       }
       // Stack-level message (no prefix, or prefix not in our known units). Broadcast to
       // every in-scope unit so early errors are visible; they'll be deduped naturally
-      // since we cap each unit's output buffer.
+      // since we cap each unit's output buffer. Do NOT touch sawCompletion/sawUnitError
+      // here — those are per-unit signals tied to prefix-routed lines only.
       for (const [unitPath, rec] of unitRecords) {
         rec.output += chunk
         if (rec.output.length > 500_000) rec.output = rec.output.slice(-500_000)
@@ -982,12 +1048,20 @@ function runNativeRunAllDestroy(params: {
         const startedAtMs = Date.parse(rec.startedAt)
         const finishedAt = new Date().toISOString()
         const durationMs = Date.parse(finishedAt) - (Number.isFinite(startedAtMs) ? startedAtMs : Date.now())
-        const unitHasError = rec.output.toLowerCase().includes('error')
+        // Unit-level outcome is derived from prefix-routed markers, not from the shared
+        // `rec.output` buffer (which pollutes every unit with stack-level error chatter).
+        // A unit is successful if terraform emitted a completion line for it and no error
+        // line was routed to it. Fall back to the overall exit code when the unit never
+        // produced any routed lines — e.g. it was blocked by an upstream failure.
+        const unitProducedSignal = rec.sawCompletion || rec.sawUnitError
+        const unitSucceeded = unitProducedSignal
+          ? rec.sawCompletion && !rec.sawUnitError
+          : overallOk
         if (active.cancelled) {
           cancelled.add(unit)
           updateRunRecord(rec.unitRunId, { finishedAt, exitCode: 130, success: false, durationMs }, rec.output)
           emitRunAllEvent(window, { type: 'unit-cancelled', runId, unitPath: unit })
-        } else if (overallOk && !unitHasError) {
+        } else if (unitSucceeded) {
           succeeded.add(unit)
           updateRunRecord(rec.unitRunId, { finishedAt, exitCode: 0, success: true, durationMs }, rec.output)
           emitRunAllEvent(window, { type: 'unit-completed', runId, unitPath: unit, exitCode: 0, success: true })
@@ -1481,46 +1555,297 @@ async function runTerraformInCache(
   return await invokeTerragrunt(binary, workingDir, args, env, STATE_PULL_TIMEOUT_MS)
 }
 
+/**
+ * Scan `.tf` files under the terragrunt cache's working dir and synthesize a type-appropriate
+ * placeholder value for every `variable "..."` block that has no `default = ...`.
+ *
+ * Terraform refuses to run *any* command — including `state pull` — when a required variable
+ * has no value, even though state pull never evaluates user config. When terragrunt can't
+ * compute its `inputs` (e.g. a `dependency` output is unresolved), the cache has no tfvars
+ * and terraform errors out. Feeding dummy values via `TF_VAR_<name>` lets validation pass.
+ *
+ * Empty strings are unreliable — on Windows / via Node's spawn, an env var set to ""
+ * effectively disappears from the child's environment, so terraform still reports the
+ * variable as unset. The placeholder for strings is therefore non-empty; for other types
+ * we pick literal values that satisfy terraform's type check.
+ */
+function collectRequiredVariablePlaceholders(workingDir: string): Record<string, string> {
+  const result: Record<string, string> = {}
+  let entries: fs.Dirent[]
+  try {
+    entries = fs.readdirSync(workingDir, { withFileTypes: true })
+  } catch {
+    return result
+  }
+  const variableBlockRe = /variable\s+"([^"]+)"\s*\{([\s\S]*?)^\}/gm
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.tf')) continue
+    let source: string
+    try {
+      source = fs.readFileSync(path.join(workingDir, entry.name), 'utf-8')
+    } catch {
+      continue
+    }
+    let match: RegExpExecArray | null
+    while ((match = variableBlockRe.exec(source)) !== null) {
+      const name = match[1]
+      const body = match[2]
+      if (/^\s*default\s*=/m.test(body)) continue
+      const typeMatch = body.match(/^\s*type\s*=\s*([^\n]+)/m)
+      const typeExpr = typeMatch ? typeMatch[1].trim() : 'string'
+      result[name] = placeholderForTerraformType(typeExpr)
+    }
+  }
+  return result
+}
+
+function placeholderForTerraformType(typeExpr: string): string {
+  const low = typeExpr.toLowerCase()
+  if (low.startsWith('number')) return '0'
+  if (low.startsWith('bool')) return 'false'
+  if (low.startsWith('list') || low.startsWith('tuple') || low.startsWith('set')) return '[]'
+  if (low.startsWith('map') || low.startsWith('object')) return '{}'
+  return '__infralens_placeholder__'
+}
+
+/**
+ * Translate noisy terragrunt/terraform stderr into a one-screen, actionable message when the
+ * failure pattern matches something we recognise. Returns empty string if nothing matches,
+ * in which case the caller falls through to dumping the raw output.
+ */
+function classifyStatePullFailure(terragruntStderr: string, terraformStderr: string): string {
+  const combined = `${terragruntStderr}\n${terraformStderr}`
+  const depMissing = /detected no outputs/i.test(combined) || /unresolved dependency outputs/i.test(combined)
+  if (depMissing) {
+    const depMatch = terragruntStderr.match(/([^\s"]*[\\/][^\s"]+terragrunt\.hcl)\s+is a dependency of/i)
+    const depPath = depMatch ? depMatch[1] : ''
+    return [
+      'State pull aborted: an upstream dependency has no outputs yet.',
+      depPath ? `Missing outputs from: ${depPath}` : '',
+      '',
+      'Terragrunt refuses to resolve `dependency.*.outputs` until the upstream unit has been',
+      'applied. For state-read commands you can bypass this by adding `"state"`, `"show"`, and',
+      '`"output"` to `mock_outputs_allowed_terraform_commands` in the `dependency` block — then',
+      'the mock values are fed to terraform and state pull goes straight to the backend.',
+      '',
+      'Alternatively: apply the upstream unit first, then pull state for this one.'
+    ].filter(Boolean).join('\n')
+  }
+  if (/No value for required variable/i.test(terraformStderr)) {
+    const varMatch = terraformStderr.match(/input variable "([^"]+)"/i)
+    const varName = varMatch ? varMatch[1] : ''
+    return [
+      varName
+        ? `State pull aborted: terraform rejected placeholder for variable "${varName}".`
+        : 'State pull aborted: terraform rejected the placeholder variables.',
+      '',
+      'The placeholder .auto.tfvars.json and TF_VAR_* env vars were both injected but terraform',
+      'did not accept them. This usually means the unit has never been applied and the backend',
+      'state object does not exist yet — run apply first, then pull again.'
+    ].join('\n')
+  }
+  return ''
+}
+
 export async function pullTerragruntState(
   unitPath: string,
-  env: Record<string, string>
+  env: Record<string, string>,
+  connection?: AwsConnection,
+  unitDir?: string
 ): Promise<{ stateJson: string; workingDir: string; error: string }> {
   const info = cachedInfo ?? await detectTerragruntCli()
   if (!info.found) return { stateJson: '', workingDir: '', error: NOT_INSTALLED_ERROR }
   const prepared = await ensureTerragruntUnitInitialized(unitPath, env)
   if (!prepared.ok) return { stateJson: '', workingDir: '', error: prepared.error }
 
-  // Primary: terragrunt state pull. Modern Terragrunt interleaves log lines with the state JSON
-  // on stdout, so always run the payload through extractStatePayload to isolate the object.
-  const tgResult = await invokeTerragrunt(info.path, unitPath, ['state', 'pull', '--non-interactive'], env, STATE_PULL_TIMEOUT_MS)
-  if (tgResult.exitCode === 0) {
-    const payload = extractStatePayload(tgResult.stdout)
-    if (payload) return { stateJson: payload, workingDir: prepared.workingDir, error: '' }
+  // Terraform refuses to run `state pull` (or any command) when a required input variable has
+  // no value — even though state pull never evaluates user config. When terragrunt couldn't
+  // compute its `inputs` (e.g. a `dependency` output isn't available), the cache has no
+  // tfvars and every attempt errors with "No value for required variable".
+  //
+  // Belt-and-suspenders: write a `.auto.tfvars.json` file directly inside the cache's working
+  // dir (terraform auto-loads `*.auto.tfvars.json` in the module directory) AND also set
+  // TF_VAR_<name> env vars. Some terraform builds don't auto-load the file when invoked for
+  // state commands, so the env vars provide a second source of truth. Deleted after the pull.
+  const placeholderTfvarsPath = prepared.workingDir
+    ? path.join(prepared.workingDir, 'infralens_placeholders.auto.tfvars.json')
+    : ''
+  const injectedPlaceholders: string[] = []
+  let placeholderWriteError = ''
+  const placeholderEnv: Record<string, string> = {}
+  if (placeholderTfvarsPath) {
+    const placeholderValues: Record<string, unknown> = {}
+    for (const [varName, placeholder] of Object.entries(collectRequiredVariablePlaceholders(prepared.workingDir))) {
+      // Translate the string placeholder into the JSON value terraform expects for that type.
+      // Strings pass through; non-strings parse the placeholder literal (`0`, `false`, `[]`, `{}`).
+      try {
+        placeholderValues[varName] = placeholder.startsWith('__') ? placeholder : JSON.parse(placeholder)
+      } catch {
+        placeholderValues[varName] = placeholder
+      }
+      injectedPlaceholders.push(`${varName}=${placeholder}`)
+      placeholderEnv[`TF_VAR_${varName}`] = placeholder
+    }
+    if (injectedPlaceholders.length > 0) {
+      try {
+        fs.writeFileSync(placeholderTfvarsPath, JSON.stringify(placeholderValues, null, 2), 'utf-8')
+        placeholderWriteError = fs.existsSync(placeholderTfvarsPath)
+          ? ''
+          : 'writeFileSync returned but file does not exist on disk'
+      } catch (err) {
+        placeholderWriteError = (err as Error).message
+      }
+    }
   }
+  const augmentedEnv = { ...env, ...placeholderEnv }
 
-  // Fallback: call `terraform state pull` directly inside the terragrunt-materialised cache dir.
-  // This avoids terragrunt's stdout log interleaving entirely.
-  if (prepared.workingDir) {
-    const tfResult = await runTerraformInCache(prepared.workingDir, ['state', 'pull'], env)
-    if (tfResult.exitCode === 0) {
-      const payload = extractStatePayload(tfResult.stdout)
+  try {
+    // Strategy 0: direct backend fetch. Reads the resolved backend config from
+    // `.terraform/terraform.tfstate` (populated by `terragrunt init`) and GETs the state
+    // object from the matching cloud (GCS/S3/Azure Blob) or reads the local file.
+    // Sidesteps terragrunt's config evaluation entirely — no dependency resolution, no
+    // variable validation, no mock_outputs gymnastics. A direct-fetch failure ('error')
+    // falls through to the terragrunt/terraform subprocess strategies below, which may
+    // succeed under different auth or by resolving the config that blocked us here.
+    if (prepared.workingDir) {
+      const meta = readBackendMeta(prepared.workingDir)
+      const localDir = unitDir ?? unitPath
+      let direct: DirectStatePullResult | null = null
+      switch (meta?.type) {
+        case 'gcs':
+          direct = await pullGcsStateDirect(prepared.workingDir)
+          break
+        case 's3':
+          if (connection) direct = await pullS3StateDirect(prepared.workingDir, connection)
+          break
+        case 'azurerm':
+          direct = await pullAzureBlobStateDirect(prepared.workingDir)
+          break
+        case 'local':
+          direct = await pullLocalStateDirect(prepared.workingDir, localDir)
+          break
+        default:
+          // No backend metadata (no `.terraform/terraform.tfstate`) or an unrecognized
+          // backend type — probe for a local state file anyway. Many first-time-run
+          // setups and `backend = "local"` units without explicit init land here.
+          direct = await pullLocalStateDirect(prepared.workingDir, localDir)
+          break
+      }
+      if (direct?.kind === 'ok') {
+        return { stateJson: direct.stateJson, workingDir: prepared.workingDir, error: '' }
+      }
+      if (direct?.kind === 'empty') {
+        return {
+          stateJson: '',
+          workingDir: prepared.workingDir,
+          error: [
+            'No state found in the backend yet — this unit has never been applied.',
+            'Run apply on this unit (or its upstream dependencies) first, then pull again.'
+          ].join('\n')
+        }
+      }
+      // kind === 'backend-mismatch' | 'backend-unknown' | 'error' — fall through.
+    }
+
+    // Strategy 1: legacy `terragrunt state pull --non-interactive`. Pre-0.73 and still works on
+    // newer CLIs via command forwarding, but stdout has log lines interleaved with JSON.
+    const tgLegacy = await invokeTerragrunt(info.path, unitPath, ['state', 'pull', '--non-interactive'], augmentedEnv, STATE_PULL_TIMEOUT_MS)
+    if (tgLegacy.exitCode === 0) {
+      const payload = extractStatePayload(tgLegacy.stdout)
       if (payload) return { stateJson: payload, workingDir: prepared.workingDir, error: '' }
+    }
+
+    // Strategy 2: modern `terragrunt run -- state pull` (0.73+). The `--` separator keeps the
+    // state/pull tokens from being parsed by terragrunt itself.
+    const tgRun = await invokeTerragrunt(info.path, unitPath, ['run', '--non-interactive', '--', 'state', 'pull'], augmentedEnv, STATE_PULL_TIMEOUT_MS)
+    if (tgRun.exitCode === 0) {
+      const payload = extractStatePayload(tgRun.stdout)
+      if (payload) return { stateJson: payload, workingDir: prepared.workingDir, error: '' }
+    }
+
+    // Strategy 3: call `terraform state pull` directly inside the terragrunt-materialised cache
+    // dir. Avoids terragrunt log interleaving entirely.
+    if (prepared.workingDir) {
+      // Re-assert the placeholder tfvars before terraform runs. The terragrunt strategies above
+      // may have triggered cache regeneration (terragrunt's init wipes anything that isn't in
+      // the source module), so our .auto.tfvars.json could be gone by now.
+      let placeholderFileExists = false
+      if (placeholderTfvarsPath && injectedPlaceholders.length > 0) {
+        try {
+          const placeholderValues: Record<string, unknown> = {}
+          for (const [varName, placeholder] of Object.entries(collectRequiredVariablePlaceholders(prepared.workingDir))) {
+            try {
+              placeholderValues[varName] = placeholder.startsWith('__') ? placeholder : JSON.parse(placeholder)
+            } catch {
+              placeholderValues[varName] = placeholder
+            }
+          }
+          fs.writeFileSync(placeholderTfvarsPath, JSON.stringify(placeholderValues, null, 2), 'utf-8')
+          placeholderFileExists = fs.existsSync(placeholderTfvarsPath)
+          if (!placeholderWriteError && !placeholderFileExists) {
+            placeholderWriteError = 'file missing after re-write before terraform state pull'
+          }
+        } catch (err) {
+          if (!placeholderWriteError) placeholderWriteError = (err as Error).message
+        }
+      }
+
+      const tfResult = await runTerraformInCache(prepared.workingDir, ['state', 'pull'], augmentedEnv)
+      if (tfResult.exitCode === 0) {
+        const payload = extractStatePayload(tfResult.stdout)
+        if (payload) return { stateJson: payload, workingDir: prepared.workingDir, error: '' }
+        // Exit 0 with empty stdout means the backend either has no state object yet (unit never
+        // applied) or returned an empty body. Surface both stdout + stderr so the user can tell.
+        return {
+          stateJson: '',
+          workingDir: prepared.workingDir,
+          error: [
+            'No state found in the backend yet — this unit has never been applied.',
+            'Run apply on this unit (or its upstream dependencies) first, then pull again.'
+          ].join('\n')
+        }
+      }
+
+      const tgCombinedStderr = [tgLegacy.stderr, tgRun.stderr].filter(Boolean).join('\n').trim()
+      const tfStderr = tfResult.stderr.trim()
+      const classified = classifyStatePullFailure(tgCombinedStderr, tfStderr)
+      if (classified) {
+        return { stateJson: '', workingDir: prepared.workingDir, error: classified }
+      }
       return {
         stateJson: '',
         workingDir: prepared.workingDir,
-        error: 'terraform state pull completed but produced no parseable JSON payload.'
+        error: [
+          `State pull failed (terragrunt exit ${tgLegacy.exitCode}/${tgRun.exitCode}, terraform exit ${tfResult.exitCode}).`,
+          '',
+          `── placeholder tfvars injected (${injectedPlaceholders.length}) ──`,
+          injectedPlaceholders.length > 0 ? injectedPlaceholders.join(', ') : '(none)',
+          `file: ${placeholderTfvarsPath || '(not written)'}`,
+          `exists-before-terraform: ${placeholderFileExists}`,
+          placeholderWriteError ? `write-error: ${placeholderWriteError}` : '',
+          '',
+          '── terraform state pull stderr ──',
+          tfStderr || tfResult.stdout.trim() || '(empty)',
+          '',
+          '── terragrunt state pull stderr ──',
+          tgCombinedStderr || '(empty)'
+        ].filter(Boolean).join('\n')
       }
     }
+
+    const classified = classifyStatePullFailure([tgLegacy.stderr, tgRun.stderr].filter(Boolean).join('\n').trim(), '')
     return {
       stateJson: '',
       workingDir: prepared.workingDir,
-      error: `state pull failed — terragrunt exit ${tgResult.exitCode}, terraform exit ${tfResult.exitCode}. ${(tfResult.stderr || tgResult.stderr || '').slice(-300)}`
+      error: classified || [
+        `State pull failed (terragrunt exit ${tgLegacy.exitCode}).`,
+        '',
+        tgLegacy.stderr.trim() || tgLegacy.stdout.trim() || '(no output)'
+      ].join('\n')
     }
-  }
-
-  return {
-    stateJson: '',
-    workingDir: prepared.workingDir,
-    error: (tgResult.stderr || tgResult.stdout || `terragrunt state pull exited ${tgResult.exitCode}`).slice(-500)
+  } finally {
+    if (placeholderTfvarsPath) {
+      try { fs.unlinkSync(placeholderTfvarsPath) } catch { /* ignore */ }
+    }
   }
 }

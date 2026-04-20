@@ -3892,7 +3892,12 @@ export function TerraformConsole({
 
   useEffect(() => {
     if (detailTab !== 'drift' || !detail || !canLoadDrift || !driftConnection) return
-    if (driftReport?.projectId === detail.id && driftReport.region === driftConnection.region) return
+    // Only match on projectId — for Terragrunt stacks and multi-cloud projects the
+    // report's region comes from the state (resource location) and may not equal the
+    // UI-selected driftConnection.region. Comparing both caused an infinite refresh
+    // loop where every completed scan re-triggered the effect because the regions
+    // didn't match.
+    if (driftReport?.projectId === detail.id) return
     void loadDrift()
   }, [canLoadDrift, detail, detailTab, driftConnection, driftReport, loadDrift])
 

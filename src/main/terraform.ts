@@ -67,7 +67,7 @@ import { createTraceContext, logRunCompleted, logRunFailed, logRunStarted } from
 import { classifyTerraformError } from './terraformErrorClassifier'
 import { getPreferredTerraformCliKindSetting, listToolCommandCandidates } from './toolchain'
 import { readAzureFoundationStore } from './azureFoundationStore'
-import { scanForTerragrunt } from './terragruntDiscovery'
+import { findEffectiveRemoteState, scanForTerragrunt } from './terragruntDiscovery'
 import {
   buildTerragruntCommandArgs,
   cancelRunAll as cancelTerragruntRunAll,
@@ -620,16 +620,46 @@ export async function setActiveTerraformCli(kind: TerraformCliKind): Promise<Ter
 
 /* ── S3 Backend Parsing ───────────────────────────────────── */
 
-function parseS3Backend(rootPath: string): TerraformS3BackendConfig | null {
+type BackendConfigSummary = Record<string, string>
+
+function unescapeBackendString(value: string): string {
+  return value
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\r')
+    .replace(/\\t/g, '\t')
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\')
+}
+
+function parseBackendAttributes(body: string): BackendConfigSummary {
+  const attrs: BackendConfigSummary = {}
+  const attrRe = /(\w+)\s*=\s*("((?:\\.|[^"\\])*)"|[^\n,]+)/g
+  let attrMatch: RegExpExecArray | null
+  while ((attrMatch = attrRe.exec(body)) !== null) {
+    const key = attrMatch[1]
+    const quotedValue = attrMatch[3]
+    const rawValue = attrMatch[2]?.trim() ?? ''
+    attrs[key] = quotedValue !== undefined
+      ? unescapeBackendString(quotedValue)
+      : rawValue.replace(/,$/, '').trim()
+  }
+  return attrs
+}
+
+function parseBackendConfig(rootPath: string, backendType: string): BackendConfigSummary {
   const tfFiles = listTerraformFiles(rootPath)
   const combined = tfFiles.map(readText).join('\n')
-  const match = combined.match(/backend\s+"s3"\s*\{([\s\S]*?)\}/)
-  if (!match) return null
-  const body = match[1]
-  const bucket = body.match(/bucket\s*=\s*"([^"]*)"/)?.[1] ?? ''
-  const key = body.match(/key\s*=\s*"([^"]*)"/)?.[1] ?? ''
-  const region = body.match(/region\s*=\s*"([^"]*)"/)?.[1] ?? ''
-  const workspaceKeyPrefix = body.match(/workspace_key_prefix\s*=\s*"([^"]*)"/)?.[1] ?? 'env:'
+  const escapedType = backendType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = combined.match(new RegExp(`backend\\s+"${escapedType}"\\s*\\{([\\s\\S]*?)\\}`))
+  return match ? parseBackendAttributes(match[1]) : {}
+}
+
+function parseS3Backend(rootPath: string): TerraformS3BackendConfig | null {
+  const attrs = parseBackendConfig(rootPath, 's3')
+  const bucket = attrs.bucket ?? ''
+  const key = attrs.key ?? ''
+  const region = attrs.region ?? ''
+  const workspaceKeyPrefix = attrs.workspace_key_prefix ?? 'env:'
   if (!bucket || !key) return null
   return { bucket, key, region, workspaceKeyPrefix }
 }
@@ -641,7 +671,55 @@ function resolveS3StateKey(config: TerraformS3BackendConfig, rootPath: string): 
   return `${config.workspaceKeyPrefix}/${workspace}/${config.key}`
 }
 
-function buildBackendDetails(rootPath: string, backendType: string, s3Backend: TerraformS3BackendConfig | null): TerraformProjectMetadata['backend'] {
+function normalizeBackendPart(value: string): string {
+  return value.trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+}
+
+function joinBackendParts(parts: string[]): string {
+  return parts.map(normalizeBackendPart).filter(Boolean).join('/')
+}
+
+function labelForCloudBackend(backendType: string, config: BackendConfigSummary): string {
+  switch (backendType) {
+    case 'gcs': {
+      const bucket = config.bucket ?? ''
+      if (!bucket) return 'GCS remote state'
+      const tail = joinBackendParts([bucket, config.prefix ?? ''])
+      return `gs://${tail}`
+    }
+    case 's3': {
+      const bucket = config.bucket ?? ''
+      if (!bucket) return 'S3 remote state'
+      const tail = joinBackendParts([bucket, config.key ?? ''])
+      return `s3://${tail}`
+    }
+    case 'azurerm': {
+      const account = config.storage_account_name ?? ''
+      const container = config.container_name ?? ''
+      const key = config.key ?? ''
+      if (!account && !container && !key) return 'AzureRM remote state'
+      return `azurerm://${joinBackendParts([account, container, key])}`
+    }
+    case 'http':
+      return config.address || 'HTTP remote state'
+    case 'remote': {
+      const organization = config.organization ?? ''
+      const workspace = config.name ?? config.prefix ?? ''
+      return organization || workspace
+        ? `remote://${joinBackendParts([organization, workspace])}`
+        : 'Terraform Cloud remote state'
+    }
+    default:
+      return backendType
+  }
+}
+
+function buildBackendDetails(
+  rootPath: string,
+  backendType: string,
+  s3Backend: TerraformS3BackendConfig | null,
+  backendConfig: BackendConfigSummary
+): TerraformProjectMetadata['backend'] {
   if (backendType === 's3' && s3Backend) {
     return {
       ...s3Backend,
@@ -657,10 +735,96 @@ function buildBackendDetails(rootPath: string, backendType: string, s3Backend: T
       stateLocation: path.join(rootPath, 'terraform.tfstate')
     }
   }
+  const cloudLabel = labelForCloudBackend(backendType, backendConfig)
   return {
     type: backendType,
-    label: backendType,
+    label: cloudLabel,
     summary: `Backend type ${backendType}`
+  }
+}
+
+function extractFirstHclBlock(source: string, keyword: string): string {
+  const match = new RegExp(`\\b${keyword}\\s*\\{`, 'g').exec(source)
+  if (!match) return ''
+  let depth = 1
+  let inString = false
+  let i = match.index + match[0].length
+  const start = i
+  while (i < source.length && depth > 0) {
+    const ch = source[i]
+    if (inString) {
+      if (ch === '\\') { i += 2; continue }
+      if (ch === '"') inString = false
+    } else {
+      if (ch === '"') inString = true
+      else if (ch === '{') depth += 1
+      else if (ch === '}') depth -= 1
+    }
+    i += 1
+  }
+  return depth === 0 ? source.slice(start, i - 1) : ''
+}
+
+function readTerragruntStringLocals(configFile: string): BackendConfigSummary {
+  const body = extractFirstHclBlock(readText(configFile), 'locals')
+  return body ? parseBackendAttributes(body) : {}
+}
+
+function terragruntRelativeStatePath(rootPath: string, configFile: string): string {
+  const relative = path.relative(path.dirname(configFile), path.resolve(rootPath)).replace(/\\/g, '/')
+  return relative && relative !== '.' ? relative : ''
+}
+
+function summarizeTerragruntExpression(
+  expression: string,
+  rootPath: string,
+  configFile: string,
+  locals: BackendConfigSummary
+): string {
+  const trimmed = expression.trim()
+  const relative = terragruntRelativeStatePath(rootPath, configFile)
+  if (trimmed === 'path_relative_to_include()') return relative
+  if (/^replace\(\s*path_relative_to_include\(\)\s*,/i.test(trimmed)) return relative
+  if (trimmed === 'get_parent_terragrunt_dir()') return path.dirname(configFile).replace(/\\/g, '/')
+  if (trimmed === 'get_terragrunt_dir()') return path.resolve(rootPath).replace(/\\/g, '/')
+  const localMatch = trimmed.match(/^local\.([\w-]+)$/)
+  if (localMatch) return locals[localMatch[1]] || `<${localMatch[1]}>`
+  return '<dynamic>'
+}
+
+function resolveTerragruntBackendValue(raw: string, rootPath: string, configFile: string, locals: BackendConfigSummary): string {
+  let value = raw.trim()
+  value = value.replace(/\${\s*([^}]+)\s*}/g, (_match, expression: string) =>
+    summarizeTerragruntExpression(expression, rootPath, configFile, locals)
+  )
+  value = value.replace(/\breplace\(\s*path_relative_to_include\(\)\s*,[^\)]*\)/gi, terragruntRelativeStatePath(rootPath, configFile))
+  value = value.replace(/\bpath_relative_to_include\(\)/gi, terragruntRelativeStatePath(rootPath, configFile))
+  value = value.replace(/\bget_parent_terragrunt_dir\(\)/gi, path.dirname(configFile).replace(/\\/g, '/'))
+  value = value.replace(/\bget_terragrunt_dir\(\)/gi, path.resolve(rootPath).replace(/\\/g, '/'))
+  value = value.replace(/\blocal\.([\w-]+)/g, (_match, name: string) => locals[name] || `<${name}>`)
+  return value.replace(/\/\.\//g, '/').replace(/^\.\//, '').replace(/\\/g, '/')
+}
+
+function buildTerragruntBackendDetails(
+  rootPath: string,
+  remote: { remoteState: { backend: string; configSummary: BackendConfigSummary }; configFile: string }
+): TerraformProjectMetadata['backend'] {
+  const backendType = remote.remoteState.backend
+  const locals = readTerragruntStringLocals(remote.configFile)
+  const resolvedConfig = Object.fromEntries(
+    Object.entries(remote.remoteState.configSummary).map(([key, value]) => [
+      key,
+      resolveTerragruntBackendValue(value, rootPath, remote.configFile, locals)
+    ])
+  )
+  if (backendType === 'local') {
+    const stateLocation = resolvedConfig.path || path.join(rootPath, 'terraform.tfstate')
+    return { type: 'local', label: stateLocation, stateLocation }
+  }
+  return {
+    type: backendType,
+    label: labelForCloudBackend(backendType, resolvedConfig),
+    summary: `Terragrunt remote_state "${backendType}"`
   }
 }
 
@@ -1042,6 +1206,7 @@ function inferMetadata(rootPath: string): {
   const outputsCount = Array.from(combined.matchAll(/^\s*output\s+"[^"]+"/gm)).length
   const versionConstraint = combined.match(/required_version\s*=\s*"([^"]+)"/)?.[1] ?? ''
   const backendType = combined.match(/backend\s+"([^"]+)"/)?.[1] ?? 'local'
+  const backendConfig = parseBackendConfig(rootPath, backendType)
 
   const variables = Array.from(combined.matchAll(/variable\s+"([^"]+)"\s*\{([\s\S]*?)\}/g)).map((match) => {
     const body = match[2]
@@ -1058,7 +1223,7 @@ function inferMetadata(rootPath: string): {
     metadata: {
       terraformVersionConstraint: versionConstraint,
       backendType,
-      backend: buildBackendDetails(rootPath, backendType, s3Backend),
+      backend: buildBackendDetails(rootPath, backendType, s3Backend, backendConfig),
       git,
       providerNames,
       resourceCount,
@@ -2620,6 +2785,18 @@ async function loadProject(project: StoredProject, profileName = '', connection?
       resourceCount: 0, moduleCount: 0, variableCount: 0, outputsCount: 0, tfFileCount: 0,
       lastScannedAt: '', s3Backend: null
     }
+    // Terragrunt stacks classify as "Missing" because the stack root has no .tf files — only
+    // nested units do. Skipping the backend override here leaves `backendType: 'local'` on
+    // the stack project, which downstream consumers (drift provider routing, backend badges)
+    // mis-read as AWS/local. Apply the remote_state walk so terragrunt stacks still surface
+    // their real backend (gcs/s3/azurerm) even without local .tf files.
+    if (kind === 'terragrunt-unit' || kind === 'terragrunt-stack') {
+      const remote = findEffectiveRemoteState(project.rootPath)
+      if (remote) {
+        emptyMeta.backendType = remote.remoteState.backend
+        emptyMeta.backend = buildTerragruntBackendDetails(project.rootPath, remote)
+      }
+    }
     const currentWorkspace = project.environment?.workspaceName || 'default'
     const inputConfig = normalizeInputConfig(project)
     const inputValidation = { valid: true, missing: [], unresolvedSecrets: [] }
@@ -2660,9 +2837,29 @@ async function loadProject(project: StoredProject, profileName = '', connection?
   }
 
   const { metadata, variables } = inferMetadata(project.rootPath)
+
+  // Terragrunt projects declare their backend in `remote_state { backend = "gcs" … }` in the
+  // unit's terragrunt.hcl (or a parent's, resolved via find_in_parent_folders). `.tf` files
+  // don't carry the backend at all, so inferMetadata misses it and defaults to "local" —
+  // leaving the State badge showing "none" for remote-backend projects. Walk up the config
+  // tree to pick up the effective remote_state and override the backend metadata.
+  if (kind === 'terragrunt-unit' || kind === 'terragrunt-stack') {
+    const remote = findEffectiveRemoteState(project.rootPath)
+    if (remote) {
+      metadata.backendType = remote.remoteState.backend
+      metadata.backend = buildTerragruntBackendDetails(project.rootPath, remote)
+    }
+  }
+
   const { currentWorkspace, workspaces } = await readWorkspaceSnapshot(profileName, project, connection)
   const inputs = parseJsonFile<Record<string, unknown>>(managedInputsPath(project.rootPath), {})
-  const { inventory, stateAddresses, rawStateJson, stateSource } = readStateSnapshot(project.rootPath)
+  const { inventory, stateAddresses, rawStateJson, stateSource: rawStateSource } = readStateSnapshot(project.rootPath)
+  // When no local/workspace/cached state exists yet but the backend is remote (gcs/s3/azurerm/…),
+  // surface that instead of the bare "none" badge — otherwise a freshly-added Terragrunt stack
+  // with a GCS backend reads as if it had no backend configured at all.
+  const stateSource = rawStateSource === 'none' && metadata.backendType && metadata.backendType !== 'local'
+    ? `remote:${metadata.backendType}`
+    : rawStateSource
   const { planChanges, lastPlanSummary } = readPlanSnapshot(project.rootPath)
   const actionRows = buildActionRows(planChanges, inventory)
   const resourceRows = buildResourceRows(inventory)
@@ -3130,7 +3327,16 @@ async function runTerragruntUnitProjectCommand(
   const env = buildEnvWithVars(project, request.profileName, request.connection)
   const binary = await resolveTerragruntExecutable()
   const runCwd = request.unitPath ? path.resolve(request.unitPath) : project.rootPath
-  const args = buildTerragruntCommandArgs(request.command)
+  let args: string[]
+  if (request.command === 'force-unlock') {
+    const lockId = request.lockId?.trim() ?? ''
+    if (!lockId) throw new Error('Lock ID is required for force unlock.')
+    // terragrunt forwards `force-unlock` straight to terraform; `-force` skips its prompt
+    // and `--non-interactive` keeps terragrunt from prompting for its own confirmation.
+    args = ['force-unlock', '--non-interactive', '-force', lockId]
+  } else {
+    args = buildTerragruntCommandArgs(request.command)
+  }
   if (request.command === 'plan') {
     clearSavedTerragruntPlan(request.projectId, runCwd)
     args.push(`-out=${ensureTerragruntPlanFilePath(request.projectId, runCwd)}`)
@@ -3760,7 +3966,7 @@ export async function loadTerragruntUnitInventory(
     throw new Error('Stack projects require a unit path. Pass the absolute unit directory.')
   }
   const env = buildEnvWithVars(project, profileName, connection)
-  const pulled = await pullTerragruntState(effectivePath, env)
+  const pulled = await pullTerragruntState(effectivePath, env, connection, effectivePath)
   if (pulled.error) {
     return {
       inventory: [],

@@ -27,8 +27,9 @@ function stripComments(source: string): string {
 }
 
 function extractStringAttribute(body: string, attr: string): string {
-  const re = new RegExp(`${attr}\\s*=\\s*"([^"]*)"`)
-  return body.match(re)?.[1] ?? ''
+  const re = new RegExp(`${attr}\\s*=\\s*"((?:\\\\.|[^"\\\\])*)"`)
+  const value = body.match(re)?.[1]
+  return value ? unescapeHclString(value) : ''
 }
 
 function extractRawAttribute(body: string, attr: string): string {
@@ -39,6 +40,30 @@ function extractRawAttribute(body: string, attr: string): string {
 function hasAttribute(body: string, attr: string): boolean {
   const re = new RegExp(`\\b${attr}\\s*=`)
   return re.test(body)
+}
+
+function unescapeHclString(value: string): string {
+  return value
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\r')
+    .replace(/\\t/g, '\t')
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\')
+}
+
+function parseAttributeAssignments(body: string): Record<string, string> {
+  const attrs: Record<string, string> = {}
+  const attrRe = /(\w+)\s*=\s*("((?:\\.|[^"\\])*)"|[^\n,]+)/g
+  let attrMatch: RegExpExecArray | null
+  while ((attrMatch = attrRe.exec(body)) !== null) {
+    const key = attrMatch[1]
+    const quotedValue = attrMatch[3]
+    const rawValue = attrMatch[2]?.trim() ?? ''
+    attrs[key] = quotedValue !== undefined
+      ? unescapeHclString(quotedValue)
+      : rawValue.replace(/,$/, '').trim()
+  }
+  return attrs
 }
 
 function findBlocksByKeyword(
@@ -53,6 +78,25 @@ function findBlocksByKeyword(
     const body = extractBalancedBody(source, startAfterBrace)
     if (body === null) continue
     results.push({ label: match[1] ?? '', body })
+  }
+  return results
+}
+
+// Terragrunt docs write `config = { … }` and `generate = { … }` as map assignments, not blocks.
+// findBlocksByKeyword's regex requires whitespace between keyword and `{`, so it misses the `= {`
+// form. This helper accepts either shape for keywords that are commonly written as maps.
+function findMapOrBlock(
+  source: string,
+  keyword: string
+): Array<{ body: string }> {
+  const results: Array<{ body: string }> = []
+  const pattern = new RegExp(`\\b${keyword}\\s*=?\\s*\\{`, 'g')
+  let match: RegExpExecArray | null
+  while ((match = pattern.exec(source)) !== null) {
+    const startAfterBrace = match.index + match[0].length
+    const body = extractBalancedBody(source, startAfterBrace)
+    if (body === null) continue
+    results.push({ body })
   }
   return results
 }
@@ -134,19 +178,15 @@ function parseRemoteStateBlock(source: string): TerragruntRemoteState | null {
   if (blocks.length === 0) return null
   const body = blocks[0].body
   const backend = extractStringAttribute(body, 'backend')
-  const generateBlocks = findBlocksByKeyword(body, 'generate')
+  const generateBlocks = findMapOrBlock(body, 'generate')
   const generatedTargetPath = generateBlocks.length > 0
     ? extractStringAttribute(generateBlocks[0].body, 'path')
     : ''
-  const configBlocks = findBlocksByKeyword(body, 'config')
+  const configBlocks = findMapOrBlock(body, 'config')
   const configSummary: Record<string, string> = {}
   if (configBlocks.length > 0) {
     const configBody = configBlocks[0].body
-    const attrRe = /(\w+)\s*=\s*"([^"]*)"/g
-    let attrMatch: RegExpExecArray | null
-    while ((attrMatch = attrRe.exec(configBody)) !== null) {
-      configSummary[attrMatch[1]] = attrMatch[2]
-    }
+    Object.assign(configSummary, parseAttributeAssignments(configBody))
   }
   return { backend, generatedTargetPath, configSummary }
 }
@@ -206,6 +246,53 @@ function buildUnit(configFile: string, stackRoot: string): TerragruntUnit {
     relativePath,
     ...parseTerragruntFile(configFile)
   }
+}
+
+/**
+ * Walk up from `startPath` looking for the closest `*.hcl` config that declares a
+ * `remote_state` block. Mirrors terragrunt's own `find_in_parent_folders()` lookup,
+ * including the common pattern where `terragrunt.hcl` only does `include "root" { path = "root.hcl" }`
+ * and the real `remote_state` lives in `root.hcl`.
+ *
+ * At each level we check `terragrunt.hcl` first, then `root.hcl`, then any remaining
+ * `*.hcl` files alphabetically, and return the first hit.
+ */
+export function findEffectiveRemoteState(
+  startPath: string
+): { remoteState: TerragruntRemoteState; configFile: string } | null {
+  let current = path.resolve(startPath)
+  for (let depth = 0; depth <= MAX_WALK_DEPTH; depth += 1) {
+    for (const candidate of listHclCandidates(current)) {
+      const source = stripComments(readFileSafe(candidate))
+      const remoteState = parseRemoteStateBlock(source)
+      if (remoteState && remoteState.backend) {
+        return { remoteState, configFile: candidate }
+      }
+    }
+    const parent = path.dirname(current)
+    if (parent === current) break
+    current = parent
+  }
+  return null
+}
+
+function listHclCandidates(dir: string): string[] {
+  let entries: string[] = []
+  try {
+    entries = fs.readdirSync(dir).filter((name) => name.toLowerCase().endsWith('.hcl'))
+  } catch {
+    return []
+  }
+  const primary: string[] = []
+  const secondary: string[] = []
+  const rest: string[] = []
+  for (const name of entries) {
+    if (name === TERRAGRUNT_CONFIG_FILE) primary.push(name)
+    else if (name === 'root.hcl') secondary.push(name)
+    else rest.push(name)
+  }
+  rest.sort()
+  return [...primary, ...secondary, ...rest].map((name) => path.join(dir, name))
 }
 
 export function scanForTerragrunt(rootPath: string): TerragruntDiscoveryResult {
