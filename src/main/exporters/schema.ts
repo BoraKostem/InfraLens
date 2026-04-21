@@ -48,6 +48,7 @@ export function auditEventToDocument(
     kind: 'audit',
     outcome: event.outcome,
     accessMode: event.accessMode,
+    providerId: event.providerId ?? '',
     action: event.action,
     channel: event.channel,
     summary: event.summary,

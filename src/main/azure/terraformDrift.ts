@@ -10,7 +10,7 @@ import type {
 import {
   listAzureEventHubs
 } from './index'
-import { getProject, loadTerragruntUnitInventory, type TerragruntUnitInventoryResult } from '../terraform'
+import { enrichTerragruntProjectInventory, getProject, loadTerragruntUnitInventory, type TerragruntUnitInventoryResult } from '../terraform'
 import { createTraceContext, withAudit } from '../terraformAudit'
 import {
   type AksClusterKey,
@@ -87,7 +87,27 @@ export async function getAzureTerraformDriftReport(
   connection?: AwsConnection,
   _options?: { forceRefresh?: boolean }
 ): Promise<TerraformDriftReport> {
-  const project = await getProject(profileName, projectId, connection)
+  const baseProject = await getProject(profileName, projectId, connection)
+  // Same rationale as getGcpTerraformDriftReport: loadProject only reads local state files, so
+  // a terragrunt project with a remote backend lands here with an empty inventory and every
+  // live Azure resource reads as "missing from state". For terragrunt-unit we pull the single
+  // unit (hard error surfaces to UI); for terragrunt-stack we aggregate across all discovered
+  // units with per-unit failures tolerated.
+  const project: TerraformProject = baseProject.kind === 'terragrunt-unit'
+    ? await (async () => {
+        const pulled = await loadTerragruntUnitInventory(profileName, projectId, connection, baseProject.rootPath)
+        if (pulled.error) throw new Error(pulled.error)
+        return {
+          ...baseProject,
+          inventory: pulled.inventory,
+          stateAddresses: pulled.stateAddresses,
+          rawStateJson: pulled.rawStateJson,
+          stateSource: pulled.stateSource || baseProject.stateSource
+        }
+      })()
+    : baseProject.kind === 'terragrunt-stack'
+      ? { ...baseProject, inventory: await enrichTerragruntProjectInventory(profileName, connection, baseProject) }
+      : baseProject
   return runAzureDriftReport(profileName, project, connection, '')
 }
 

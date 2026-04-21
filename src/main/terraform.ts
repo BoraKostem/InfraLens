@@ -3950,6 +3950,49 @@ export type TerragruntUnitInventoryResult = {
   error: string
 }
 
+/**
+ * Walk a terragrunt project's units, pull each one's backend state, and return a merged
+ * inventory. `loadProject` only reads local state files — for remote backends (S3 / GCS /
+ * AzureRM / TFC) its inventory is empty, which makes every consumer that compares state
+ * against live cloud resources (drift, adoption detection, observability coverage checks)
+ * flag managed resources as unmanaged. This helper supplies a real inventory.
+ *
+ * Pulls are parallel (`Promise.all`); per-unit failures are swallowed so a single broken
+ * unit doesn't blank out the whole stack's aggregated inventory. If the project already
+ * has a populated inventory (e.g. local backend that `loadProject` read successfully) the
+ * helper returns it unchanged.
+ */
+export async function enrichTerragruntProjectInventory(
+  profileName: string,
+  connection: AwsConnection | undefined,
+  project: Pick<TerraformProject, 'id' | 'kind' | 'rootPath' | 'terragrunt' | 'inventory'>
+): Promise<TerraformResourceInventoryItem[]> {
+  if (project.inventory && project.inventory.length > 0) return project.inventory
+  if (project.kind !== 'terragrunt-unit' && project.kind !== 'terragrunt-stack') {
+    return project.inventory ?? []
+  }
+
+  const unitPaths: string[] = []
+  if (project.kind === 'terragrunt-unit') {
+    unitPaths.push(project.rootPath)
+  } else if (project.terragrunt?.kind === 'terragrunt-stack') {
+    for (const unit of project.terragrunt.stack.units) unitPaths.push(unit.unitPath)
+  }
+  if (unitPaths.length === 0) return []
+
+  const pulls = await Promise.all(
+    unitPaths.map((unitPath) =>
+      loadTerragruntUnitInventory(profileName, project.id, connection, unitPath).catch(() => null)
+    )
+  )
+  const aggregated: TerraformResourceInventoryItem[] = []
+  for (const pulled of pulls) {
+    if (!pulled || pulled.error) continue
+    aggregated.push(...pulled.inventory)
+  }
+  return aggregated
+}
+
 export async function loadTerragruntUnitInventory(
   profileName: string,
   projectId: string,

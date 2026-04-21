@@ -3294,6 +3294,7 @@ export type Ec2InstanceSummary = {
   publicIp: string
   privateIp: string
   iamProfile: string
+  amiId: string
   launchTime: string
   ssmStatus: Ec2SsmStatus
   ssmPingStatus: string
@@ -4370,6 +4371,7 @@ export type EnterpriseAuditOutcome = 'success' | 'blocked' | 'failed'
 export type EnterpriseAuditEvent = {
   id: string
   happenedAt: string
+  providerId?: CloudProviderId
   accessMode: EnterpriseAccessMode
   outcome: EnterpriseAuditOutcome
   action: string

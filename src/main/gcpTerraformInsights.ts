@@ -19,7 +19,7 @@ import type {
   TerraformProject,
   TerraformResourceInventoryItem
 } from '@shared/types'
-import { getCachedCliInfo, getProject, loadTerragruntUnitInventory, type TerragruntUnitInventoryResult } from './terraform'
+import { enrichTerragruntProjectInventory, getCachedCliInfo, getProject, loadTerragruntUnitInventory, type TerragruntUnitInventoryResult } from './terraform'
 import { createTraceContext, withAudit } from './terraformAudit'
 import {
   getGcpBillingOverview,
@@ -1022,7 +1022,27 @@ export async function getGcpTerraformDriftReport(
   connection?: AwsConnection,
   _options?: { forceRefresh?: boolean }
 ): Promise<TerraformDriftReport> {
-  const project = await getProject(profileName, projectId)
+  const baseProject = await getProject(profileName, projectId)
+  // loadProject only reads local state files. For terragrunt projects with a remote backend
+  // (GCS / TFC / cloud) baseProject.inventory is empty, which makes every live GCP resource
+  // look `unmanaged_in_aws`. Pull state explicitly: unit projects throw loud on failure so
+  // the UI shows a real error; stacks aggregate across all discovered units and tolerate
+  // per-unit failures.
+  const project: TerraformProject = baseProject.kind === 'terragrunt-unit'
+    ? await (async () => {
+        const pulled = await loadTerragruntUnitInventory(profileName, projectId, connection, baseProject.rootPath)
+        if (pulled.error) throw new Error(pulled.error)
+        return {
+          ...baseProject,
+          inventory: pulled.inventory,
+          stateAddresses: pulled.stateAddresses,
+          rawStateJson: pulled.rawStateJson,
+          stateSource: pulled.stateSource || baseProject.stateSource
+        }
+      })()
+    : baseProject.kind === 'terragrunt-stack'
+      ? { ...baseProject, inventory: await enrichTerragruntProjectInventory(profileName, connection, baseProject) }
+      : baseProject
   return runGcpDriftReport(profileName, project, connection)
 }
 
@@ -2028,7 +2048,13 @@ export async function generateGcpTerraformObservabilityReport(
   projectId: string,
   connection?: AwsConnection
 ): Promise<ObservabilityPostureReport> {
-  const project = await getProject(profileName, projectId)
+  const baseProject = await getProject(profileName, projectId)
+  // Observability scoring counts which resource types are present (hasResource, inventoryText).
+  // An empty inventory from loadProject (terragrunt + remote backend) would produce a misleading
+  // "no logging / no monitoring / no telemetry" report. Enrich from unit state before scoring.
+  const project: TerraformProject = (baseProject.kind === 'terragrunt-unit' || baseProject.kind === 'terragrunt-stack')
+    ? { ...baseProject, inventory: await enrichTerragruntProjectInventory(profileName, connection, baseProject) }
+    : baseProject
   const context = parseGcpContext(profileName, project, connection)
   if (!context.projectId) {
     throw new Error('Choose a GCP project context before loading the Terraform lab.')
